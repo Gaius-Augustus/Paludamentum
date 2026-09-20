@@ -96,6 +96,9 @@ outdir: results
 restart: false
 
 # ------------------------------------------------------------
+# Gene finder: enable ONE of the two blocks (tiberius or vipsania)
+# ------------------------------------------------------------
+# ------------------------------------------------------------
 # Tiberius Integration (optional)
 # ------------------------------------------------------------
 tiberius:
@@ -106,3 +109,15 @@ tiberius:
   # https://github.com/Gaius-Augustus/Tiberius/tree/main/model_cfg
   # or path to a local configuration file
   model_cfg: model_cfg.yaml
+
+# ------------------------------------------------------------
+# Vipsania Integration (optional, alternative to Tiberius)
+# ------------------------------------------------------------
+# See docs/vipsania.md. Set tiberius.run to false when you use Vipsania.
+# vipsania:
+#   run: true
+#   model: Fungi            # clade name or model id
+#   model_dir: null         # directory with downloaded models (offline nodes)
+#   finetune: false         # true: finetune on the genome first (one task, no chunks)
+#   min_split_size: 5000000
+#   max_files: 20

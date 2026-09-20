@@ -1,7 +1,9 @@
 nextflow.enable.dsl=2
 
 include { MINIPROT_ALIGN; MINIPROT_BOUNDARY_SCORE; MINIPROTHINT_CONVERT; ALN2HINTS; PREPROCESS_PROTEINDB } from '../modules/proteins.nf'
-include { RUN_TIBERIUS; SPLIT_GENOME; PROTEIN_FROM_GFF; MERGE_TIBERIUS_EVI as MERGE_TIBERIUS; MERGE_TIBERIUS_EVI as REFORMAT_TIBERIUS } from '../modules/tiberius.nf'
+include { PROTEIN_FROM_GFF } from '../modules/genefinder.nf'
+include { genefinderEnabled; resolveGenefinder } from '../lib_nf/functions.nf'
+include { GENEFINDER } from './genefinder.nf'
 
 workflow PROTEIN_EVIDENCE {
 
@@ -13,7 +15,7 @@ workflow PROTEIN_EVIDENCE {
 
     main:
     def proteindb_ch
-    def tiberius_gff_ch = Channel.empty()
+    def genefinder_gff_ch = Channel.empty()
     def scored_ch
     def prot_gtf_ch
     def prot_hints_ch
@@ -23,24 +25,13 @@ workflow PROTEIN_EVIDENCE {
     }
     if( !params_map.scoring_matrix )  error "params.scoring_matrix is required for protein evidence modes"
 
-    def tiberiusRunVal = params_map.tiberius?.run
-    def tiberiusRun = (tiberiusRunVal instanceof Boolean) \
-        ? tiberiusRunVal \
-        : (tiberiusRunVal?.toString()?.trim()?.toLowerCase() in ['true','1','yes','y'])
+    if( genefinderEnabled(params_map) ) {
+        def gf = GENEFINDER(CH_GENOME, params_map, false)
+        genefinder_gff_ch = gf.gff
 
-    if( tiberiusRun ) {
-        if( params_map.tiberius?.result && file(params_map.tiberius.result).exists() ) {
-            tiberius_gff_ch = Channel.fromPath(params_map.tiberius.result, checkIfExists: true)
-            tiberius_gff_ch = REFORMAT_TIBERIUS(tiberius_gff_ch.toList())
-        } else {
-            genome_split   = SPLIT_GENOME(CH_GENOME)
-            chunks_ch      = genome_split.chunks.flatten()
-            tiberius_split = RUN_TIBERIUS(chunks_ch, params_map.tiberius.model_cfg)
-            tiberius_gff_ch = MERGE_TIBERIUS(tiberius_split.toList())
-        }
-
-        tiberius_prot = PROTEIN_FROM_GFF(tiberius_gff_ch, CH_GENOME)
-        proteindb_ch = PREPROCESS_PROTEINDB(CH_PROTEINS, tiberius_prot)
+        // the ab initio proteins help to select source species in large protein databases
+        def ab_initio_prot = PROTEIN_FROM_GFF(resolveGenefinder(params_map), genefinder_gff_ch, CH_GENOME)
+        proteindb_ch = PREPROCESS_PROTEINDB(CH_PROTEINS, ab_initio_prot)
     }
     else {
         proteindb_ch = CH_PROTEINS
@@ -53,7 +44,7 @@ workflow PROTEIN_EVIDENCE {
 
     emit:
     proteindb     = proteindb_ch
-    tiberius_gff  = tiberius_gff_ch
+    genefinder_gff = genefinder_gff_ch
     scored_gff    = scored_ch.gff
     prot_gtf      = prot_gtf_ch.gtf
     prot_traingff = prot_gtf_ch.traingff

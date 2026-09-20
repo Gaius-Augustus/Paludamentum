@@ -118,6 +118,22 @@ def test_validate_input_data_reports_problems(tmp_path: Path):
     assert any("No files matched" in e for e in errors)
 
 
+def test_relative_paths_are_resolved_against_the_launch_directory(tmp_path: Path, monkeypatch):
+    """Nextflow resolves relative paths against the launch directory; so does the validation."""
+    launch = tmp_path / "launch"
+    launch.mkdir()
+    (launch / "genome.fa").write_text(">s\nACGT\n")
+    (launch / "r_1.fq").write_text("")
+    (launch / "r_2.fq").write_text("")
+    elsewhere = tmp_path / "out"
+    elsewhere.mkdir()
+    monkeypatch.chdir(launch)
+    params = {"genome": "genome.fa", "rnaseq_paired": "r_{1,2}.fq"}
+    assert launcher.validate_input_data(params, elsewhere / "params.yaml") == []
+    monkeypatch.chdir(elsewhere)
+    assert launcher.validate_input_data(params, launch / "params.yaml")
+
+
 def test_expand_braces():
     assert launcher.expand_braces("a_{1,2}.fq") == ["a_1.fq", "a_2.fq"]
 
@@ -222,3 +238,37 @@ def test_old_java_is_rejected(tmp_path: Path, fake_path: Path):
         skip_singularity_check=True, repo_root=ROOT,
     )
     assert any("11+" in e for e in errors)
+
+
+# ---------------------------------------------------------------- params helpers
+
+@pytest.mark.parametrize("finder", sorted(launcher.GENEFINDER_CLI))
+def test_default_params_switch_on_one_gene_finder(finder: str):
+    params = launcher.default_params(finder)
+    assert params["genefinder"] == finder
+    assert params["outdir"] == f"{finder}_results"
+    assert {name: params[name]["run"] for name in launcher.GENEFINDER_CLI} == {
+        name: name == finder for name in launcher.GENEFINDER_CLI
+    }
+    assert Path(params["scoring_matrix"]) == ROOT / "conf" / "blosum62.csv"
+
+
+def test_default_params_unknown_gene_finder():
+    with pytest.raises(SystemExit, match="Unknown gene finder"):
+        launcher.default_params("augustus")
+
+
+def test_merge_params_is_recursive_and_ignores_none():
+    base = {"threads": 48, "vipsania": {"run": True, "model": None}, "proteins": None}
+    launcher.merge_params(base, {"threads": None, "vipsania": {"model": "Fungi"}, "proteins": ["p.faa"]})
+    assert base == {"threads": 48, "vipsania": {"run": True, "model": "Fungi"}, "proteins": ["p.faa"]}
+
+
+def test_write_params_yaml(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    params = launcher.default_params("vipsania")
+    path = launcher.write_params_yaml(params)
+    assert path == tmp_path / "vipsania_results" / "params.yaml"
+    written = yaml.safe_load(path.read_text())
+    assert written["outdir"] == str(tmp_path / "vipsania_results")
+    assert written["vipsania"] == {"run": True}

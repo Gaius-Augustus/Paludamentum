@@ -11,15 +11,13 @@ Supported gene finders:
 
 | Gene finder | Status |
 | --- | --- |
-| [Tiberius](https://github.com/Gaius-Augustus/Tiberius) | supported; migration from the Tiberius repository in progress |
-| [Vipsania](https://github.com/Gaius-Augustus/Vipsania) | integration planned, see [Roadmap](#roadmap) |
+| [Tiberius](https://github.com/Gaius-Augustus/Tiberius) | supported, launched by `tiberius.py` |
+| [Vipsania](https://github.com/Gaius-Augustus/Vipsania) | supported in the pipeline, see [docs/vipsania.md](docs/vipsania.md); launch through `vipsania annotate` is planned |
 
-> **Status: under construction (v0.1.0).** This repository holds a copy of the
-> pipeline as it is in Tiberius, plus launcher, tests and CI. Tiberius still
-> runs its own copy until it switches to the submodule, and Vipsania support is
-> not implemented yet. Parts of this README that describe later steps are
-> marked as planned; `genefinder`, the `vipsania` block, the mode alias
-> `abinitio` and `lib_nf/` arrive with v0.2.0. See the [Roadmap](#roadmap).
+> **Status (v0.2.0).** The pipeline runs with Tiberius and with Vipsania as
+> gene finder. Tiberius uses this repository as a submodule. Launching the
+> pipeline through the Vipsania command line is the remaining step, see the
+> [Roadmap](#roadmap). Until then, run Vipsania through `python -m paludamentum`.
 
 ## Table of contents
 
@@ -116,7 +114,14 @@ options: `--dry_run` validates inputs and executables without starting
 Nextflow, `--resume` continues a previous run, `--work_dir` sets the Nextflow
 work directory.
 
-### Vipsania (planned)
+### Vipsania
+
+```bash
+python -m paludamentum --genefinder vipsania --params_yaml params.yaml --nf_config slurm_generic
+```
+
+with `vipsania: {run: true, model: Fungi}` in the params file, see
+[docs/vipsania.md](docs/vipsania.md). Planned:
 
 ```bash
 vipsania annotate Fungi genome.fa --params_yaml params.yaml --nf_config slurm_generic
@@ -156,7 +161,7 @@ The mode is inferred from the inputs and can be forced with `mode`:
 
 | Mode | Inputs |
 | --- | --- |
-| `tiberius` (alias `abinitio`) | genome only |
+| `abinitio` (historic name: `tiberius`) | genome only |
 | `proteins` | proteins |
 | `rnaseq` | proteins and short reads |
 | `isoseq` | proteins and Iso-Seq |
@@ -200,7 +205,7 @@ tiberius:
   seq_len: null
 ```
 
-### Vipsania block (planned)
+### Vipsania block
 
 ```yaml
 vipsania:
@@ -218,7 +223,8 @@ vipsania:
 Vipsania finetuning is **off by default**. With `finetune: true` Vipsania
 first trains on the target genome and then annotates it. Vipsania 1.0.0 cannot
 finetune without annotating, so in this case the genome is processed in a
-single GPU task instead of chunks.
+single GPU task instead of chunks. All Vipsania parameters, the model download
+and offline use are described in [docs/vipsania.md](docs/vipsania.md).
 
 ## Containers
 
@@ -306,8 +312,8 @@ published file names without tools, containers or a GPU. Every process has a
 The full plan is in [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
 
 - [x] v0.1.0: copy of the pipeline from Tiberius, launcher, stub blocks, tests, CI
-- [ ] Tiberius uses the submodule; the originals are removed from Tiberius
-- [ ] v0.2.0: gene finder abstraction and Vipsania processes
+- [x] Tiberius uses the submodule; the originals are removed from Tiberius
+- [x] v0.2.0: gene finder abstraction and Vipsania processes
 - [ ] Vipsania launches the pipeline with `vipsania annotate --params_yaml/--nf_config`
 - [ ] Follow-up: `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation
 

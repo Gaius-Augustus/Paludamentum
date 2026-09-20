@@ -156,8 +156,15 @@ and by `python tiberius.py --list_cfg`.
 For the prediction the genome is split into smaller FASTA files, so that
 Tiberius can run on several GPUs in parallel.
 
+## Gene finder: Vipsania
+
+Set `vipsania.run: true` and `vipsania.model`. All parameters are described in
+[vipsania.md](vipsania.md). Only one gene finder can run. `genefinder: tiberius|vipsania`
+selects one explicitly; without it the block with `run: true` is used.
+
 ## Mode
 
 The pipeline infers its mode from the inputs, see the table in the
 [README](../README.md#inputs-and-modes). Set `mode` to force one of
-`tiberius`, `proteins`, `rnaseq`, `isoseq`, `mixed`.
+`abinitio`, `proteins`, `rnaseq`, `isoseq`, `mixed`. `tiberius` is accepted as
+the historic name of `abinitio`.

@@ -1,7 +1,8 @@
 nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
-include { MERGE_TIBERIUS_TRAIN; MERGE_TIBERIUS_TRAIN_PRIO; PROTEIN_FROM_GFF_FINAL } from './modules/tiberius.nf'
+include { MERGE_GENEFINDER_TRAIN; MERGE_GENEFINDER_TRAIN_PRIO; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
+include { inferMode; resolveGenefinder; genefinderEnabled } from './lib_nf/functions.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
@@ -9,15 +10,7 @@ include { PROTEIN_EVIDENCE } from './subworkflows/protein_evidence.nf'
 include { RNASEQ_EVIDENCE } from './subworkflows/rnaseq_evidence.nf'
 include { ISOSEQ_EVIDENCE } from './subworkflows/isoseq_evidence.nf'
 include { HC_GENES } from './subworkflows/hc_genes.nf'
-include { TIBERIUS_ONLY } from './subworkflows/tiberius_only.nf'
-
-def inferMode(boolean hasPaired, boolean hasSingle, boolean hasIso, boolean hasBAM, boolean hasProteins) {
-  if ((hasPaired || hasSingle || hasBAM) && hasIso && hasProteins) return 'mixed'
-  if (hasIso && hasProteins) return 'isoseq'
-  if (hasPaired || hasSingle || hasBAM && hasProteins) return 'rnaseq'
-  if (hasProteins && hasProteins) return 'proteins'
-  return 'tiberius'
-}
+include { AB_INITIO } from './subworkflows/ab_initio.nf'
 
 workflow {
   main:
@@ -43,19 +36,20 @@ workflow {
     }
     def hasProteins = proteinsList.size() > 0 || odb12List.size() > 0
 
-    def tiberiusRunVal = params.tiberius?.run
-    def tiberiusRun = (tiberiusRunVal instanceof Boolean) \
-      ? tiberiusRunVal \
-      : (tiberiusRunVal?.toString()?.trim()?.toLowerCase() in ['true','1','yes','y'])
+    def genefinder    = resolveGenefinder(params)
+    def genefinderRun = genefinderEnabled(params)
 
     def MODE = params.mode ?: inferMode(hasPaired, hasSingle, hasIso, hasBAM, hasProteins)
+    // 'tiberius' is the historic name of the ab initio mode
+    if( MODE in ['tiberius', 'vipsania'] ) MODE = 'abinitio'
     log.info "Running mode: ${MODE}"
+    log.info "Gene finder : ${genefinderRun ? genefinder : 'none'}"
 
     def inp  = INPUTS(params)
 
-    if( MODE == 'tiberius' ) {
-      def tOnly = TIBERIUS_ONLY(inp.genome, params)
-      OUT_CH = tOnly.gff
+    if( MODE == 'abinitio' ) {
+      def abInitio = AB_INITIO(inp.genome, params)
+      OUT_CH = abInitio.gff
 
     } else {
 
@@ -96,10 +90,10 @@ workflow {
         train_final = HC_FORMAT_FILTER(pe.prot_traingff, inp.genome)
       }
 
-      if( tiberiusRun ) {
-        MERGE_TIBERIUS_TRAIN(pe.tiberius_gff, train_final)
-        PROTEIN_FROM_GFF_FINAL(MERGE_TIBERIUS_TRAIN.out.merged, inp.genome)
-        // MERGE_TIBERIUS_TRAIN_PRIO(pe.tiberius_gff, train_final)
+      if( genefinderRun ) {
+        MERGE_GENEFINDER_TRAIN(genefinder, pe.genefinder_gff, train_final)
+        PROTEIN_FROM_GFF_FINAL(genefinder, MERGE_GENEFINDER_TRAIN.out.merged, inp.genome)
+        // MERGE_GENEFINDER_TRAIN_PRIO(genefinder, pe.genefinder_gff, train_final)
       }
 
       OUT_CH = all_hints.hints

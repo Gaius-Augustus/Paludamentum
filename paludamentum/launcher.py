@@ -113,6 +113,60 @@ def resolve_nf_config(value: str | Path, root: str | Path | None = None) -> Path
     raise SystemExit(f"Nextflow config not found: {value} (searched: {searched})")
 
 
+def default_params(genefinder: str = "tiberius", root: str | Path | None = None) -> Dict:
+    """
+    Launcher-side defaults of the params file for a gene finder command line.
+    The selected gene finder is switched on; conf/base.config holds all other defaults.
+    """
+    if genefinder not in GENEFINDER_CLI:
+        raise SystemExit(f"Unknown gene finder '{genefinder}'. Supported: {', '.join(GENEFINDER_CLI)}.")
+    repo_root, _, _ = pipeline_paths(root)
+    params: Dict = {
+        "threads": 48,
+        "outdir": f"{genefinder}_results",
+        "genome": None,
+        "proteins": None,
+        "odb12Partitions": [],
+        "rnaseq_sra_single": [],
+        "rnaseq_sra_paired": [],
+        "isoseq_sra": [],
+        "rnaseq_single": [],
+        "rnaseq_paired": [],
+        "isoseq": [],
+        "genefinder": genefinder,
+        "mode": None,
+        "scoring_matrix": str(repo_root / "conf" / "blosum62.csv"),
+    }
+    for name in GENEFINDER_CLI:
+        params[name] = {"run": name == genefinder}
+    return params
+
+
+def merge_params(base: Dict, overrides: Dict) -> Dict:
+    """Recursively merge ``overrides`` into ``base`` (in place). None values do not override."""
+    for key, value in overrides.items():
+        if value is None:
+            continue
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge_params(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def write_params_yaml(params: Dict, outdir: str | Path | None = None) -> Path:
+    """Write the merged params to ``<outdir>/params.yaml`` and return the path."""
+    out = Path(outdir or params.get("outdir") or "results").expanduser()
+    if not out.is_absolute():
+        out = (Path.cwd() / out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    params["outdir"] = str(out)
+    params_path = out / "params.yaml"
+    with params_path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(params, handle, sort_keys=False)
+    return params_path
+
+
 def load_params(params_path: Path) -> Dict:
     with params_path.open() as handle:
         data = yaml.safe_load(handle) or {}
@@ -163,24 +217,20 @@ def resolve_data_entries(value, base_dir: Path) -> Tuple[List[Path], List[str]]:
         expanded = os.path.expandvars(os.path.expanduser(cleaned))
         brace_patterns = expand_braces(expanded) if "{" in cleaned else [expanded]
         for pattern in brace_patterns:
+            # Nextflow resolves relative paths against the launch directory, not
+            # against the location of the params file. Validate the same way.
             candidate = Path(pattern)
-            candidates = []
-            if candidate.is_absolute():
-                candidates = [candidate]
-            else:
-                candidates = [(base_dir / candidate).resolve(), (Path.cwd() / candidate).resolve()]
+            if not candidate.is_absolute():
+                candidate = (Path.cwd() / candidate).resolve()
 
             if has_glob_char(pattern):
-                matches: List[str] = []
-                for cand in candidates:
-                    matches.extend(glob.glob(str(cand), recursive=True))
+                matches = glob.glob(str(candidate), recursive=True)
                 if matches:
-                    for match in matches:
-                        resolved.append(Path(match))
+                    resolved.extend(Path(match) for match in matches)
                 else:
                     errors.append(f"No files matched pattern '{cleaned}'.")
             else:
-                resolved.extend(candidates)
+                resolved.append(candidate)
     return resolved, errors
 
 

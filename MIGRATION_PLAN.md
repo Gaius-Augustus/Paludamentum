@@ -1,6 +1,6 @@
 # Migration plan: evidence pipeline from Tiberius to Paludamentum, integration of Vipsania
 
-Status: approved 2026-09-20, implementation not started.
+Status: approved 2026-09-20. Steps 1 to 4 are implemented (Paludamentum v0.2.0); steps 5 and 6 are open.
 
 ## Context
 
@@ -110,10 +110,10 @@ picks up the Dockerfile change.
 - `modules/vipsania.nf`, label `vipsania` (never `container`), with a shared preamble that exports `LD_LIBRARY_PATH` from `site-packages/nvidia/*/lib` (Singularity bypasses the image ENTRYPOINT), `VIPSANIA_CACHE=$PWD/.vipsania_cache`, `WANDB_MODE=disabled`:
   - `DOWNLOAD_VIPSANIA_MODEL` (`local_only`): `vipsania download <model> -d models`, emits `models/*`.
   - `RUN_VIPSANIA` (`gpu`, `bigmem`, `maxForks` from `vipsania.max_parallel`): `vipsania annotate <model> <genome> --model_dir vip_models -o vipsania.<name>.gtf [-B] [-T] [--finetune ...] [extra_args]`. It also emits the `.log` sidecar and, with finetune, `finetuning_*/` to `intermediate/`.
-- `subworkflows/genefinder.nf`: `GENEFINDER(genome, params, publish_top)`. Reuse `<tool>.result` if given. Tiberius: split, `RUN_TIBERIUS`, merge. Vipsania: models from `vipsania.model_dir` or the download process; finetune off means split, per-chunk `RUN_VIPSANIA`, merge; finetune on means one whole-genome `RUN_VIPSANIA --finetune`, then merge. Emits `gff`, `tool`.
+- `subworkflows/genefinder.nf`: `GENEFINDER(genome, params, publish_top)`. Reuse `<tool>.result` if given. Tiberius: split, `RUN_TIBERIUS`, merge. Vipsania: models from `vipsania.model_dir` or the download process; finetune off means split, per-chunk `RUN_VIPSANIA`, merge; finetune on means one whole-genome `RUN_VIPSANIA --finetune`, then merge. Emits `gff`; callers get the gene finder name from `resolveGenefinder()`.
 - `protein_evidence.nf:26-47` and `ab_initio.nf` call `GENEFINDER`; `main.nf:56` accepts modes `tiberius|abinitio|vipsania`; `main.nf:99-103` uses the prefixed merge processes.
 - `conf/base.config`: add `genefinder = null`, a `vipsania { run=false; model; model_dir; result; finetune=false; finetune_epochs; finetune_B; finetune_lr; batch_size; context; max_parallel; min_split_size; max_files; extra_args }` block, and `withLabel: vipsania { container = 'docker://gaiusaugustus/vipsania:1.0.0' }`. All `.nf` access is null-safe (`params.vipsania?.x ?: default`).
-- Launcher: `default_params(genefinder)` and `write_params_yaml()` helpers for Vipsania.
+- Launcher: `default_params(genefinder)`, `merge_params()` and `write_params_yaml()` helpers for Vipsania. Relative input paths are validated against the launch directory, as Nextflow resolves them (they always failed validation before).
 - Regression gate: stub runs with Tiberius produce exactly the old published names. Release note: process renames invalidate `-resume` for runs in progress.
 - Commit, push, tag `v0.2.0`.
 
