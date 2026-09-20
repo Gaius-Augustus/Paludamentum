@@ -20,7 +20,8 @@ Design decisions:
 4. Vipsania **finetuning is off by default**, switchable with `vipsania.finetune: true` / `--finetune`.
 
 Submodule pointers need a pushed Paludamentum commit. Paludamentum is therefore
-pushed and tagged between steps 1 and 2, and between steps 4 and 5.
+pushed and tagged at the end of step 1 (before Tiberius is wired) and at the
+end of step 4 (before Tiberius is bumped and Vipsania is wired).
 
 Facts that shape the design (checked against Tiberius@66c228b and Vipsania@413f756):
 
@@ -53,9 +54,23 @@ tests/                     # test_launcher.py, test_stub_run.py, params_*.yaml, 
 
 ## Rollout
 
-Tiberius keeps working after every step.
+Tiberius keeps working after every step. Every step touches exactly one
+repository. All file paths inside a step are relative to that repository.
 
-### Step 1. Paludamentum v0.1.0: pure copy, Tiberius only
+| Step | Repository | Branch | What happens | Ends with |
+| --- | --- | --- | --- | --- |
+| 1 | Paludamentum | `main` | pipeline copied in, launcher, stubs, tests, CI | commit, push, tag `v0.1.0` |
+| 2 | Tiberius | `paludamentum` | submodule added at `v0.1.0`, shim, config shims, Dockerfile, README | commit |
+| 3 | Tiberius | `paludamentum` | original pipeline files deleted | commit, merge to `main` |
+| 4 | Paludamentum | `main` | gene finder abstraction, Vipsania processes | commit, push, tag `v0.2.0` |
+| 5 | Tiberius | `main` | submodule pointer bumped to `v0.2.0` | commit |
+| 6 | Vipsania | `paludamentum` | submodule added at `v0.2.0`, launcher flags, docs | commit |
+
+Steps 2 and 6 cannot start before the tag of the preceding Paludamentum step
+is pushed, because the submodule pointer needs that commit on GitHub. Vipsania
+is not touched before step 6.
+
+### Step 1 [Paludamentum]. v0.1.0: pure copy, Tiberius only
 
 - Copy from Tiberius@66c228b per the layout above and name the source commit in the commit message. Set the exec bit on every `bin/*`.
 - `conf/base.config:30` becomes `scoring_matrix = "${projectDir}/conf/blosum62.csv"`. Declare the currently undeclared `tiberius.min_split_size`, `tiberius.max_files`, `rnaseq_bam`.
@@ -69,7 +84,7 @@ Tiberius keeps working after every step.
 - Add docs, tests, CI (pytest + `nf-core/setup-nextflow` stub runs).
 - Commit, push, tag `v0.1.0`.
 
-### Step 2. Wire Tiberius to the submodule (old files still present, unused)
+### Step 2 [Tiberius]. Wire Tiberius to the submodule (old files still present, unused)
 
 - `.gitmodules`: remove the stale `learnMSA` stanza; `git submodule add https://github.com/Gaius-Augustus/Paludamentum paludamentum`, pinned to `v0.1.0`.
 - `tiberius/evidence_pipeline_wrapper.py`: replace with a ~25-line shim. It inserts `<repo>/paludamentum` at `sys.path[0]` (avoids the namespace-package shadowing by the outer directory), imports `paludamentum.launcher` lazily, and exits with a `git submodule update --init --recursive` hint if `main.nf` is missing. It exposes `pipeline_paths`, `resolve_nf_config`, and `run_nextflow_pipeline(args)`, which calls the launcher with `genefinder="tiberius"`.
@@ -81,13 +96,14 @@ Tiberius keeps working after every step.
 - `.github/workflows/test.yml`: checkout with `submodules: recursive`. Add `tests/unit_tests/test_pipeline_shim.py`.
 - Commit.
 
-### Step 3. Delete the originals in Tiberius
+### Step 3 [Tiberius]. Delete the originals
 
 Remove `tiberius/main.nf`, `tiberius/modules/`, `tiberius/subworkflows/`,
 `tiberius/scripts/`, `figures/evi_wflow.png`. Re-run verification A to C.
-Commit. The next Tiberius image build picks up the Dockerfile change.
+Commit and merge `paludamentum` into `main`. The next Tiberius image build
+picks up the Dockerfile change.
 
-### Step 4. Paludamentum v0.2.0: gene finder abstraction plus Vipsania
+### Step 4 [Paludamentum]. v0.2.0: gene finder abstraction plus Vipsania processes
 
 - `lib_nf/functions.nf`: `truthy()` replaces three copies; `resolveGenefinder(params)` returns `params.genefinder`, else `vipsania` if `vipsania.run`, else `tiberius`; it errors if both run flags are set. Move `inferMode` verbatim. Do not fix the known quirks (precedence at old `main.nf:17-18`, `rnaseq_bam?.size`) in this step; they are listed in the README as known issues.
 - `modules/genefinder.nf` (ex `tiberius.nf`): `RUN_TIBERIUS` unchanged. `SPLIT_GENOME` takes `min_size`, `max_files` as inputs. Merge and protein processes take `val prefix` and emit `${prefix}_ab_initio.gff3`, `${prefix}_evidence.gff3`, `${prefix}_evidence_proteins.fa`. With prefix `tiberius` all published names equal today's.
@@ -99,9 +115,15 @@ Commit. The next Tiberius image build picks up the Dockerfile change.
 - `conf/base.config`: add `genefinder = null`, a `vipsania { run=false; model; model_dir; result; finetune=false; finetune_epochs; finetune_B; finetune_lr; batch_size; context; max_parallel; min_split_size; max_files; extra_args }` block, and `withLabel: vipsania { container = 'docker://gaiusaugustus/vipsania:1.0.0' }`. All `.nf` access is null-safe (`params.vipsania?.x ?: default`).
 - Launcher: `default_params(genefinder)` and `write_params_yaml()` helpers for Vipsania.
 - Regression gate: stub runs with Tiberius produce exactly the old published names. Release note: process renames invalidate `-resume` for runs in progress.
-- Commit, push, tag `v0.2.0`; bump the submodule pointer in Tiberius.
+- Commit, push, tag `v0.2.0`.
 
-### Step 5. Vipsania integration (branch `paludamentum`)
+### Step 5 [Tiberius]. Bump the submodule to v0.2.0
+
+- `git -C paludamentum fetch --tags && git -C paludamentum checkout v0.2.0`, then stage the new pointer.
+- No other Tiberius file changes. Re-run verification A to C; the published file names must be unchanged.
+- Commit.
+
+### Step 6 [Vipsania]. Pipeline integration
 
 - `git submodule add ... paludamentum`, pinned to `v0.2.0`. `pyproject.toml`: add `pyyaml`; sdist excludes `paludamentum`.
 - `vipsania/cli/annotate.py`: `model`, `fasta` get `nargs="?"` (lines 281-288). After line 488 add the group "Nextflow pipeline (Paludamentum)": `--params_yaml --nf_config --profile --nextflow_bin --resume --work_dir --check_tools --skip_singularity_check --dry_run --nextflow_args`; and the group "Nextflow params": `--outdir --threads --proteins --odb12Partitions --rnaseq_single --rnaseq_paired --rnaseq_sra_single --rnaseq_sra_paired --isoseq --isoseq_sra --mode --scoring_matrix --vipsania_result --max_parallel`. `run()` (line 491) dispatches to the pipeline if `--nf_config` or `--params_yaml` is given; otherwise it requires the positionals, so direct mode is unchanged.
@@ -117,10 +139,26 @@ Commit. The next Tiberius image build picks up the Dockerfile change.
 
 ## Verification
 
-- **A. pytest (no Nextflow).** Paludamentum `tests/test_launcher.py`: path resolution, `resolve_nf_config`, input validation globs, command assembly via monkeypatched `subprocess.run`, gene finder CLI check. Tiberius shim test: paths exist, a missing submodule gives a clean exit. Vipsania: parser test that direct mode still requires the positionals, and a `build_params` snapshot.
-- **B. Dry run.** `python tiberius.py --nf_config conf/slurm_generic.config --genome <Panthera genome.fa> --model_cfg mammalia_softmasking_v2 --dry_run --skip_singularity_check`; assert that `tiberius_results/params.yaml` has `scoring_matrix` under `paludamentum/conf/`. Same for `vipsania annotate Fungi docs/example/aspergillus_fumigatus_chr7.fa --nf_config local --dry_run`. Both need Nextflow and Java on the machine.
-- **C. Nextflow stub runs.** `nextflow run main.nf -stub-run -params-file tests/params_<mode>.yaml -c conf/local.config` with Singularity disabled, per mode (abinitio, proteins, rnaseq, mixed) and per gene finder; assert the published file names.
-- **D. GPU smoke tests.** Tiberius ab initio on `test_data/Panthera_pardus` with a small `min_split_size` to force 2+ chunks. Vipsania on `docs/example/aspergillus_fumigatus_chr7.fa` (2 Mb); compare the gene count with `docs/example/vipsania_fh1kg88z.gff`; repeat with `--finetune --finetune_epochs 1` and with a small protein FASTA. Check `.command.run` for the `bin` bind and Vipsania's log for a detected GPU. Run cheap static checks and B/C before any cluster submission.
+Which check runs in which repository, and after which step:
+
+| Check | Paludamentum | Tiberius | Vipsania |
+| --- | --- | --- | --- |
+| A. pytest | steps 1, 4 | steps 2, 3, 5 | step 6 |
+| B. launcher dry run | | steps 2, 3, 5 | step 6 |
+| C. Nextflow stub runs | steps 1, 4 | steps 2, 3, 5 (through the submodule) | step 6 (through the submodule) |
+| D. GPU smoke test | | steps 3, 5 | step 6 |
+
+- **A. pytest (no Nextflow).**
+  - Paludamentum, `tests/test_launcher.py`: path resolution, `resolve_nf_config`, input validation globs, command assembly via monkeypatched `subprocess.run`, gene finder CLI check.
+  - Tiberius, `tests/unit_tests/test_pipeline_shim.py`: paths exist, a missing submodule gives a clean exit.
+  - Vipsania: parser test that direct mode still requires the positionals, and a `build_params` snapshot.
+- **B. Dry run.** Needs Nextflow and Java on the machine.
+  - Tiberius: `python tiberius.py --nf_config conf/slurm_generic.config --genome <Panthera genome.fa> --model_cfg mammalia_softmasking_v2 --dry_run --skip_singularity_check`; assert that `tiberius_results/params.yaml` has `scoring_matrix` under `paludamentum/conf/`.
+  - Vipsania: `vipsania annotate Fungi docs/example/aspergillus_fumigatus_chr7.fa --nf_config local --dry_run`.
+- **C. Nextflow stub runs.** In Paludamentum, or in `paludamentum/` of a gene finder checkout: `nextflow run main.nf -stub-run -params-file tests/params_<mode>.yaml -c conf/local.config` with Singularity disabled, per mode (abinitio, proteins, rnaseq, mixed) and per gene finder; assert the published file names.
+- **D. GPU smoke tests.** Run cheap static checks and B/C before any cluster submission.
+  - Tiberius: ab initio on `test_data/Panthera_pardus` with a small `min_split_size` to force 2+ chunks. Check `.command.run` for the `bin` bind.
+  - Vipsania: `docs/example/aspergillus_fumigatus_chr7.fa` (2 Mb); compare the gene count with `docs/example/vipsania_fh1kg88z.gff`; repeat with `--finetune --finetune_epochs 1` and with a small protein FASTA. Check Vipsania's log for a detected GPU.
 
 ## Risks
 
