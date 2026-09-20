@@ -11,14 +11,15 @@ Supported gene finders:
 
 | Gene finder | Status |
 | --- | --- |
-| [Tiberius](https://github.com/Gaius-Augustus/Tiberius) | pipeline is being migrated from the Tiberius repository |
+| [Tiberius](https://github.com/Gaius-Augustus/Tiberius) | supported; migration from the Tiberius repository in progress |
 | [Vipsania](https://github.com/Gaius-Augustus/Vipsania) | integration planned, see [Roadmap](#roadmap) |
 
-> **Status: under construction.** The pipeline currently still lives inside
-> Tiberius (`tiberius/main.nf`, `tiberius/modules`, `tiberius/subworkflows`,
-> `tiberius/scripts`, `conf/`). This README describes the target state of
-> this repository. The [Roadmap](#roadmap) lists what is done. Until the
-> migration is complete, use Tiberius exactly as documented in its README.
+> **Status: under construction (v0.1.0).** This repository holds a copy of the
+> pipeline as it is in Tiberius, plus launcher, tests and CI. Tiberius still
+> runs its own copy until it switches to the submodule, and Vipsania support is
+> not implemented yet. Parts of this README that describe later steps are
+> marked as planned; `genefinder`, the `vipsania` block, the mode alias
+> `abinitio` and `lib_nf/` arrive with v0.2.0. See the [Roadmap](#roadmap).
 
 ## Table of contents
 
@@ -287,12 +288,16 @@ tests/                 launcher tests and Nextflow stub runs
 ## Testing
 
 ```bash
-pytest tests                       # launcher, no Nextflow needed
-nextflow run main.nf -stub-run -params-file tests/params_rnaseq.yaml -c conf/local.config
+pip install -e .[test]
+pytest tests/test_launcher.py      # launcher, no Nextflow needed
+pytest tests/test_stub_run.py      # needs nextflow, or NEXTFLOW_BIN=/path/to/nextflow
+nextflow lint main.nf modules subworkflows
 ```
 
-Stub runs check the wiring and the published file names of every mode without
-tools, containers or a GPU. Real smoke tests use
+The stub runs execute `nextflow run main.nf -stub-run -c tests/stub.config` for
+every mode on the tiny inputs in `tests/data`. They check the wiring and the
+published file names without tools, containers or a GPU. Every process has a
+`stub:` block for this purpose; keep it in sync when you change outputs. Real smoke tests use
 `Tiberius/test_data/Panthera_pardus` and
 `Vipsania/docs/example/aspergillus_fumigatus_chr7.fa`.
 
@@ -300,7 +305,7 @@ tools, containers or a GPU. Real smoke tests use
 
 The full plan is in [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
 
-- [ ] v0.1.0: copy of the pipeline from Tiberius, launcher, stub blocks, tests, CI
+- [x] v0.1.0: copy of the pipeline from Tiberius, launcher, stub blocks, tests, CI
 - [ ] Tiberius uses the submodule; the originals are removed from Tiberius
 - [ ] v0.2.0: gene finder abstraction and Vipsania processes
 - [ ] Vipsania launches the pipeline with `vipsania annotate --params_yaml/--nf_config`

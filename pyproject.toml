@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paludamentum"
+version = "0.1.0"
+description = "Launcher of the Paludamentum evidence integration pipeline (Nextflow) for the Gaius-Augustus gene finders."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+dependencies = ["pyyaml"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/Gaius-Augustus/Paludamentum"
+Issues = "https://github.com/Gaius-Augustus/Paludamentum/issues"
+
+# The pipeline itself (main.nf, modules, bin, conf) is used from a checkout,
+# normally as a git submodule of a gene finder. Only the launcher is a package.
+[tool.hatch.build.targets.wheel]
+packages = ["paludamentum"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["nextflow: needs a nextflow executable (stub runs)"]
