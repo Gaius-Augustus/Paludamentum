@@ -298,6 +298,8 @@ tools, containers or a GPU. Real smoke tests use
 
 ## Roadmap
 
+The full plan is in [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
+
 - [ ] v0.1.0: copy of the pipeline from Tiberius, launcher, stub blocks, tests, CI
 - [ ] Tiberius uses the submodule; the originals are removed from Tiberius
 - [ ] v0.2.0: gene finder abstraction and Vipsania processes
