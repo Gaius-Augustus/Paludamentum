@@ -9,10 +9,14 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from paludamentum import launcher
+from paludamentum import cli, launcher
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "tests" / "data"
+TIBERIUS = ROOT / "tiberius"
+needs_tiberius = pytest.mark.skipif(
+    not (TIBERIUS / "tiberius.py").is_file(), reason="Tiberius submodule not checked out"
+)
 
 
 def make_args(tmp_path: Path, params: dict, **overrides) -> SimpleNamespace:
@@ -21,7 +25,7 @@ def make_args(tmp_path: Path, params: dict, **overrides) -> SimpleNamespace:
     values = dict(
         params_yaml=str(params_file), nf_config="local", nextflow_args=[], work_dir=None,
         profile=None, nextflow_bin="nextflow", resume=False, check_tools=False,
-        skip_singularity_check=True, dry_run=False,
+        skip_singularity_check=True, dry_run=False, genefinder=None,
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -70,6 +74,75 @@ def test_base_config_references_existing_scoring_matrix():
     text = (ROOT / "conf" / "base.config").read_text()
     assert '"${projectDir}/conf/blosum62.csv"' in text
     assert (ROOT / "conf" / "blosum62.csv").is_file()
+
+
+# ---------------------------------------------------------------- submodules
+
+def test_submodules_are_declared():
+    text = (ROOT / ".gitmodules").read_text()
+    for name, path in launcher.SUBMODULES.items():
+        assert f"path = {path}\n" in text, name
+        assert launcher.submodule_root(name) == ROOT / path
+
+
+def test_container_tags_of_base_config():
+    tags = launcher.container_tags(ROOT / "conf" / "base.config")
+    assert set(tags) >= {"tiberius", "vipsania"}
+
+
+@pytest.mark.skipif(
+    not all(launcher.submodule_version(n) for n in launcher.GENEFINDER_CLI),
+    reason="gene finder submodules not checked out",
+)
+def test_submodule_versions_match_the_image_tags():
+    """The submodule pins the version whose image conf/base.config runs."""
+    assert launcher.version_mismatches() == []
+
+
+def test_version_mismatch_is_reported(tmp_path: Path):
+    (tmp_path / "conf").mkdir()
+    (tmp_path / "conf" / "base.config").write_text('container = "docker://x/tiberius:9.9.9"\n')
+    (tmp_path / "tiberius").mkdir()
+    (tmp_path / "tiberius" / "pyproject.toml").write_text('[project]\nversion = "2.0.7"\n')
+    problems = launcher.version_mismatches(tmp_path)
+    assert len(problems) == 1 and "2.0.7" in problems[0] and "9.9.9" in problems[0]
+
+
+@needs_tiberius
+def test_nextflow_env_appends_the_tiberius_checkout():
+    env = launcher.nextflow_env()
+    assert env["PATH"].split(os.pathsep)[-1] == str(TIBERIUS)
+    assert env["PATH"].startswith(os.environ["PATH"])
+
+
+def test_nextflow_env_without_checkout(tmp_path: Path):
+    assert launcher.nextflow_env(tmp_path)["PATH"] == os.environ["PATH"]
+
+
+# ---------------------------------------------------------------- resolve_model_cfg
+
+@needs_tiberius
+@pytest.mark.parametrize("value", ["diatoms", "diatoms.yaml", "diatoms.yml"])
+def test_resolve_model_cfg_by_name(value: str, tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert launcher.resolve_model_cfg(value) == TIBERIUS / "model_cfg" / "diatoms.yaml"
+
+
+def test_resolve_model_cfg_path(tmp_path: Path):
+    mine = tmp_path / "my_model.yaml"
+    mine.write_text("target_species: x\n")
+    assert launcher.resolve_model_cfg(str(mine), tmp_path) == mine
+
+
+@needs_tiberius
+def test_resolve_model_cfg_unknown_name_lists_the_names():
+    with pytest.raises(SystemExit, match="Available names: .*diatoms"):
+        launcher.resolve_model_cfg("no_such_clade")
+
+
+def test_resolve_model_cfg_without_submodule(tmp_path: Path):
+    with pytest.raises(SystemExit, match="git submodule update --init tiberius"):
+        launcher.resolve_model_cfg("diatoms", tmp_path)
 
 
 # ---------------------------------------------------------------- resolve_nf_config
@@ -218,17 +291,28 @@ def test_unknown_genefinder(tmp_path: Path):
 @pytest.mark.parametrize("finder,cli", sorted(launcher.GENEFINDER_CLI.items()))
 def test_check_tools_requires_the_genefinder_cli(finder: str, cli: str, tmp_path: Path, fake_path: Path):
     params = {finder: {"run": True}}
+    # tmp_path as root: no submodule checkout that could satisfy the check
     errors, _ = launcher.validate_executables(
         params, nextflow_bin="nextflow", check_tool_binaries=True,
-        skip_singularity_check=True, repo_root=ROOT,
+        skip_singularity_check=True, repo_root=tmp_path,
     )
     assert any(f"({cli})" in e for e in errors)
     fake_executable(fake_path, cli)
     errors, _ = launcher.validate_executables(
         params, nextflow_bin="nextflow", check_tool_binaries=True,
-        skip_singularity_check=True, repo_root=ROOT,
+        skip_singularity_check=True, repo_root=tmp_path,
     )
     assert not any(f"({cli})" in e for e in errors)
+
+
+@needs_tiberius
+def test_check_tools_accepts_tiberius_from_the_checkout(fake_path: Path):
+    """Without an installed tiberius.py, the submodule's copy is used (appended to PATH)."""
+    errors, _ = launcher.validate_executables(
+        {"tiberius": {"run": True}}, nextflow_bin="nextflow", check_tool_binaries=True,
+        skip_singularity_check=True, repo_root=ROOT,
+    )
+    assert not any("(tiberius.py)" in e for e in errors)
 
 
 def test_old_java_is_rejected(tmp_path: Path, fake_path: Path):
@@ -272,3 +356,121 @@ def test_write_params_yaml(tmp_path: Path, monkeypatch):
     written = yaml.safe_load(path.read_text())
     assert written["outdir"] == str(tmp_path / "vipsania_results")
     assert written["vipsania"] == {"run": True}
+
+
+# ---------------------------------------------------------------- build_params
+
+def cli_args(*argv: str):
+    return cli.build_parser().parse_args(list(argv))
+
+
+@needs_tiberius
+def test_build_params_tiberius_from_the_command_line(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    finder, path = launcher.build_params(cli_args(
+        "--genome", str(DATA / "tiny.fa"), "--model_cfg", "diatoms",
+        "--proteins", str(DATA / "tiny_proteins.faa"), "--rnaseq_paired", "r_{1,2}.fq",
+        "--max_parallel", "1",
+    ))
+    assert finder == "tiberius"
+    assert path == tmp_path / "tiberius_results" / "params.yaml"
+    params = yaml.safe_load(path.read_text())
+    assert params["genefinder"] == "tiberius"
+    assert params["tiberius"] == {
+        "run": True, "model_cfg": str(TIBERIUS / "model_cfg" / "diatoms.yaml"), "max_parallel": 1,
+    }
+    assert params["vipsania"] == {"run": False}
+    assert params["proteins"] == [str(DATA / "tiny_proteins.faa")]
+    assert params["rnaseq_paired"] == "r_{1,2}.fq"   # one value is a glob, not a list
+    assert params["outdir"] == str(tmp_path / "tiberius_results")
+
+
+def test_build_params_vipsania_from_the_command_line(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    finder, path = launcher.build_params(cli_args(
+        "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--finetune", "--finetune_epochs", "1",
+    ))
+    assert finder == "vipsania"   # inferred from --model
+    params = yaml.safe_load(path.read_text())
+    assert params["vipsania"] == {"run": True, "model": "Fungi", "finetune": True, "finetune_epochs": 1}
+    assert params["tiberius"] == {"run": False}
+    assert params["outdir"] == str(tmp_path / "vipsania_results")
+
+
+def test_build_params_merges_file_and_command_line(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text(yaml.safe_dump({
+        "genome": str(DATA / "tiny.fa"), "threads": 8, "outdir": "out",
+        "vipsania": {"run": True, "model": "Fungi", "batch_size": 4},
+    }))
+    finder, path = launcher.build_params(cli_args("-p", str(params_file), "--threads", "16", "--model", "Insecta"))
+    assert finder == "vipsania"   # inferred from the block with run: true
+    assert path == tmp_path / "out" / "params.yaml"
+    params = yaml.safe_load(path.read_text())
+    assert params["threads"] == 16
+    assert params["vipsania"] == {"run": True, "model": "Insecta", "batch_size": 4}
+
+
+def test_build_params_explicit_genefinder_and_result(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    finder, path = launcher.build_params(cli_args(
+        "--genefinder", "tiberius", "--genome", str(DATA / "tiny.fa"), "--result", "old.gtf",
+    ))
+    assert finder == "tiberius"
+    params = yaml.safe_load(path.read_text())
+    assert params["tiberius"] == {"run": True, "result": "old.gtf"}   # no model_cfg needed
+
+
+def test_build_params_evidence_only(tmp_path: Path, monkeypatch):
+    """A params file can switch the gene finder off; then no model is required."""
+    monkeypatch.chdir(tmp_path)
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text(yaml.safe_dump({"genome": str(DATA / "tiny.fa"), "tiberius": {"run": False}}))
+    finder, path = launcher.build_params(cli_args("-p", str(params_file)))
+    assert finder == "tiberius"
+    assert yaml.safe_load(path.read_text())["tiberius"] == {"run": False}
+
+
+@pytest.mark.parametrize("argv,message", [
+    (["--model_cfg", "diatoms"], "genome is required"),
+    (["--genome", "g.fa"], "Tiberius needs a model configuration"),
+    (["--genome", "g.fa", "--genefinder", "vipsania"], "Vipsania needs a model"),
+    (["-p", "missing.yaml"], "Params YAML not found"),
+])
+def test_build_params_reports_missing_values(argv, message, tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match=message):
+        launcher.build_params(cli_args(*argv))
+
+
+@needs_tiberius
+def test_cli_dry_run_writes_params_and_validates(tmp_path: Path, fake_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    cli.main([
+        "--nf_config", "local", "--genome", str(DATA / "tiny.fa"), "--model_cfg", "diatoms",
+        "--dry_run", "--skip_singularity_check",
+    ])
+    out = capsys.readouterr().out
+    assert "Gene finder: tiberius" in out and "Dry run requested" in out
+    assert (tmp_path / "tiberius_results" / "params.yaml").is_file()
+
+
+def test_cli_forwards_nextflow_args(tmp_path: Path, fake_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    real_run = launcher.subprocess.run
+
+    def spy(cmd, *a, **kw):
+        if Path(str(cmd[0])).name == "nextflow":
+            calls.append((list(cmd), kw.get("env")))
+            return SimpleNamespace(returncode=0)
+        return real_run(cmd, *a, **kw)
+
+    monkeypatch.setattr(launcher.subprocess, "run", spy)
+    cli.main(["--genefinder", "vipsania", "--genome", str(DATA / "tiny.fa"), "--model", "Fungi",
+              "--skip_singularity_check", "--", "-stub-run"])
+    cmd, env = calls[0]
+    assert cmd[-1] == "-stub-run"
+    assert cmd[cmd.index("-params-file") + 1] == str(tmp_path / "vipsania_results" / "params.yaml")
+    assert env is not None and "PATH" in env

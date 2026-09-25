@@ -7,22 +7,24 @@ Nextflow pipeline that prepares extrinsic evidence (proteins, RNA-Seq,
 Iso-Seq), derives high-confidence genes from it, and integrates them with the
 ab initio predictions of a deep learning gene finder.
 
-Supported gene finders:
+The gene finders are git submodules of this repository. Paludamentum runs
+them; they do not depend on Paludamentum.
 
-| Gene finder | Status |
-| --- | --- |
-| [Tiberius](https://github.com/Gaius-Augustus/Tiberius) | supported, launched by `tiberius.py` |
-| [Vipsania](https://github.com/Gaius-Augustus/Vipsania) | supported in the pipeline, see [docs/vipsania.md](docs/vipsania.md); launch through `vipsania annotate` is planned |
+| Submodule | Role | Status |
+| --- | --- | --- |
+| [Tiberius](https://github.com/Gaius-Augustus/Tiberius) (`tiberius/`) | gene finder | supported |
+| [Vipsania](https://github.com/Gaius-Augustus/Vipsania) (`vipsania/`) | gene finder | supported, see [docs/vipsania.md](docs/vipsania.md) |
+| [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (`drusilla/`) | ORF annotator for assembled transcripts | imported; use in the high-confidence gene step is planned, see [Roadmap](#roadmap) |
 
-> **Status (v0.2.0).** The pipeline runs with Tiberius and with Vipsania as
-> gene finder. Tiberius uses this repository as a submodule. Launching the
-> pipeline through the Vipsania command line is the remaining step, see the
-> [Roadmap](#roadmap). Until then, run Vipsania through `python -m paludamentum`.
+> **Status (v0.3.0).** Paludamentum is the entry point: `paludamentum`
+> launches the pipeline with Tiberius or Vipsania. Earlier versions were a
+> submodule of Tiberius and were launched by `tiberius.py`; that direction is
+> reversed since v0.3.0.
 
 ## Table of contents
 
 - [What the pipeline does](#what-the-pipeline-does)
-- [How you get Paludamentum](#how-you-get-paludamentum)
+- [Installation](#installation)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Inputs and modes](#inputs-and-modes)
@@ -58,27 +60,23 @@ Supported gene finders:
 Without any evidence input the pipeline runs step 1 only. That is useful to
 parallelize a gene finder over several GPUs.
 
-## How you get Paludamentum
-
-You normally do not install Paludamentum yourself. It is a **git submodule**
-of the gene finder repositories and is checked out at `<repo>/paludamentum/`:
+## Installation
 
 ```bash
-git clone --recursive https://github.com/Gaius-Augustus/Tiberius
-# existing clone:
-git submodule update --init --recursive
-```
-
-The gene finder's own command line launches the pipeline. Nothing about the
-Tiberius command line changes through the migration.
-
-Standalone use is possible for development:
-
-```bash
-git clone https://github.com/Gaius-Augustus/Paludamentum
+git clone --recursive https://github.com/Gaius-Augustus/Paludamentum
 cd Paludamentum
-python -m paludamentum --params_yaml params.yaml --nf_config conf/local.config
+pip install .
 ```
+
+`--recursive` checks out the submodules `tiberius/`, `vipsania/` and
+`drusilla/`. In an existing clone run `git submodule update --init` after
+`git pull`. `pip install .` installs the launcher (`paludamentum`, also
+`python -m paludamentum`); the pipeline runs from the checkout.
+
+The pipeline runs the gene finders and all tools in containers, so the
+submodules do not have to be installed. The Tiberius checkout is used to
+resolve model configuration names (`--model_cfg diatoms`) and, for runs
+without containers, to find `tiberius.py`.
 
 ## Requirements
 
@@ -92,40 +90,33 @@ On the machine that launches the pipeline:
 
 You do not need to install HISAT2, miniprot, StringTie and the other tools
 when you use the containers. To run without containers, all tools must be in
-your `PATH`, or be configured under `tools:` in the params file. The launcher
-option `--check_tools` verifies this.
+your `PATH`, or be configured under `tools:` in the params file, and the gene
+finder must be installed (`pip install ./vipsania`; Tiberius runs from the
+checkout). The launcher option `--check_tools` verifies this.
 
 ## Quick start
 
-### Tiberius
-
 ```bash
-# evidence pipeline, inputs from a params file
-python tiberius.py --params_yaml params.yaml --nf_config conf/slurm_generic.config
+# Tiberius, ab initio only, parallelized over GPUs by Nextflow
+paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg eudicotyledons
 
-# ab initio only, parallelized over GPUs by Nextflow
-python tiberius.py --nf_config conf/local.config --genome genome.fa --model_cfg eudicotyledons
+# Tiberius with evidence, inputs from a params file
+paludamentum --params_yaml params.yaml --nf_config slurm_generic
+
+# Vipsania with evidence, inputs on the command line
+paludamentum --genefinder vipsania --nf_config local --genome genome.fa --model Fungi \
+    --proteins proteins.faa --rnaseq_paired "/abs/path/rnaseq/*_{1,2}.fastq.gz"
 ```
 
-Evidence can also be given on the command line (`--proteins`,
-`--odb12Partitions`, `--rnaseq_paired`, `--rnaseq_single`, `--isoseq`,
-`--rnaseq_sra_paired`, `--rnaseq_sra_single`, `--isoseq_sra`). Useful launcher
-options: `--dry_run` validates inputs and executables without starting
-Nextflow, `--resume` continues a previous run, `--work_dir` sets the Nextflow
-work directory.
-
-### Vipsania
-
-```bash
-python -m paludamentum --genefinder vipsania --params_yaml params.yaml --nf_config slurm_generic
-```
-
-with `vipsania: {run: true, model: Fungi}` in the params file, see
-[docs/vipsania.md](docs/vipsania.md). Planned:
-
-```bash
-vipsania annotate Fungi genome.fa --params_yaml params.yaml --nf_config slurm_generic
-```
+`--nf_config` takes a path or the name of a config in `conf/`
+(`local`, `slurm_generic`, ...). Evidence can be given on the command line
+(`--proteins`, `--odb12Partitions`, `--rnaseq_paired`, `--rnaseq_single`,
+`--isoseq`, `--rnaseq_sra_paired`, `--rnaseq_sra_single`, `--isoseq_sra`) or
+in the params file; command line values override the file. Useful options:
+`--dry_run` writes the params file and validates inputs and executables
+without starting Nextflow, `--resume` continues a previous run, `--work_dir`
+sets the Nextflow work directory. Arguments after `--` go to Nextflow.
+`paludamentum --help` lists everything.
 
 ### Params file
 
@@ -144,6 +135,7 @@ tiberius:
 Use absolute paths. Nextflow does not expand `~`, and relative paths are
 resolved against the launch directory, not the location of the params file.
 All parameters are documented in [docs/parameters.md](docs/parameters.md).
+The launcher writes the merged parameters of a run to `<outdir>/params.yaml`.
 
 ## Inputs and modes
 
@@ -171,7 +163,8 @@ Transcript evidence requires protein evidence, because HC genes need both.
 
 ## Outputs
 
-All files are written to `outdir`. `<tool>` is `tiberius` or `vipsania`.
+All files are written to `outdir` (default `<genefinder>_results`). `<tool>`
+is `tiberius` or `vipsania`.
 
 | File | Content |
 | --- | --- |
@@ -187,16 +180,17 @@ Nextflow's timeline, trace and report files are written as well.
 
 ## Choosing the gene finder
 
-The gene finder is selected by which block has `run: true`, or explicitly with
-`genefinder: tiberius|vipsania`. The launcher of each gene finder sets this
-for you.
+`--genefinder tiberius|vipsania` selects the gene finder. Without it, the
+launcher takes `genefinder` from the params file, else the block with
+`run: true`, else Vipsania if `--model` is given, else Tiberius. Only one
+gene finder runs per pipeline run.
 
 ### Tiberius block
 
 ```yaml
 tiberius:
   run: true
-  model_cfg: eudicotyledons   # name from Tiberius/model_cfg or a path
+  model_cfg: eudicotyledons   # name in tiberius/model_cfg of the submodule, or a path
   result: null                # reuse an existing prediction instead of running
   min_split_size: 20000000    # minimal chunk size in bp
   max_files: 20               # maximal number of chunks
@@ -220,11 +214,12 @@ vipsania:
   max_parallel: null
 ```
 
-Vipsania finetuning is **off by default**. With `finetune: true` Vipsania
-first trains on the target genome and then annotates it. Vipsania 1.0.0 cannot
-finetune without annotating, so in this case the genome is processed in a
-single GPU task instead of chunks. All Vipsania parameters, the model download
-and offline use are described in [docs/vipsania.md](docs/vipsania.md).
+Vipsania finetuning is **off by default**. With `finetune: true` (or
+`--finetune`) Vipsania first trains on the target genome and then annotates
+it. Vipsania 1.0.0 cannot finetune without annotating, so in this case the
+genome is processed in a single GPU task instead of chunks. All Vipsania
+parameters, the model download and offline use are described in
+[docs/vipsania.md](docs/vipsania.md).
 
 ## Containers
 
@@ -236,9 +231,10 @@ Paludamentum does not ship its own image.
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 
 The images are pinned in [conf/base.config](conf/base.config) through the
-process labels `container` and `vipsania`. The pipeline scripts in `bin/` are
-not part of an image. Nextflow adds `bin/` to the `PATH` of every task and
-mounts it into the container.
+process labels `container` and `vipsania`. The image tag must match the
+version of the submodule; the launcher warns when they differ. The pipeline
+scripts in `bin/` are not part of an image. Nextflow adds `bin/` to the
+`PATH` of every task and mounts it into the container.
 
 Vipsania requires `tensorflow<2.20` and therefore does not support Blackwell
 GPUs. See the Vipsania container documentation.
@@ -266,27 +262,29 @@ modules/               Nextflow processes
 subworkflows/          inputs, protein, RNA-Seq, Iso-Seq, HC genes, gene finder
 bin/                   scripts called by processes
 conf/                  base config, site configs, parameters.yaml, blosum62.csv
-paludamentum/          Python launcher used by tiberius.py and vipsania
+paludamentum/          Python launcher (paludamentum, python -m paludamentum)
+tiberius/              submodule: Tiberius (gene finder)
+vipsania/              submodule: Vipsania (gene finder)
+drusilla/              submodule: Drusilla (ORF annotator for transcripts)
 docs/                  parameters.md, hpc.md, vipsania.md
 tests/                 launcher tests and Nextflow stub runs
 ```
 
 ## For maintainers
 
-- **Submodule pinning.** Tiberius and Vipsania pin Paludamentum to a tag.
-  After a Paludamentum release, bump the submodule pointer in both
-  repositories.
-- **Image tag coupling.** `conf/base.config` pins the Tiberius image tag,
-  while `tiberius.py --singularity` derives its tag from the installed
-  Tiberius version. A new Tiberius image therefore needs a Paludamentum commit
-  and a submodule bump.
-- **Stable interfaces.** Tiberius users rely on the published file names, on
-  the `tiberius.*` parameter block, and on `conf/<name>.config`. Do not change
-  them without a deprecation path.
-- **Adding a gene finder.** Add a module with the run process, a label with
-  its container in `conf/base.config`, a parameter block, a branch in
-  `subworkflows/genefinder.nf`, and an entry in the launcher's gene finder
-  table. The process takes a genome FASTA and emits GTF or GFF3.
+- **Submodule pinning.** Each submodule is pinned to the release whose
+  container image `conf/base.config` runs. A new gene finder release means:
+  bump the submodule (`git -C tiberius checkout <tag>`, `git add tiberius`)
+  and the image tag in `conf/base.config` in one commit.
+  `tests/test_launcher.py` checks that the two agree.
+- **Stable interfaces.** Users rely on the published file names, on the
+  `tiberius.*` and `vipsania.*` parameter blocks, and on `conf/<name>.config`.
+  Do not change them without a deprecation path.
+- **Adding a gene finder.** Add the repository as a submodule, a module with
+  the run process, a label with its container in `conf/base.config`, a
+  parameter block, a branch in `subworkflows/genefinder.nf`, and entries in
+  the launcher's `GENEFINDER_CLI`, `SUBMODULES` and `GENEFINDER_CLI_KEYS`
+  tables. The process takes a genome FASTA and emits GTF or GFF3.
   `bin/merge_annotations.py` renumbers gene IDs during merging.
 - Renaming a process invalidates `-resume` for runs in progress. Mention it in
   the release notes.
@@ -303,19 +301,22 @@ nextflow lint main.nf modules subworkflows
 The stub runs execute `nextflow run main.nf -stub-run -c tests/stub.config` for
 every mode on the tiny inputs in `tests/data`. They check the wiring and the
 published file names without tools, containers or a GPU. Every process has a
-`stub:` block for this purpose; keep it in sync when you change outputs. Real smoke tests use
-`Tiberius/test_data/Panthera_pardus` and
-`Vipsania/docs/example/aspergillus_fumigatus_chr7.fa`.
+`stub:` block for this purpose; keep it in sync when you change outputs. Tests
+that need the Tiberius submodule are skipped when it is not checked out. Real
+smoke tests use `tiberius/test_data/Panthera_pardus` and
+`vipsania/docs/example/aspergillus_fumigatus_chr7.fa`.
 
 ## Roadmap
 
 The full plan is in [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
 
 - [x] v0.1.0: copy of the pipeline from Tiberius, launcher, stub blocks, tests, CI
-- [x] Tiberius uses the submodule; the originals are removed from Tiberius
 - [x] v0.2.0: gene finder abstraction and Vipsania processes
-- [ ] Vipsania launches the pipeline with `vipsania annotate --params_yaml/--nf_config`
-- [ ] Follow-up: `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation
+- [x] v0.3.0: Paludamentum imports the gene finders (submodules `tiberius/`,
+      `vipsania/`, `drusilla/`) and is launched by `paludamentum`; Tiberius
+      no longer runs the pipeline
+- [ ] Drusilla as alternative to TransDecoder in the HC gene step
+- [ ] `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation
 
 ## Known issues
 

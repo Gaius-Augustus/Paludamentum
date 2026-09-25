@@ -2,16 +2,16 @@
 
 All inputs and settings of the pipeline go into one YAML file. A commented
 template is [conf/parameters.yaml](../conf/parameters.yaml). Pass the file to
-the launcher of your gene finder:
+the launcher:
 
 ```bash
-python tiberius.py --params_yaml parameters.yaml --nf_config slurm_generic
+paludamentum --params_yaml parameters.yaml --nf_config slurm_generic
 ```
 
 `--nf_config` takes a path or the name of a config in `conf/`, see
-[hpc.md](hpc.md). The Tiberius launcher also accepts most parameters on the
-command line; command line values override the file. The launcher writes the
-merged parameters of a run to `<outdir>/params.yaml`.
+[hpc.md](hpc.md). The launcher also accepts most parameters on the command
+line (`paludamentum --help`); command line values override the file. The
+launcher writes the merged parameters of a run to `<outdir>/params.yaml`.
 
 ## Input Data
 ### Genomic Sequences (Required Input)
@@ -138,9 +138,10 @@ list of BAM files. They skip the HISAT2 step.
 ## Gene finder: Tiberius
 
 To run Tiberius set `tiberius.run: true` and choose the model configuration
-for your clade. The available configurations are listed in
-[Tiberius/model_cfg](https://github.com/Gaius-Augustus/Tiberius/tree/main/model_cfg)
-and by `python tiberius.py --list_cfg`.
+for your clade. The available configurations are the YAML files in
+`tiberius/model_cfg/` of the Tiberius submodule (also listed in
+[Tiberius/model_cfg](https://github.com/Gaius-Augustus/Tiberius/tree/main/model_cfg)).
+The launcher resolves a name such as `diatoms` to that file.
 
 | Parameter | Default | Description |
 | --- | --- | --- |

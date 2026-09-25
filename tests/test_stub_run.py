@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -178,3 +179,27 @@ def test_vipsania_needs_a_model(tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, {"vipsania": {"run": True}})
     assert proc.returncode != 0
     assert "params.vipsania.model is required" in proc.stdout + proc.stderr
+
+
+def test_cli_end_to_end_stub_run(tmp_path: Path) -> None:
+    """paludamentum builds the params file and starts Nextflow with the config."""
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "paludamentum",
+            "--nf_config", str(ROOT / "tests" / "stub.config"),
+            "--genome", str(DATA / "tiny.fa"), "--model_cfg", str(DATA / "tiny.fa"),
+            "--proteins", str(DATA / "tiny_proteins.faa"),
+            "--outdir", "out", "--work_dir", str(tmp_path / "work"),
+            "--nextflow_bin", NEXTFLOW, "--skip_singularity_check",
+            "--", "-stub-run",
+        ],
+        cwd=tmp_path, env=dict(os.environ, NXF_ANSI_LOG="false", PYTHONPATH=str(ROOT)),
+        capture_output=True, text=True,
+    )
+    assert_ok(proc)
+    assert "Gene finder: tiberius" in proc.stdout
+    outdir = tmp_path / "out"
+    written = yaml.safe_load((outdir / "params.yaml").read_text())
+    assert written["tiberius"]["run"] is True and written["outdir"] == str(outdir)
+    published = {str(p.relative_to(outdir)) for p in outdir.rglob("*") if p.is_file()}
+    assert {"tiberius_evidence.gff3", "tiberius_evidence_proteins.fa", "params.yaml"} <= published

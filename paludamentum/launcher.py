@@ -1,13 +1,18 @@
 """Launcher for the Paludamentum Nextflow pipeline.
 
-Validates inputs and executables, then runs ``nextflow run main.nf``. It is used
-by the command lines of the gene finders (``tiberius.py``, ``vipsania``) and by
-``python -m paludamentum``.
+Builds the params file of a run from defaults, a params YAML file and command
+line values, validates inputs and executables, then runs ``nextflow run
+main.nf``. The command line is ``paludamentum`` (``python -m paludamentum``).
+
+The gene finders (Tiberius, Vipsania) and Drusilla are git submodules of this
+repository. The launcher uses the Tiberius checkout to resolve model
+configuration names and, for runs without containers, to find ``tiberius.py``.
 """
 from __future__ import annotations
 
 import glob
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -79,6 +84,27 @@ GENEFINDER_CLI: Dict[str, str] = {
     "vipsania": "vipsania",
 }
 
+# Git submodules of this repository (directory names relative to the root):
+# the gene finders, and Drusilla, the ORF annotator for assembled transcripts.
+SUBMODULES: Dict[str, str] = {
+    "tiberius": "tiberius",
+    "vipsania": "vipsania",
+    "drusilla": "drusilla",
+}
+
+# Params keys that the command line can set, by params block.
+TOP_LEVEL_CLI_KEYS = (
+    "threads", "outdir", "genome", "proteins", "odb12Partitions",
+    "rnaseq_single", "rnaseq_paired", "rnaseq_bam",
+    "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_sra",
+    "mode", "scoring_matrix",
+)
+GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
+    "tiberius": ("model_cfg", "result", "min_split_size", "max_files", "max_parallel", "batch_size", "seq_len"),
+    "vipsania": ("model", "model_dir", "result", "min_split_size", "max_files", "max_parallel", "batch_size",
+                 "context", "finetune", "finetune_epochs"),
+}
+
 
 def _default_repo_root() -> Path:
     """Root of the Paludamentum checkout (the directory that holds main.nf)."""
@@ -111,6 +137,109 @@ def resolve_nf_config(value: str | Path, root: str | Path | None = None) -> Path
             return candidate.resolve()
     searched = ", ".join(str(c) for c in candidates)
     raise SystemExit(f"Nextflow config not found: {value} (searched: {searched})")
+
+
+def submodule_root(name: str, root: str | Path | None = None) -> Path:
+    """Directory of a submodule (tiberius, vipsania, drusilla) in the checkout."""
+    if name not in SUBMODULES:
+        raise SystemExit(f"Unknown submodule '{name}'. Known: {', '.join(SUBMODULES)}.")
+    repo_root, _, _ = pipeline_paths(root)
+    return repo_root / SUBMODULES[name]
+
+
+def submodule_version(name: str, root: str | Path | None = None) -> str | None:
+    """Version in the submodule's pyproject.toml; None if the submodule is not checked out."""
+    pyproject = submodule_root(name, root) / "pyproject.toml"
+    if not pyproject.is_file():
+        return None
+    match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8"), re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def container_tags(base_config: Path) -> Dict[str, str]:
+    """Image tags pinned in base.config, keyed by image name (tiberius, vipsania, ...)."""
+    tags: Dict[str, str] = {}
+    pattern = re.compile(r"""container\s*=\s*["']docker://([^:"']+):([^"']+)["']""")
+    for match in pattern.finditer(base_config.read_text(encoding="utf-8")):
+        tags[match.group(1).rsplit("/", 1)[-1]] = match.group(2)
+    return tags
+
+
+def version_mismatches(root: str | Path | None = None) -> List[str]:
+    """
+    Warnings for gene finder submodules whose version differs from the image
+    tag that conf/base.config runs. The submodule pins the version; the image
+    of the same version must be pinned in base.config.
+    """
+    repo_root, _, base_config = pipeline_paths(root)
+    tags = container_tags(base_config)
+    problems = []
+    for name in GENEFINDER_CLI:
+        version = submodule_version(name, repo_root)
+        tag = tags.get(name)
+        if version and tag and version != tag:
+            problems.append(
+                f"The {name} submodule is version {version}, but conf/base.config runs the image "
+                f"{name}:{tag}. Bump the submodule or the image tag."
+            )
+    return problems
+
+
+def tiberius_checkout(root: str | Path | None = None) -> Path | None:
+    """Directory of the Tiberius submodule if it holds tiberius.py, else None."""
+    directory = submodule_root("tiberius", root)
+    return directory if (directory / "tiberius.py").is_file() else None
+
+
+def nextflow_env(root: str | Path | None = None) -> Dict[str, str]:
+    """
+    Environment for the Nextflow process. The Tiberius checkout is appended to
+    PATH, so that runs without containers find tiberius.py; an installed
+    Tiberius earlier on PATH wins.
+    """
+    env = os.environ.copy()
+    checkout = tiberius_checkout(root)
+    if checkout:
+        env["PATH"] = os.pathsep.join(part for part in (env.get("PATH", ""), str(checkout)) if part)
+    return env
+
+
+def resolve_model_cfg(value: str | Path, root: str | Path | None = None) -> Path:
+    """
+    Resolve a Tiberius model configuration to a file, because the Nextflow
+    process stages it. Accepts a path, or a name such as ``diatoms`` or
+    ``diatoms.yaml`` that is looked up in ``model_cfg/`` of the Tiberius submodule.
+    """
+    candidate = Path(os.path.expandvars(str(value))).expanduser()
+    if candidate.is_file():
+        return candidate.resolve()
+    cfg_dir = submodule_root("tiberius", root) / "model_cfg"
+    stem = candidate.name
+    for suffix in (".yaml", ".yml"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+    searched = [candidate]
+    for directory in (cfg_dir, cfg_dir / "superseded"):
+        for name in dict.fromkeys((candidate.name, f"{stem}.yaml", f"{stem}.yml")):
+            path = directory / name
+            searched.append(path)
+            if path.is_file():
+                if directory.name == "superseded":
+                    print(f"[WARN] The Tiberius model configuration '{value}' is superseded; "
+                          "a newer model may be available.")
+                return path.resolve()
+    if not cfg_dir.is_dir():
+        raise SystemExit(
+            f"Tiberius model configuration '{value}' is not a file, and the Tiberius submodule "
+            f"is not checked out to look it up by name ({cfg_dir}). Run\n"
+            "    git submodule update --init tiberius\n"
+            "or give the path of a model configuration file."
+        )
+    listing = ", ".join(sorted(p.stem for p in cfg_dir.glob("*.y*ml")))
+    raise SystemExit(
+        f"Tiberius model configuration not found: {value} (searched: "
+        f"{', '.join(str(p) for p in searched)}). Available names: {listing}"
+    )
 
 
 def default_params(genefinder: str = "tiberius", root: str | Path | None = None) -> Dict:
@@ -165,6 +294,92 @@ def write_params_yaml(params: Dict, outdir: str | Path | None = None) -> Path:
     with params_path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(params, handle, sort_keys=False)
     return params_path
+
+
+def infer_genefinder(args, loaded: Dict) -> str:
+    """
+    Gene finder of a run: ``--genefinder``, else ``genefinder`` in the params
+    file, else the single block with ``run: true``, else the gene finder whose
+    model option was given on the command line, else Tiberius.
+    """
+    explicit = getattr(args, "genefinder", None)
+    if explicit:
+        return str(explicit).lower()
+    if loaded.get("genefinder"):
+        return str(loaded["genefinder"]).lower()
+    enabled = [
+        name for name in GENEFINDER_CLI
+        if isinstance(loaded.get(name), dict) and loaded[name].get("run")
+    ]
+    if len(enabled) == 1:
+        return enabled[0]
+    if getattr(args, "model", None) and not getattr(args, "model_cfg", None):
+        return "vipsania"
+    return "tiberius"
+
+
+def cli_overrides(args, genefinder: str) -> Dict:
+    """Params values given on the command line; unset options do not override."""
+    overrides: Dict = {}
+
+    def value_of(key: str):
+        value = getattr(args, key, None)
+        if value in (None, "", [], False):
+            return None
+        return value
+
+    for key in TOP_LEVEL_CLI_KEYS:
+        value = value_of(key)
+        if value is not None:
+            overrides[key] = value
+    # A single command line value for paired reads is a glob that covers all
+    # libraries; the pipeline expects a string then, not a list.
+    paired = overrides.get("rnaseq_paired")
+    if isinstance(paired, list) and len(paired) == 1:
+        overrides["rnaseq_paired"] = paired[0]
+
+    block: Dict = {}
+    for key in GENEFINDER_CLI_KEYS.get(genefinder, ()):
+        value = value_of(key)
+        if value is not None:
+            block[key] = value
+    if block:
+        overrides[genefinder] = block
+    return overrides
+
+
+def build_params(args, genefinder: str | None = None, root: str | Path | None = None) -> Tuple[str, Path]:
+    """
+    Build the params file of a run: launcher defaults, then the params file
+    (``args.params_yaml``), then command line values. The result is written
+    to ``<outdir>/params.yaml``. Returns the gene finder and the written path.
+    """
+    loaded: Dict = {}
+    params_yaml = getattr(args, "params_yaml", None)
+    if params_yaml:
+        params_path = Path(params_yaml).expanduser().resolve()
+        if not params_path.exists():
+            raise SystemExit(f"Params YAML not found: {params_path}")
+        loaded = load_params(params_path)
+
+    genefinder = genefinder or infer_genefinder(args, loaded)
+    params = default_params(genefinder, root)
+    merge_params(params, loaded)
+    merge_params(params, cli_overrides(args, genefinder))
+
+    if not params.get("genome"):
+        raise SystemExit("A genome is required: --genome, or 'genome' in the params file.")
+
+    cfg = params.get(genefinder)
+    if isinstance(cfg, dict) and cfg.get("run") and not cfg.get("result"):
+        if genefinder == "tiberius":
+            if not cfg.get("model_cfg"):
+                raise SystemExit("Tiberius needs a model configuration: --model_cfg, or tiberius.model_cfg in the params file.")
+            cfg["model_cfg"] = str(resolve_model_cfg(cfg["model_cfg"], root))
+        elif genefinder == "vipsania" and not cfg.get("model"):
+            raise SystemExit("Vipsania needs a model: --model, or vipsania.model in the params file.")
+
+    return genefinder, write_params_yaml(params)
 
 
 def load_params(params_path: Path) -> Dict:
@@ -376,10 +591,15 @@ def validate_executables(
             label = TOOL_DESCRIPTIONS.get(key, f"Tool '{key}'")
             check_command(cmd, label)
 
+        checkout = tiberius_checkout(repo_root)
         for name, cli in GENEFINDER_CLI.items():
             finder_cfg = params.get(name) or {}
-            if isinstance(finder_cfg, dict) and finder_cfg.get("run"):
-                check_command(cli, f"{name.capitalize()} CLI ({cli})")
+            if not (isinstance(finder_cfg, dict) and finder_cfg.get("run")):
+                continue
+            if name == "tiberius" and checkout and not resolve_executable(cli, repo_root):
+                # tiberius.py of the submodule is appended to PATH for the Nextflow process
+                continue
+            check_command(cli, f"{name.capitalize()} CLI ({cli})")
 
     return errors, warnings
 
@@ -420,7 +640,7 @@ def run_nextflow(
     print("[INFO] Launching Nextflow with command:")
     print("       " + " ".join(shlex.quote(part) for part in cmd))
 
-    completed = subprocess.run(cmd, cwd=launch_cwd)
+    completed = subprocess.run(cmd, cwd=launch_cwd, env=nextflow_env(Path(pipeline_main_path).parent))
     return completed.returncode
 
 
@@ -428,11 +648,11 @@ def run_nextflow_pipeline(args, genefinder: str = "tiberius", pipeline_root: str
     """
     Validate and launch the pipeline.
 
-    ``args`` is an argparse-like namespace. Required attributes: ``params_yaml``,
-    ``nf_config``. Optional: ``nextflow_args``, ``work_dir``, ``profile``,
-    ``nextflow_bin``, ``resume``, ``check_tools``, ``skip_singularity_check``,
-    ``dry_run``. ``genefinder`` names the gene finder whose command line launched
-    the pipeline; the pipeline itself selects the gene finder from the params.
+    ``args`` is an argparse-like namespace. Required attributes: ``params_yaml``
+    (a complete params file, see ``build_params``), ``nf_config``. Optional:
+    ``nextflow_args``, ``work_dir``, ``profile``, ``nextflow_bin``, ``resume``,
+    ``check_tools``, ``skip_singularity_check``, ``dry_run``. ``genefinder`` is
+    the gene finder of the run; the pipeline itself selects it from the params.
     """
     if genefinder not in GENEFINDER_CLI:
         raise SystemExit(f"Unknown gene finder '{genefinder}'. Supported: {', '.join(GENEFINDER_CLI)}.")
@@ -485,6 +705,9 @@ def run_nextflow_pipeline(args, genefinder: str = "tiberius", pipeline_root: str
         for error in exec_errors:
             print(f"[ERROR] {error}")
         raise SystemExit("Executable validation failed.")
+
+    for warning in version_mismatches(repo_root):
+        print(f"[WARN] {warning}")
 
     if getattr(args, "dry_run", False):
         print("[INFO] Dry run requested; skipping Nextflow execution.")

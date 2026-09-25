@@ -1,0 +1,9 @@
+[submodule "tiberius"]
+	path = tiberius
+	url = https://github.com/Gaius-Augustus/Tiberius
+[submodule "vipsania"]
+	path = vipsania
+	url = https://github.com/Gaius-Augustus/Vipsania
+[submodule "drusilla"]
+	path = drusilla
+	url = https://github.com/Gaius-Augustus/Drusilla

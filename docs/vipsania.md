@@ -22,11 +22,19 @@ vipsania:
 ```
 
 ```bash
-python -m paludamentum --genefinder vipsania --params_yaml params.yaml --nf_config slurm_generic
+paludamentum --params_yaml params.yaml --nf_config slurm_generic
 ```
 
-Launching through `vipsania annotate --params_yaml ... --nf_config ...` is
-planned, see the roadmap in the README.
+or entirely from the command line:
+
+```bash
+paludamentum --genefinder vipsania --nf_config slurm_generic --genome genome.fa --model Fungi \
+    --proteins proteins.faa --rnaseq_paired "/abs/path/rnaseq/*_{1,2}.fastq.gz"
+```
+
+`--genefinder vipsania` can be omitted when `--model` is given and
+`--model_cfg` is not. Vipsania itself is a git submodule of this repository
+(`vipsania/`); the `vipsania` command does not run the pipeline.
 
 ## Parameters
 
