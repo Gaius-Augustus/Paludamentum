@@ -26,9 +26,7 @@ workflow HC_GENES {
     asm_gtf_ch
     CH_GENOME
     proteindb
-    asm_gff3_ch
-    td_scored_gff   
-    params_map
+    td_scored_gff
 
     main:
     asm      = STRINGTIE_MERGE(asm_gtf_ch.collect())
@@ -53,8 +51,8 @@ workflow HC_GENES {
         td_scored_gff
     )
 
-    train_final = HC_FORMAT_FILTER(hc.training_gff, CH_GENOME)
+    HC_FORMAT_FILTER(hc.training_gff, CH_GENOME)
 
     emit:
-    train_gff = train_final
+    HC_FORMAT_FILTER.out
 }

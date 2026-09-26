@@ -2,7 +2,7 @@ nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { MERGE_GENEFINDER_TRAIN; MERGE_GENEFINDER_TRAIN_PRIO; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
-include { inferMode; resolveGenefinder; genefinderEnabled } from './lib_nf/functions.nf'
+include { inferMode; resolveGenefinder; genefinderEnabled; asList } from './lib_nf/functions.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
@@ -22,17 +22,17 @@ workflow {
     def hasPaired   = params.rnaseq_paired?.size()  > 0 || params.rnaseq_sra_paired?.size() > 0
     def hasSingle   = params.rnaseq_single?.size()  > 0 || params.rnaseq_sra_single?.size() > 0
     def hasIso      = params.isoseq?.size()         > 0 || params.isoseq_sra?.size() > 0
-    def hasBAM      = params.rnaseq_bam?.size       > 0
+    def hasBAM      = asList(params.rnaseq_bam).size() > 0
 
     def proteinsList = []
     if( params.proteins ) {
       def rawList = (params.proteins instanceof List) ? params.proteins : [params.proteins]
-      proteinsList = rawList.findAll { it }
+      proteinsList = rawList.findAll { p -> p }
     }
     def odb12List = []
     if( params.odb12Partitions ) {
       def rawOdb = (params.odb12Partitions instanceof List) ? params.odb12Partitions : [params.odb12Partitions]
-      odb12List = rawOdb.findAll { it }
+      odb12List = rawOdb.findAll { p -> p }
     }
     def hasProteins = proteinsList.size() > 0 || odb12List.size() > 0
 
@@ -48,8 +48,7 @@ workflow {
     def inp  = INPUTS(params)
 
     if( MODE == 'abinitio' ) {
-      def abInitio = AB_INITIO(inp.genome, params)
-      OUT_CH = abInitio.gff
+      OUT_CH = AB_INITIO(inp.genome, params)
 
     } else {
 
@@ -60,32 +59,27 @@ workflow {
       // Use fully-qualified Channel to avoid any name shadowing issues
       def re = (MODE in ['mixed','rnaseq']) \
         ? RNASEQ_EVIDENCE(inp.genome, params) \
-        : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), asm_gff3: nextflow.Channel.empty()]
+        : [hints: empty_file, asm_gtf: nextflow.Channel.empty()]
 
       def ie = (MODE in ['mixed','isoseq']) \
         ? ISOSEQ_EVIDENCE(inp.genome, params) \
-        : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), asm_gff3: nextflow.Channel.empty()]
+        : [hints: empty_file, asm_gtf: nextflow.Channel.empty()]
 
       def asm_gtf  = nextflow.Channel.empty()
-      def asm_gff3 = nextflow.Channel.empty()
 
       if( MODE == 'mixed' ) {
         asm_gtf  = re.asm_gtf.mix(ie.asm_gtf)
-        asm_gff3 = re.asm_gff3.mix(ie.asm_gff3)
       } else if( MODE == 'rnaseq' ) {
         asm_gtf  = re.asm_gtf
-        asm_gff3 = re.asm_gff3
       } else if( MODE == 'isoseq' ) {
         asm_gtf  = ie.asm_gtf
-        asm_gff3 = ie.asm_gff3
       }
 
       def all_hints = CONCAT_HINTS(pe.prot_hints, re.hints, ie.hints)
 
       def train_final
       if( MODE in ['mixed','rnaseq','isoseq'] ) {
-        def tr = HC_GENES(asm_gtf, inp.genome, pe.proteindb, asm_gff3, pe.scored_gff, params)
-        train_final = tr.train_gff
+        train_final = HC_GENES(asm_gtf, inp.genome, pe.proteindb, pe.scored_gff)
       } else {
         train_final = HC_FORMAT_FILTER(pe.prot_traingff, inp.genome)
       }

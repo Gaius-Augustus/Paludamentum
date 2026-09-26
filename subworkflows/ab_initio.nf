@@ -14,8 +14,8 @@ workflow AB_INITIO {
     if( !genefinderEnabled(params_map) ) {
         error "The ab initio mode requires a gene finder: set params.tiberius.run=true or params.vipsania.run=true."
     }
-    def gf = GENEFINDER(CH_GENOME, params_map, true)
+    GENEFINDER(CH_GENOME, params_map, true)
 
     emit:
-    gff = gf.gff
+    GENEFINDER.out
 }

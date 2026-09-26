@@ -8,6 +8,7 @@ include { FILTER_ALIGNMENT as FILTER_PE; FILTER_ALIGNMENT as FILTER_SE } from '.
 include { DOWNLOAD_SRA_PAIRED; DOWNLOAD_SRA_SINGLE } from '../modules/download.nf'
 include { STRINGTIE_ASSEMBLE_RNA } from '../modules/assembly.nf'
 include { EMPTY_FILE } from '../modules/util.nf'
+include { asList } from '../lib_nf/functions.nf'
 
 workflow RNASEQ_EVIDENCE {
 
@@ -26,13 +27,12 @@ workflow RNASEQ_EVIDENCE {
     def DO_BAM = params_map.rnaseq_bam && params_map.rnaseq_bam.size() > 0
 
     def hints_out    = empty_file
-    def asm_gtf_out  = Channel.empty()
-    def asm_gff3_out = Channel.empty()
+    def asm_gtf_out  = channel.empty()
 
     if( DO_SE || DO_PE || DO_BAM ) {
 
     // Build channels (local + SRA)
-    CH_PAIRED_LOCAL = Channel.empty()
+    CH_PAIRED_LOCAL = channel.empty()
     if( DO_PE ) {
         def pe = params_map.rnaseq_paired
 
@@ -43,7 +43,7 @@ workflow RNASEQ_EVIDENCE {
         if( pe instanceof CharSequence ) {
 
             CH_PAIRED_LOCAL =
-                Channel.fromFilePairs(pe, size: 2, checkIfExists: true)
+                channel.fromFilePairs(pe, size: 2, checkIfExists: true)
                 // emits: tuple(id, [r1, r2])
         }
 
@@ -54,11 +54,11 @@ workflow RNASEQ_EVIDENCE {
         */
         else if(
             pe instanceof List &&
-            pe.every { it instanceof List && it.size() == 2 }
+            pe.every { p -> p instanceof List && p.size() == 2 }
         ) {
 
             CH_PAIRED_LOCAL =
-                Channel.from(pe)
+                channel.fromList(pe)
                 .map { pair ->
                     def r1 = file(pair[0])
                     def r2 = file(pair[1])
@@ -77,7 +77,7 @@ workflow RNASEQ_EVIDENCE {
         else if(
             pe instanceof List &&
             pe.size() == 2 &&
-            pe.every { it instanceof CharSequence }
+            pe.every { p -> p instanceof CharSequence }
         ) {
 
             def r1 = file(pe[0])
@@ -87,7 +87,7 @@ workflow RNASEQ_EVIDENCE {
                 .replaceFirst(/([._-]R?1|[._-]1)$/, '')
 
             CH_PAIRED_LOCAL =
-                Channel.of( tuple(id, [r1, r2]) )
+                channel.of( tuple(id, [r1, r2]) )
         }
         else if (DO_PE_LOCAL) {
             error """Invalid rnaseq_paired format.
@@ -103,20 +103,20 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
         }
 
         if( params_map.rnaseq_sra_paired ) {
-            CH_RNASEQ_SRA_IDS_PAIRED = Channel.from(params_map.rnaseq_sra_paired)
+            CH_RNASEQ_SRA_IDS_PAIRED = channel.fromList(asList(params_map.rnaseq_sra_paired))
             CH_RNASEQ_PAIRED_SRA = DOWNLOAD_SRA_PAIRED(CH_RNASEQ_SRA_IDS_PAIRED)
             CH_PAIRED_SRA = CH_RNASEQ_PAIRED_SRA.map { acc, r1, r2 -> tuple(acc, [r1, r2]) }
             CH_PAIRED = CH_PAIRED_LOCAL.mix(CH_PAIRED_SRA)
         } else CH_PAIRED = CH_PAIRED_LOCAL
     }
 
-    CH_SINGLE = Channel.empty()
+    CH_SINGLE = channel.empty()
     if( DO_SE ) {
-        CH_SINGLE_LOCAL = DO_SE_LOCAL ? Channel.fromPath(params_map.rnaseq_single, checkIfExists:true) : Channel.empty()
+        CH_SINGLE_LOCAL = DO_SE_LOCAL ? channel.fromPath(params_map.rnaseq_single, checkIfExists:true) : channel.empty()
         if( params_map.rnaseq_sra_single ) {
-            CH_RNASEQ_SRA_IDS_SINGLE = Channel.from(params_map.rnaseq_sra_single)
+            CH_RNASEQ_SRA_IDS_SINGLE = channel.fromList(asList(params_map.rnaseq_sra_single))
             CH_RNASEQ_SINGLE_SRA = DOWNLOAD_SRA_SINGLE(CH_RNASEQ_SRA_IDS_SINGLE)
-            CH_SINGLE = CH_SINGLE_LOCAL.mix(CH_RNASEQ_SINGLE_SRA.map { acc, f -> f })
+            CH_SINGLE = CH_SINGLE_LOCAL.mix(CH_RNASEQ_SINGLE_SRA.map { _acc, f -> f })
         } else CH_SINGLE = CH_SINGLE_LOCAL
     }
 
@@ -124,7 +124,7 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
         index = HISAT2_BUILD(CH_GENOME)
     }
 
-    rnaseq_bams = Channel.empty()
+    rnaseq_bams = channel.empty()
 
     if( DO_SE ) {
         map_se = HISAT2_MAP_SINGLE(index.idxdir, CH_SINGLE)
@@ -140,7 +140,7 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
 
     if( DO_BAM ) {
         rnaseq_bams = rnaseq_bams.mix(
-            Channel.from(params_map.rnaseq_bam).map { file(it) }
+            channel.fromList(asList(params_map.rnaseq_bam)).map { f -> file(f) }
         )
     }
 
@@ -151,11 +151,9 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
 
     hints_out    = rnaseq_hints.hints
     asm_gtf_out  = asm.gtf
-    asm_gff3_out = asm.gff3
     }
 
     emit:
     hints    = hints_out
     asm_gtf  = asm_gtf_out
-    asm_gff3 = asm_gff3_out
 }

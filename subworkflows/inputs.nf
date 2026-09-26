@@ -29,9 +29,9 @@ workflow INPUTS {
     def localProteinsCh = nextflow.Channel.empty()
     if( params_map.proteins ) {
         def rawList = (params_map.proteins instanceof List) ? params_map.proteins : [params_map.proteins]
-        proteinsList = rawList.findAll { it }
-        proteinsFiles = proteinsList.collect { file(it) }
-        proteinsFiles.each { if( !it.exists() ) error "Proteins file not found: ${it}" }
+        proteinsList = rawList.findAll { p -> p }
+        proteinsFiles = proteinsList.collect { p -> file(p) }
+        proteinsFiles.each { f -> if( !f.exists() ) error "Proteins file not found: ${f}" }
         if( proteinsFiles.size() == 1 ) {
             def singleProt = proteinsFiles[0]
             localProteinsCh = singleProt.name.toLowerCase().endsWith('.gz') \
@@ -45,12 +45,12 @@ workflow INPUTS {
     def odb12List = []
     if( params_map.odb12Partitions ) {
         def rawOdb = (params_map.odb12Partitions instanceof List) ? params_map.odb12Partitions : [params_map.odb12Partitions]
-        odb12List = rawOdb.findAll { it }
+        odb12List = rawOdb.findAll { p -> p }
         def allowed = [
             'Metazoa', 'Vertebrata', 'Viridiplantae', 'Arthropoda', 'Fungi',
             'Alveolata', 'Stramenopiles', 'Amoebozoa', 'Euglenozoa', 'Eukaryota'
         ]
-        def invalid = odb12List.findAll { !(it in allowed) }
+        def invalid = odb12List.findAll { p -> !(p in allowed) }
         if( invalid ) error "Unsupported odb12Partitions: ${invalid.join(', ')}"
     }
 

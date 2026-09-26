@@ -15,7 +15,7 @@ workflow PROTEIN_EVIDENCE {
 
     main:
     def proteindb_ch
-    def genefinder_gff_ch = Channel.empty()
+    def genefinder_gff_ch = channel.empty()
     def scored_ch
     def prot_gtf_ch
     def prot_hints_ch
@@ -26,8 +26,7 @@ workflow PROTEIN_EVIDENCE {
     if( !params_map.scoring_matrix )  error "params.scoring_matrix is required for protein evidence modes"
 
     if( genefinderEnabled(params_map) ) {
-        def gf = GENEFINDER(CH_GENOME, params_map, false)
-        genefinder_gff_ch = gf.gff
+        genefinder_gff_ch = GENEFINDER(CH_GENOME, params_map, false)
 
         // the ab initio proteins help to select source species in large protein databases
         def ab_initio_prot = PROTEIN_FROM_GFF(resolveGenefinder(params_map), genefinder_gff_ch, CH_GENOME)

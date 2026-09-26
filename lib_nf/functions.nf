@@ -5,6 +5,12 @@ def genefinders() {
     return ['tiberius', 'vipsania']
 }
 
+// A params value as a list: YAML/CLI give a single string or a list.
+def asList(v) {
+    if( v == null ) return []
+    return (v instanceof List) ? v : [v]
+}
+
 // Interpret YAML/CLI values such as true, 'true', 1, 'yes' as boolean.
 def truthy(v) {
     if( v instanceof Boolean ) return v

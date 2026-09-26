@@ -203,3 +203,42 @@ def test_cli_end_to_end_stub_run(tmp_path: Path) -> None:
     assert written["tiberius"]["run"] is True and written["outdir"] == str(outdir)
     published = {str(p.relative_to(outdir)) for p in outdir.rglob("*") if p.is_file()}
     assert {"tiberius_evidence.gff3", "tiberius_evidence_proteins.fa", "params.yaml"} <= published
+
+
+R1, R2 = str(DATA / "reads_1.fastq"), str(DATA / "reads_2.fastq")
+
+INPUT_FORMS = {
+    # any file stands in for a BAM in a stub run
+    "bam_list":          ({"rnaseq_bam": [R1], "mode": "rnaseq"}, []),
+    "bam_string":        ({"rnaseq_bam": R1, "mode": "rnaseq"}, []),
+    "paired_pairs_list": ({"rnaseq_paired": [[R1, R2]]}, []),
+    "paired_flat_two":   ({"rnaseq_paired": [R1, R2]}, []),
+    "single_list":       ({"rnaseq_single": [R1]}, []),
+    "sra_paired_list":   ({"rnaseq_sra_paired": ["SRR0000001"]},
+                          ["sra_downloads/rnaseq_sra_paired/SRR0000001_1.fastq.gz"]),
+    "sra_single_string": ({"rnaseq_sra_single": "SRR0000002"},
+                          ["sra_downloads/rnaseq_sra_single/SRR0000002.fastq.gz"]),
+    "isoseq_sra_list":   ({"isoseq_sra": ["DRR0000003"]},
+                          ["sra_downloads/isoseq_sra/DRR0000003.fastq.gz"]),
+    "two_protein_files": ({"proteins": [str(DATA / "tiny_proteins.faa"), str(DATA / "tiny_proteins.faa")],
+                           "rnaseq_paired": str(DATA / "reads_{1,2}.fastq")}, []),
+}
+
+
+@pytest.mark.parametrize("form", sorted(INPUT_FORMS))
+def test_input_forms(form: str, tmp_path: Path) -> None:
+    """Every accepted form of the evidence inputs is wired through to the final annotation."""
+    extra, downloads = INPUT_FORMS[form]
+    params = {**GENEFINDER["tiberius"], **PROTEINS, **extra}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert {"tiberius_evidence.gff3", "intermediate/hc.gff3", "hintsfile.gff"} <= published, sorted(published)
+    for f in downloads:
+        assert f in published, (f, sorted(published))
+
+
+@pytest.mark.parametrize("bam", [[R1], R1], ids=["list", "string"])
+def test_bam_alone_is_inferred_as_rnaseq(bam, tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS, "rnaseq_bam": bam})
+    assert_ok(proc)
+    assert "Running mode: rnaseq" in proc.stdout

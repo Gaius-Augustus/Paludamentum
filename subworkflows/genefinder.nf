@@ -56,10 +56,10 @@ workflow GENEFINDER {
         }
     }
 
-    def merged = publish_top \
-        ? MERGE_GENEFINDER(tool, predictions) \
-        : MERGE_GENEFINDER_EVI(tool, predictions)
+    // Published in outdir (ab initio mode) or in outdir/intermediate (evidence modes)
+    if( publish_top ) MERGE_GENEFINDER(tool, predictions)
+    else              MERGE_GENEFINDER_EVI(tool, predictions)
 
     emit:
-    gff = merged
+    publish_top ? MERGE_GENEFINDER.out : MERGE_GENEFINDER_EVI.out
 }

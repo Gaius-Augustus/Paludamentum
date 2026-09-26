@@ -324,8 +324,6 @@ Carried over unchanged from Tiberius and tracked for a later fix:
 
 - The automatic mode inference has operator precedence slips. Set `mode`
   explicitly if the inferred mode is not what you expect.
-- `rnaseq_bam` alone is not reliably detected as RNA-Seq input by the mode
-  inference.
 - `restart` and `prothint_conflict_filter` are declared but unused.
 
 ## License and citation

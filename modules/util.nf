@@ -9,7 +9,7 @@ process CONCAT_PROTEINS {
   output:
   path "proteins_concat.faa"
 
-  shell:
+  script:
   def input_str = proteins instanceof List ? proteins.join(" ") : proteins
   """
     : > proteins_concat.faa
@@ -163,16 +163,13 @@ workflow FILTER_ALIGNMENT {
         .set { file_pct_ch }
 
     file_pct_ch
-        .filter { file, pct -> pct < 80 }
+        .filter { _file, pct -> pct < 80 }
         .view { file, pct ->
             "Removing ${file.simpleName} (alignment ${String.format('%.2f', pct)}%)"
         }
 
-    file_pct_ch
-        .filter { file, pct -> pct >= 80 }
-        .map { file, pct -> file }
-        .set { filtered_ch }
-
     emit:
-    filtered_ch
+    file_pct_ch
+        .filter { _file, pct -> pct >= 80 }
+        .map { file, _pct -> file }
 }
