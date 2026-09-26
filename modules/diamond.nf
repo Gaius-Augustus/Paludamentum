@@ -6,7 +6,7 @@ process DIAMOND_MAKEDB {
   output: path "diamond/protein_db.dmnd", emit: db
   script: """
   mkdir -p diamond
-  ${params.tools.diamond} makedb --in ${proteins} -d diamond/protein_db
+  ${params.tools.diamond} makedb --in ${proteins} -d diamond/protein_db --threads ${task.cpus}
   """
 
   stub:
@@ -30,7 +30,7 @@ process DIAMOND_BLASTP {
       exit 0
   fi
 
-  ${params.tools.diamond} blastp -q ${pep} -d ${db} -o diamond/diamond.tsv -k 5 --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+  ${params.tools.diamond} blastp -q ${pep} -d ${db} -o diamond/diamond.tsv -k 5 --threads ${task.cpus} --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
   """
 
   stub:

@@ -10,7 +10,7 @@ process MINIPROT_ALIGN {
 
   script: """
   mkdir -p miniprot
-  ${params.tools.miniprot} -t ${params.threads} --aln ${genome} ${proteins} > miniprot/miniprot.aln
+  ${params.tools.miniprot} -t ${task.cpus} --aln ${genome} ${proteins} > miniprot/miniprot.aln
   """
 
   stub:
@@ -109,10 +109,17 @@ process PREPROCESS_PROTEINDB {
             "${proteinDB}" > protein_preprocessed.fa
     else
         echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins – running DIAMOND soft filter." >&2
+        set -o pipefail
 
-        diamond makedb \
-          --in "${proteinDB}" \
-          --db prot_db
+        # Sanitize headers on the way into the database (same as above, streamed,
+        # no copy of the FASTA). OrthoDB headers carry a tab, which DIAMOND
+        # reports once per sequence ("Tabulator character in sequence title"):
+        # gigabytes of log for millions of proteins. The per-sequence warnings
+        # are dropped from stderr; everything else DIAMOND reports is kept.
+        awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
+            "${proteinDB}" \
+          | diamond makedb --db prot_db --threads ${task.cpus} \
+              2> >(grep -v -e 'Tabulator character in sequence title' >&2)
 
         # gffread emits '.' for internal stop codons in malformed CDS predictions;
         # DIAMOND rejects them. Replace with '*' (canonical stop) so the query
@@ -128,7 +135,7 @@ process PREPROCESS_PROTEINDB {
           --evalue 1e-5 \
           --max-target-seqs 200 \
           --very-sensitive \
-          --threads ${params.threads}
+          --threads ${task.cpus}
 
         rank_species_from_diamond.py diamond_hits.tsv 13 > species_rank.tsv
 

@@ -20,11 +20,17 @@ process RUN_TIBERIUS {
     def extra = ''
     if (params.tiberius?.batch_size) extra += " --batch_size ${params.tiberius.batch_size}"
     if (params.tiberius?.seq_len)    extra += " --seq_len ${params.tiberius.seq_len}"
+    // Without a configured batch size, cap Tiberius' automatic choice where it
+    // would overflow int32 on large GPUs (e.g. 96 GB); see bin/tiberius_batch_size.py.
+    def cap = params.tiberius?.batch_size ? '' :
+        "BATCH_ARG=\$(tiberius_batch_size.py --model_cfg ${model_cfg}" +
+        (params.tiberius?.seq_len ? " --seq_len ${params.tiberius.seq_len}" : '') + ")"
     """
+    ${cap}
     tiberius.py \\
         --genome ${genome} \\
         --model_cfg ${model_cfg} \\
-        --out tiberius.${genome.name}.gtf${extra}
+        --out tiberius.${genome.name}.gtf${extra} \${BATCH_ARG:-}
     """
 
     stub:

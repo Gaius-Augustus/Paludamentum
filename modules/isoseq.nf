@@ -6,8 +6,8 @@ process MINIMAP2_MAP {
   output: path "isoseq/${reads.baseName}.bam", emit: bam
   script: """
   mkdir -p isoseq
-  ${params.tools.minimap2} -ax splice:hq -uf ${genome} ${reads} -t ${params.threads} \
-    | ${params.tools.samtools} sort -@ ${params.threads} -o isoseq/${reads.baseName}.bam
+  ${params.tools.minimap2} -ax splice:hq -uf ${genome} ${reads} -t ${task.cpus} \
+    | ${params.tools.samtools} sort -@ ${task.cpus} -o isoseq/${reads.baseName}.bam
   """
 
   stub:

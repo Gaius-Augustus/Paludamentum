@@ -105,7 +105,7 @@ You can also set parameters of the pipeline within the file, default parameters 
 
 | Parameter                  | Default Value                          | Description                                                                                                  |
 | -------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `threads`                  | `48`                                   | Global default number of CPU threads used by many processes.                                                 |
+| `threads`                  | `48`                                   | Default number of CPUs reserved per task. Every tool runs with exactly the CPUs reserved for its task (`task.cpus`); a site config that sets `process.cpus` overrides this default. |
 | `outdir`                   | `"results"`                            | Directory where all final results are written.                                                               |
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
 
@@ -151,7 +151,7 @@ The launcher resolves a name such as `diatoms` to that file.
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
 | `tiberius.max_files` | `20` | Maximal number of genome chunks, which is the upper limit of parallel Tiberius tasks. |
 | `tiberius.max_parallel` | unlimited | Cap of concurrently running Tiberius tasks, for example `1` on a single-GPU workstation. |
-| `tiberius.batch_size` | automatic | Forwarded to `tiberius.py --batch_size`. |
+| `tiberius.batch_size` | automatic | Forwarded to `tiberius.py --batch_size`. Without it, Tiberius sizes the batch from the GPU memory; on GPUs above 80 GB (e.g. 96 GB RTX PRO 6000) that choice overflows int32 in TensorFlow, so the pipeline caps it (`bin/tiberius_batch_size.py`). |
 | `tiberius.seq_len` | automatic | Forwarded to `tiberius.py --seq_len`. |
 
 For the prediction the genome is split into smaller FASTA files, so that

@@ -11,7 +11,7 @@ process DOWNLOAD_SRA_PAIRED {
 
   script:
   """
-  fasterq-dump --split-files --threads ${params.threads} ${acc}
+  fasterq-dump --split-files --threads ${task.cpus} ${acc}
   gzip ${acc}_1.fastq ${acc}_2.fastq
   """
 
@@ -34,7 +34,7 @@ process DOWNLOAD_SRA_SINGLE {
 
   script:
   """
-  fasterq-dump --threads ${params.threads} ${acc}
+  fasterq-dump --threads ${task.cpus} ${acc}
   gzip ${acc}.fastq
   """
 
@@ -57,7 +57,7 @@ process DOWNLOAD_SRA_ISOSEQ {
 
   script:
   """
-  fasterq-dump --threads ${params.threads} ${acc}
+  fasterq-dump --threads ${task.cpus} ${acc}
   gzip ${acc}.fastq
   """
 

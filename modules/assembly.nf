@@ -10,7 +10,7 @@ process STRINGTIE_ASSEMBLE_RNA {
   script:
   """
   samtools sort -@ ${task.cpus} -o sorted.bam ${rnabam}
-  ${params.tools.stringtie} -p ${params.threads} -o stringtie_${rnabam.baseName}.gtf sorted.bam
+  ${params.tools.stringtie} -p ${task.cpus} -o stringtie_${rnabam.baseName}.gtf sorted.bam
   ${params.tools.transdecoder_gtf2gff} stringtie_${rnabam.baseName}.gtf > stringtie_${rnabam.baseName}.gff3
   """
 
@@ -29,7 +29,7 @@ process STRINGTIE_ASSEMBLE_ISO {
     path "stringtie_${isobam.baseName}.gff3", emit: gff3
   script:
   """
-  ${params.tools.stringtie} -p ${params.threads} -o stringtie_${isobam.baseName}.gtf -L ${isobam}
+  ${params.tools.stringtie} -p ${task.cpus} -o stringtie_${isobam.baseName}.gtf -L ${isobam}
   ${params.tools.transdecoder_gtf2gff} stringtie_${isobam.baseName}.gtf > stringtie_${isobam.baseName}.gff3
   """
 
@@ -116,7 +116,7 @@ process STRINGTIE_ASSEMBLE_MIX {
   script:
   """
   mkdir -p stringtie
-  ${params.tools.stringtie} -p ${params.threads} -o stringtie/stringtie.gtf --mix rna.bam isoseq.bam
+  ${params.tools.stringtie} -p ${task.cpus} -o stringtie/stringtie.gtf --mix rna.bam isoseq.bam
   ${params.tools.transdecoder_gtf2gff} stringtie/stringtie.gtf > stringtie/stringtie.gff3
   """
 
