@@ -38,6 +38,7 @@ them; they do not depend on Paludamentum.
 - [Roadmap](#roadmap)
 - [Known issues](#known-issues)
 - [License and citation](#license-and-citation)
+- [Funding](#funding)
 
 ## What the pipeline does
 
@@ -336,3 +337,10 @@ the READMEs of [Tiberius](https://github.com/Gaius-Augustus/Tiberius) and
 tools that the pipeline runs on your data: miniprot, miniprot-boundary-scorer,
 miniprothint, HISAT2, minimap2, StringTie, TransDecoder, DIAMOND, SAMtools,
 BEDTools, gffread, and AUGUSTUS (bam2hints).
+
+## Funding
+
+Funded by the Deutsche Forschungsgemeinschaft (DFG, German Research
+Foundation), project number 552910312: "AI-GUSTUS: Eine cloud-native Pipeline
+für genaue Genom-Annotation" (AI-GUSTUS: a cloud-native pipeline for accurate
+genome annotation).
