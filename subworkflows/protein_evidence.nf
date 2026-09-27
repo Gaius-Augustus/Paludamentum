@@ -47,5 +47,6 @@ workflow PROTEIN_EVIDENCE {
     scored_gff    = scored_ch.gff
     prot_gtf      = prot_gtf_ch.gtf
     prot_traingff = prot_gtf_ch.traingff
+    prot_hc_hints = prot_gtf_ch.hc_hints
     prot_hints    = prot_hints_ch.hints
 }

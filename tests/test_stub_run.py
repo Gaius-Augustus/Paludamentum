@@ -242,3 +242,91 @@ def test_bam_alone_is_inferred_as_rnaseq(bam, tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS, "rnaseq_bam": bam})
     assert_ok(proc)
     assert "Running mode: rnaseq" in proc.stdout
+
+
+# ---- Drusilla flow -----------------------------------------------------------
+
+def drusilla_params(tmp_path: Path, tool: str, lgb: bool = True) -> dict:
+    """A vertebrate gene finder model, and a LightGBM model file if lgb."""
+    if tool == "tiberius":
+        cfg = tmp_path / "vertebrates.yaml"
+        cfg.write_text("")
+        params = {"tiberius": {"run": True, "model_cfg": str(cfg)}}
+    else:
+        params = {"vipsania": {"run": True, "model": "etb1go6q"}}
+    if lgb:
+        model = tmp_path / "lgb.pkl"
+        model.write_text("")
+        params["drusilla"] = {"lgb_model": str(model)}
+    return params
+
+
+@pytest.mark.parametrize("mode", ["rnaseq", "isoseq", "mixed"])
+@pytest.mark.parametrize("tool", sorted(GENEFINDER))
+def test_drusilla_flow_for_vertebrate_models(tool: str, mode: str, tmp_path: Path) -> None:
+    proc, published = run_pipeline(tmp_path, {**drusilla_params(tmp_path, tool), **EVIDENCE[mode]})
+    assert_ok(proc)
+    assert "HC genes    : drusilla" in proc.stdout
+    assert "TD_ALL" not in proc.stdout
+    published = {f for f in published if not f.startswith("intermediate/vipsania/")}
+    assert published == {
+        f"{tool}_evidence.gff3",
+        f"{tool}_evidence_proteins.fa",
+        f"intermediate/{tool}_ab_initio.gff3",
+        f"intermediate/{tool}_lgb_filtered.gtf",
+        f"intermediate/{tool}_lgb_scores.tsv",
+        "intermediate/drusilla_orfs.gtf",
+        "intermediate/hint_rescue.gtf",
+        "hintsfile.gff",
+    }
+    # one StringTie assembly of all reads
+    assert proc.stdout.count("STRINGTIE_ASSEMBLE") == 1, proc.stdout
+
+
+def test_drusilla_flow_not_used_without_transcripts(tmp_path: Path) -> None:
+    proc, published = run_pipeline(tmp_path, {**drusilla_params(tmp_path, "tiberius"), **EVIDENCE["proteins"]})
+    assert_ok(proc)
+    assert "DRUSILLA" not in proc.stdout
+    assert "intermediate/hc.gff3" in published
+
+
+def test_drusilla_flow_not_used_for_other_models(tmp_path: Path) -> None:
+    params = {**GENEFINDER["vipsania"], "drusilla": {"lgb_model": str(DATA / "tiny.fa")}, **EVIDENCE["rnaseq"]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "HC genes    : transdecoder" in proc.stdout
+    assert "intermediate/hc.gff3" in published
+
+
+def test_drusilla_flow_needs_the_lgb_model(tmp_path: Path) -> None:
+    proc, published = run_pipeline(tmp_path, {**drusilla_params(tmp_path, "tiberius", lgb=False), **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "params.drusilla.lgb_model is not set" in proc.stdout
+    assert "intermediate/hc.gff3" in published
+
+
+def test_drusilla_flow_can_be_switched_off(tmp_path: Path) -> None:
+    params = drusilla_params(tmp_path, "tiberius")
+    params["drusilla"]["run"] = False
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HC genes    : transdecoder" in proc.stdout
+    assert "intermediate/drusilla_orfs.gtf" not in published
+
+
+def test_drusilla_flow_forced_needs_transcripts(tmp_path: Path) -> None:
+    params = drusilla_params(tmp_path, "tiberius")
+    params["drusilla"]["run"] = True
+    proc, _ = run_pipeline(tmp_path, {**params, **EVIDENCE["proteins"]})
+    assert proc.returncode != 0
+    assert "needs transcripts" in proc.stdout + proc.stderr
+
+
+def test_drusilla_flow_without_rescue(tmp_path: Path) -> None:
+    params = drusilla_params(tmp_path, "tiberius")
+    params["drusilla"]["rescue"] = False
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HINT_RESCUE" not in proc.stdout
+    assert "intermediate/drusilla_orfs.gtf" in published
+    assert "intermediate/hint_rescue.gtf" not in published

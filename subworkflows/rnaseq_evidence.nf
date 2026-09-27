@@ -15,6 +15,7 @@ workflow RNASEQ_EVIDENCE {
     take:
     CH_GENOME
     params_map
+    asm_mode     // 'per_sample': one StringTie assembly per BAM; 'merged': one of the merged BAM; 'none'
 
     main:
     empty_file = EMPTY_FILE()
@@ -28,6 +29,7 @@ workflow RNASEQ_EVIDENCE {
 
     def hints_out    = empty_file
     def asm_gtf_out  = channel.empty()
+    def bam_out      = channel.empty()
 
     if( DO_SE || DO_PE || DO_BAM ) {
 
@@ -144,16 +146,18 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
         )
     }
 
-    asm = STRINGTIE_ASSEMBLE_RNA(rnaseq_bams)
-
     rnaseq_merged = SAMTOOLS_MERGE_RNA(rnaseq_bams.collect())
     rnaseq_hints  = BAM2HINTS_RNA(rnaseq_merged.bam, CH_GENOME)
 
+    if( asm_mode == 'per_sample' )  asm_gtf_out = STRINGTIE_ASSEMBLE_RNA(rnaseq_bams).gtf
+    else if( asm_mode == 'merged' ) asm_gtf_out = STRINGTIE_ASSEMBLE_RNA(rnaseq_merged.bam).gtf
+
     hints_out    = rnaseq_hints.hints
-    asm_gtf_out  = asm.gtf
+    bam_out      = rnaseq_merged.bam
     }
 
     emit:
     hints    = hints_out
     asm_gtf  = asm_gtf_out
+    bam      = bam_out
 }
