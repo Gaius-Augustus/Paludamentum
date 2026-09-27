@@ -286,7 +286,10 @@ tests/                 launcher tests and Nextflow stub runs
   parameter block, a branch in `subworkflows/genefinder.nf`, and entries in
   the launcher's `GENEFINDER_CLI`, `SUBMODULES` and `GENEFINDER_CLI_KEYS`
   tables. The process takes a genome FASTA and emits GTF or GFF3.
-  `bin/merge_annotations.py` renumbers gene IDs during merging.
+  `bin/merge_annotations.py` renumbers gene IDs during merging, writes
+  transcripts with a CDS as `mRNA` and marks their genes
+  `gene_biotype=protein_coding`, as in NCBI/Ensembl GFF3, so that
+  [Annotrieve](https://genome.crg.es/annotrieve/) reports them the same way.
 - Renaming a process invalidates `-resume` for runs in progress. Mention it in
   the release notes.
 

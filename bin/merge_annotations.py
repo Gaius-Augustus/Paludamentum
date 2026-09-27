@@ -35,6 +35,8 @@ Input:
 Output:
     A GFF3 written to stdout (or redirected by the user). Source (column 2)
     preserves the originating annotation source for each gene and child feature.
+    Transcripts with a CDS are written as mRNA and their genes get
+    gene_biotype=protein_coding, as in NCBI/Ensembl GFF3 (Annotrieve).
 """
 
 import sys
@@ -408,8 +410,8 @@ def write_clusters_as_gff3(clusters: List[GeneCluster], out_handle):
     Write gene clusters as a GFF3 to out_handle.
 
     Features:
-        - gene
-        - transcript
+        - gene (gene_biotype=protein_coding if any transcript has a CDS)
+        - mRNA (transcript with CDS) or transcript (without CDS)
         - exon
         - UTR (and/or five_prime_UTR / three_prime_UTR, as in input)
         - CDS
@@ -434,6 +436,8 @@ def write_clusters_as_gff3(clusters: List[GeneCluster], out_handle):
         gene_source = ",".join(gene_sources) if gene_sources else "merge"
 
         gene_attrs = {"ID": gc.gene_id}
+        if any(tx.cds for tx in gc.transcripts):
+            gene_attrs["gene_biotype"] = "protein_coding"
         out_handle.write("\t".join([
             gc.seqid, gene_source, "gene",
             str(gc.start), str(gc.end),
@@ -451,8 +455,9 @@ def write_clusters_as_gff3(clusters: List[GeneCluster], out_handle):
 
             t_start, t_end = tx.output_span  # output includes UTR
 
+            # Coding transcripts are mRNA, as in NCBI/Ensembl GFF3 (Annotrieve).
             out_handle.write("\t".join([
-                tx.seqid, tx.source, "transcript",
+                tx.seqid, tx.source, "mRNA" if tx.cds else "transcript",
                 str(t_start), str(t_end),
                 ".", tx.strand, ".",
                 attrs_to_str({"ID": tx_id, "Parent": gc.gene_id}),
