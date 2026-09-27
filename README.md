@@ -273,6 +273,7 @@ drusilla:
   weights: null          # a local .weights.h5 instead (needs config)
   config: null
   cache_dir: null        # model cache; null = download in the task, which needs internet
+  shards: 1              # parallel Drusilla processes; e.g. 24 on a 48-core CPU node
   lgb_model: null        # LightGBM model of the ab initio filter (required)
   lgb_threshold: 0.5
   lgb_keep: correct      # classes kept after the threshold, e.g. "correct,partial"
@@ -292,7 +293,11 @@ drusilla:
 ```
 
 Drusilla runs on a GPU (label `gpu`) in the Drusilla image; the LightGBM
-filter needs `lightgbm`, `scikit-learn`, `joblib` and `pyfaidx`.
+filter needs `lightgbm`, `scikit-learn`, `joblib` and `pyfaidx`. Without a
+GPU, send `DRUSILLA_ANNOTATE` to CPU nodes in your site config and set
+`shards`: one Drusilla process uses only one to two cores, so `shards`
+splits the transcripts by gene into parts that run in parallel. On Bos taurus
+24 shards used 26 of 48 cores and 40 GB.
 
 ## Containers
 

@@ -53,20 +53,45 @@ process DRUSILLA_ANNOTATE {
   if( d.batch_size )                extra += " --batch-size ${d.batch_size}"
   if( d.min_coding_length != null ) extra += " --min-coding-length ${d.min_coding_length}"
   def cache = d.cache_dir ?: '\$PWD/drusilla_cache'
+  // shards > 1: the transcripts are split by gene into this many parts, each
+  // annotated by its own process. On CPUs one process uses only 1-2 cores.
+  def shards = (d.shards ?: 1) as Integer
+  def threads = Math.max(1, (task.cpus as Integer).intdiv(shards))
   """
   export DRUSILLA_CACHE_DIR=${cache}
   mkdir -p drusilla
-  drusilla annotate \\
-      --stringtie-gtf ${gtf} \\
-      --genome ${genome} \\
-      ${model} \\
-      --out-dir drusilla \\
-      --threads ${task.cpus} \\
-      --no-subseq-collapse \\
-      --lorf-class \\
-      --partial-out drusilla/orfs.partial.gtf \\
-      --partial5-out drusilla/orfs.partial5.gtf${extra}
-  touch drusilla/orfs.partial.gtf drusilla/orfs.partial5.gtf
+  annotate() {
+      drusilla annotate \\
+          --stringtie-gtf \$1 \\
+          --genome ${genome} \\
+          ${model} \\
+          --out-dir \$2 \\
+          --threads ${threads} \\
+          --no-subseq-collapse \\
+          --lorf-class \\
+          --partial-out \$2/orfs.partial.gtf \\
+          --partial5-out \$2/orfs.partial5.gtf${extra}
+      touch \$2/orfs.partial.gtf \$2/orfs.partial5.gtf
+  }
+  if [ ${shards} -le 1 ]; then
+      annotate ${gtf} drusilla
+  else
+      awk -F'\t' -v n=${shards} '/^#/ {next} {
+              match(\$9, /gene_id "[^"]+"/); g = substr(\$9, RSTART, RLENGTH)
+              if (!(g in shard)) shard[g] = k++ % n
+              print > ("shard_" shard[g] ".gtf") }' ${gtf}
+      pids=""
+      for f in shard_*.gtf; do
+          i=\${f#shard_}; i=\${i%.gtf}
+          TF_NUM_INTRAOP_THREADS=${threads} OMP_NUM_THREADS=${threads} \\
+              annotate \$f drusilla_\$i > drusilla_\$i.log 2>&1 &
+          pids="\$pids \$!"
+      done
+      for p in \$pids; do wait \$p || { cat drusilla_*.log >&2; exit 1; }; done
+      for o in orfs.gtf orfs.partial.gtf orfs.partial5.gtf; do
+          cat drusilla_*/\$o > drusilla/\$o
+      done
+  fi
   """
 
   stub:
