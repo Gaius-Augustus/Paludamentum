@@ -3,6 +3,9 @@ nextflow.enable.dsl=2
 // Processes of the Drusilla flow: the StringTie pre-filter, the Drusilla ORF
 // annotation, the stop and start codon fix of the ORFs, the LightGBM filter of
 // the gene finder predictions, and the hint rescue of partial gene finder genes.
+// Each process references single params.drusilla values, not the whole block:
+// Nextflow hashes every referenced value, so a changed option only reruns the
+// processes that use it.
 
 process FILTER_STRINGTIE {
   label 'container'
@@ -13,17 +16,16 @@ process FILTER_STRINGTIE {
     path "stringtie.filtered.gtf", emit: gtf
 
   script:
-  def d = params.drusilla
   """
   filter_stringtie_gtf.py \\
       --in-gtf ${gtf} \\
       --out-gtf stringtie.filtered.gtf \\
       --out-tsv stringtie.decisions.tsv \\
-      --min-length ${d.min_length} \\
-      --min-cov ${d.min_cov} \\
-      --min-tpm ${d.min_tpm} \\
-      --long-length ${d.long_length} \\
-      --min-tpm-long ${d.min_tpm_long}
+      --min-length ${params.drusilla.min_length} \\
+      --min-cov ${params.drusilla.min_cov} \\
+      --min-tpm ${params.drusilla.min_tpm} \\
+      --long-length ${params.drusilla.long_length} \\
+      --min-tpm-long ${params.drusilla.min_tpm_long}
   """
 
   stub:
@@ -46,16 +48,15 @@ process DRUSILLA_ANNOTATE {
     path "drusilla/orfs.partial5.gtf", emit: partial5
 
   script:
-  def d = params.drusilla
-  def model = d.weights ? "--weights ${d.weights}" + (d.config ? " --config ${d.config}" : '') \
-                        : "--model ${d.model ?: 'vertebrates'}"
+  def model = params.drusilla.weights ? "--weights ${params.drusilla.weights}" + (params.drusilla.config ? " --config ${params.drusilla.config}" : '') \
+                        : "--model ${params.drusilla.model ?: 'vertebrates'}"
   def extra = ''
-  if( d.batch_size )                extra += " --batch-size ${d.batch_size}"
-  if( d.min_coding_length != null ) extra += " --min-coding-length ${d.min_coding_length}"
-  def cache = d.cache_dir ?: '\$PWD/drusilla_cache'
+  if( params.drusilla.batch_size )                extra += " --batch-size ${params.drusilla.batch_size}"
+  if( params.drusilla.min_coding_length != null ) extra += " --min-coding-length ${params.drusilla.min_coding_length}"
+  def cache = params.drusilla.cache_dir ?: '\$PWD/drusilla_cache'
   // shards > 1: the transcripts are split by gene into this many parts, each
   // annotated by its own process. On CPUs one process uses only 1-2 cores.
-  def shards = (d.shards ?: 1) as Integer
+  def shards = (params.drusilla.shards ?: 1) as Integer
   def threads = Math.max(1, (task.cpus as Integer).intdiv(shards))
   """
   export DRUSILLA_CACHE_DIR=${cache}
@@ -121,9 +122,8 @@ process FIX_ORFS {
     path "drusilla_orfs.gtf", emit: gtf
 
   script:
-  def d = params.drusilla
-  def fixStop  = d.fix_stop == null || d.fix_stop.toString().toLowerCase() in ['true', '1', 'yes']
-  def fixStart = fixStop && (d.fix_start == null || d.fix_start.toString().toLowerCase() in ['true', '1', 'yes'])
+  def fixStop  = params.drusilla.fix_stop == null || params.drusilla.fix_stop.toString().toLowerCase() in ['true', '1', 'yes']
+  def fixStart = fixStop && (params.drusilla.fix_start == null || params.drusilla.fix_start.toString().toLowerCase() in ['true', '1', 'yes'])
   def fix = !fixStop ? "cp orfs.raw.gtf orfs.fixed.gtf" : """\
   fix_stop_by_miniprot.py \\
       --orfs orfs.raw.gtf \\
@@ -171,8 +171,7 @@ process GENEFINDER_LGB_FILTER {
     path "${prefix}_lgb_scores.tsv", emit: scores
 
   script:
-  def d = params.drusilla
-  def keep = (d.lgb_keep ?: 'correct').toString().split(/[,\s]+/).findAll { k -> k }.join('|')
+  def keep = (params.drusilla.lgb_keep ?: 'correct').toString().split(/[,\s]+/).findAll { k -> k }.join('|')
   """
   gff_to_cds_gtf.py ${ab_initio} > ab_initio.gtf
   compute_orf_features.py \\
@@ -186,7 +185,7 @@ process GENEFINDER_LGB_FILTER {
       --features features.tsv \\
       --in-gtf ab_initio.gtf \\
       --out-gtf lgb_scored.gtf \\
-      --threshold ${d.lgb_threshold}
+      --threshold ${params.drusilla.lgb_threshold}
   grep -E 'lgb_class "(${keep})"' lgb_scored.gtf > ${prefix}_lgb_filtered.gtf || true
   grep -E 'lgb_class "partial"' lgb_scored.gtf > ${prefix}_lgb_partial.gtf || true
   mv lgb_scored.scores.tsv ${prefix}_lgb_scores.tsv
