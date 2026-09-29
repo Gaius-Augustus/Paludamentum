@@ -200,6 +200,8 @@ process GENEFINDER_LGB_FILTER {
 // Hint rescue, part 1: loci of partial gene finder transcripts without a kept
 // transcript on the same strand, each with the hints of its best protein chain.
 // Loci where a Drusilla ORF already has all introns of the chain are skipped.
+// Also checks on CPU that the rescue Tiberius has --hints (branch
+// hint_integration); HINTS_OK=false leaves the loci empty.
 process HINT_RESCUE_LOCI {
   label 'container'
   input:
@@ -211,44 +213,49 @@ process HINT_RESCUE_LOCI {
     path genome
 
   output:
-    path "rescue/combined_loci.fa", emit: fasta
-    path "rescue/combined_hints.gff", emit: hints
-    path "rescue/loci_manifest.tsv", emit: manifest
+    tuple path("rescue/combined_loci.fa"), path("rescue/combined_hints.gff"),
+          path("rescue/loci_manifest.tsv"), env('HINTS_OK'), emit: loci
 
   script:
+  def tiberius = params.drusilla.rescue_tiberius ?: '\$(command -v tiberius.py)'
   """
-  samtools faidx ${genome}
-  chainedHints.py ${hints_gff} ${miniprot_gff} --output chained_hints.gff
   mkdir -p rescue
-  prepare_hint_rescue_loci.py \\
-      --partial_gtf ${partial_gtf} \\
-      --correct_gtf ${correct_gtf} \\
-      --chained_hints chained_hints.gff \\
-      --orfs_gtf ${orfs_gtf} \\
-      --genome ${genome} \\
-      --outdir rescue \\
-      --flank ${params.drusilla.rescue_flank}
+  if python3 ${tiberius} --help 2>&1 | grep -q -- '--hints'; then
+      HINTS_OK=true
+      samtools faidx ${genome}
+      chainedHints.py ${hints_gff} ${miniprot_gff} --output chained_hints.gff
+      prepare_hint_rescue_loci.py \\
+          --partial_gtf ${partial_gtf} \\
+          --correct_gtf ${correct_gtf} \\
+          --chained_hints chained_hints.gff \\
+          --orfs_gtf ${orfs_gtf} \\
+          --genome ${genome} \\
+          --outdir rescue \\
+          --flank ${params.drusilla.rescue_flank}
+  else
+      HINTS_OK=false
+  fi
   touch rescue/combined_loci.fa rescue/combined_hints.gff rescue/loci_manifest.tsv
   """
 
   stub:
   """
   mkdir -p rescue
-  touch rescue/combined_loci.fa rescue/combined_hints.gff rescue/loci_manifest.tsv
+  echo '>stub' > rescue/combined_loci.fa
+  touch rescue/combined_hints.gff rescue/loci_manifest.tsv
+  HINTS_OK=true
   """
 }
 
 // Hint rescue, part 2: Tiberius predicts the loci with the chain hints; the
 // predictions that agree with the hints are mapped back to the genome.
-// Needs a Tiberius with --hints (branch hint_integration). Without it, or
-// without loci, the rescue is empty.
+// DRUSILLA_HC runs it only if HINT_RESCUE_LOCI found --hints and loci, so no
+// GPU task is booked for a rescue that cannot run.
 process HINT_RESCUE_TIBERIUS {
   label 'gpu', 'container'
   publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy'
   input:
-    path fasta
-    path hints
-    path manifest
+    tuple path(fasta), path(hints), path(manifest)
     val model_cfg
 
   output:
@@ -264,21 +271,13 @@ process HINT_RESCUE_TIBERIUS {
       (seqLen ? " --seq_len ${seqLen}" : '') + ")"
   """
   ${batch}
-  if [ ! -s ${fasta} ]; then
-      echo "hint rescue: no loci" >&2
-      : > hint_rescue.gtf
-  elif ! python3 ${tiberius} --help 2>&1 | grep -q -- '--hints'; then
-      echo "WARNING: ${tiberius} has no --hints option; hint rescue skipped" >&2
-      : > hint_rescue.gtf
-  else
-      python3 ${tiberius} \\
-          --genome ${fasta} \\
-          --model_cfg ${model_cfg} \\
-          --hints ${hints} \\
-          --hint_weight ${params.drusilla.rescue_hint_weight} \\
-          --out rescue_raw.gtf${seqLen ? " --seq_len ${seqLen}" : ''} \${BATCH_ARG:-}
-      filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} hint_rescue.gtf
-  fi
+  python3 ${tiberius} \\
+      --genome ${fasta} \\
+      --model_cfg ${model_cfg} \\
+      --hints ${hints} \\
+      --hint_weight ${params.drusilla.rescue_hint_weight} \\
+      --out rescue_raw.gtf${seqLen ? " --seq_len ${seqLen}" : ''} \${BATCH_ARG:-}
+  filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} hint_rescue.gtf
   """
 
   stub:

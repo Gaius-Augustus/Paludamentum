@@ -180,7 +180,7 @@ is `tiberius` or `vipsania`.
 | `intermediate/drusilla_orfs.gtf` | Drusilla ORFs, the HC genes of the Drusilla flow |
 | `intermediate/<tool>_lgb_filtered.gtf` | ab initio predictions kept by the LightGBM filter (Drusilla flow) |
 | `intermediate/<tool>_lgb_scores.tsv` | LightGBM class probabilities of all ab initio transcripts (Drusilla flow) |
-| `intermediate/hint_rescue.gtf` | ab initio genes predicted again with protein hints (Drusilla flow) |
+| `intermediate/hint_rescue.gtf` | ab initio genes predicted again with protein hints (Drusilla flow; missing if the rescue was skipped) |
 | `hintsfile.gff` | protein, RNA-Seq and Iso-Seq hints |
 | `sra_downloads/` | reads downloaded from SRA |
 | `params.yaml` | the merged parameters of this run, written by the launcher |
@@ -261,8 +261,10 @@ Steps:
    are kept.
 6. Hint rescue: loci of `partial` transcripts without a kept transcript are
    predicted again by Tiberius with the hints of the best protein chain of the
-   locus. This needs a Tiberius with `--hints` (branch `hint_integration`),
-   given as `rescue_tiberius`; otherwise the step is skipped with a warning.
+   locus. This needs a Tiberius with `--hints` (branch `hint_integration`,
+   with bricks2marble from its branch `intron_hints`), given as
+   `rescue_tiberius`. Otherwise the step is skipped with a warning in the
+   Nextflow log, and no GPU task is started.
 7. The kept and rescued ab initio transcripts and the Drusilla ORFs are merged
    into `<tool>_evidence.gff3`.
 
@@ -414,8 +416,9 @@ Drusilla flow:
 - The Drusilla image does not contain `lightgbm`, `scikit-learn` and
   `pyfaidx`, which the LightGBM filter needs.
 - The Drusilla image has only the tag `latest`.
-- The hint rescue needs the Tiberius branch `hint_integration`, which is not
-  part of a Tiberius release.
+- The hint rescue needs the Tiberius branch `hint_integration` and the
+  bricks2marble branch `intron_hints`, which are not part of a release. With
+  the released Tiberius the rescue is skipped with a warning.
 - The scripts of the flow (`bin/filter_stringtie_gtf.py`,
   `compute_orf_features.py`, `apply_lgb_model_gtf.py`, `fix_stop_by_miniprot.py`,
   `prepare_hint_rescue_loci.py`, `filter_and_merge_rescue_gtf.py`,
