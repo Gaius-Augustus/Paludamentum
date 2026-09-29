@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # From Tiberius, branch hint_integration (5a66154), tiberius/scripts/chainedHints.py; used unchanged in the Drusilla flow.
+# Copyright (c) 2023 Lars Gabriel. MIT License, see LICENSE-Tiberius.
 # ==============================================================
 # Emit per-chain hints whose genomic positions pass the
 # high-confidence filter in hc.gff. Each output line keeps the
