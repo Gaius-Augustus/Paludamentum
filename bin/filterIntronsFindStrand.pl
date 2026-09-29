@@ -11,8 +11,8 @@
 #                                                                                                  #
 # Release date: December 11th 2019                                                                 #
 #                                                                                                  #
-# This script is under the Artistic Licence                                                        #
-# (http://www.opensource.org/licenses/artistic-license.php)                                        #
+# This script is under the Artistic Licence 1.0                                                    #
+# (https://opensource.org/license/Artistic-1.0)                                                    #
 #                                                                                                  #
 ####################################################################################################
 

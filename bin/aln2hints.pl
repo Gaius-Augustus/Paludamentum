@@ -13,8 +13,8 @@
 #                                                                                                  #
 # Last modification: November 4th 2022                                                             #
 #                                                                                                  #
-# This script is under the Artistic Licence                                                        #
-# (http://www.opensource.org/licenses/artistic-license.php)                                        #
+# This script is under the Artistic Licence 1.0                                                    #
+# (https://opensource.org/license/Artistic-1.0)                                                    #
 #                                                                                                  #
 # Usage:                                                                                           #
 # align2hints.pl [OPTIONS] --in=align.gff3 --out=hintsfile.gff \                                   #
