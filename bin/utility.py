@@ -1,3 +1,5 @@
+# From Tiberius (52b87dd), tiberius/scripts/utility.py; used unchanged.
+# Copyright (c) 2023 Lars Gabriel. MIT License, see LICENSE-Tiberius.
 import yaml, logging, os, shutil, subprocess, sys
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord

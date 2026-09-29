@@ -1,3 +1,5 @@
+# From Tiberius (aae4a8a), tiberius/scripts/hc_module.py; used unchanged.
+# Copyright (c) 2023 Lars Gabriel. MIT License, see LICENSE-Tiberius.
 import logging, sys, os, re, subprocess
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord

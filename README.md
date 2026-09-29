@@ -332,7 +332,9 @@ Carried over unchanged from Tiberius and tracked for a later fix:
 
 ## License and citation
 
-Artistic License 1.0, see [LICENSE](LICENSE).
+Artistic License 1.0, see [LICENSE](LICENSE). Scripts in `bin/` copied from
+Tiberius say so in their header and stay under its MIT License, see
+[LICENSE-Tiberius](LICENSE-Tiberius).
 
 If you use the pipeline, cite the gene finder you ran. The references are in
 the READMEs of [Tiberius](https://github.com/Gaius-Augustus/Tiberius) and
