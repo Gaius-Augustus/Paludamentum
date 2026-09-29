@@ -79,7 +79,7 @@ workflow {
 
       def train_final
       if( MODE in ['mixed','rnaseq','isoseq'] ) {
-        train_final = HC_GENES(asm_gtf, inp.genome, pe.proteindb, pe.scored_gff)
+        train_final = HC_GENES(asm_gtf, inp.genome, pe.proteindb)
       } else {
         train_final = HC_FORMAT_FILTER(pe.prot_traingff, inp.genome)
       }

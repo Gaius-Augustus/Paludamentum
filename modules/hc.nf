@@ -10,12 +10,10 @@ process HC_SUPPORTED {
     path stringtie_gtf
     path stringtie_gff3
     path transcripts_fasta
-    path miniprot_gff
 
   output:
     path "hc/training.gff", emit: training_gff
     path "hc/hc_genes.pep", emit: hc_pep
-    path "hc/lc_genes.pep", emit: lc_pep
 
   script:
   """
@@ -27,16 +25,14 @@ process HC_SUPPORTED {
     --stringtie_gtf     ${stringtie_gtf} \
     --stringtie_gff3    ${stringtie_gff3} \
     --transcripts_fasta ${transcripts_fasta} \
-    --miniprot_gff      ${miniprot_gff} \
     --transdecoder_util ${params.tools.transdecoder_util_orf2genome} \
-    --bedtools_path     ${params.tools.bedtools} \
     --outdir            hc
   """
 
   stub:
   """
   mkdir -p hc
-  touch hc/training.gff hc/hc_genes.pep hc/lc_genes.pep
+  touch hc/training.gff hc/hc_genes.pep
   """
 }
 
