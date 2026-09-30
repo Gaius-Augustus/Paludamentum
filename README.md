@@ -54,7 +54,9 @@ them; they do not depend on Paludamentum.
    are assembled with StringTie, and intron hints are extracted.
 4. **High-confidence genes.** Assembled transcripts get ORFs from TransDecoder.
    ORFs that are supported by protein homology (DIAMOND) and by the scored
-   protein alignments become the high-confidence (HC) gene set.
+   protein alignments become the high-confidence (HC) gene set. TD2 can
+   replace TransDecoder (`transdecoder: td2`); a comparison is in
+   [docs/orf_finder_comparison.md](docs/orf_finder_comparison.md).
 5. **Integration.** The HC genes are merged with the ab initio predictions into
    the final annotation, and its protein sequences are extracted.
 
@@ -267,7 +269,7 @@ paludamentum/          Python launcher (paludamentum, python -m paludamentum)
 tiberius/              submodule: Tiberius (gene finder)
 vipsania/              submodule: Vipsania (gene finder)
 drusilla/              submodule: Drusilla (ORF annotator for transcripts)
-docs/                  parameters.md, hpc.md, vipsania.md
+docs/                  parameters.md, hpc.md, vipsania.md, orf_finder_comparison.md
 tests/                 launcher tests and Nextflow stub runs
 ```
 

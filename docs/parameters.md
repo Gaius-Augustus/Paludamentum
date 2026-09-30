@@ -108,6 +108,8 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `threads`                  | `48`                                   | Default number of CPUs reserved per task. Every tool runs with exactly the CPUs reserved for its task (`task.cpus`); a site config that sets `process.cpus` overrides this default. |
 | `outdir`                   | `"results"`                            | Directory where all final results are written.                                                               |
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
+| `transdecoder`             | `"td1"`                                | ORF finder of the HC gene step: `td1` (TransDecoder 5.7.1) or `td2` ([TD2](https://github.com/Markusjsommer/TD2), experimental). TD2 is not in the container image and must be on the `PATH` of the task. See [orf_finder_comparison.md](orf_finder_comparison.md). |
+| `td2_predict_args`         | none                                   | Options appended to `TD2.Predict`, for example `"--precise"`.                                                |
 
 The location of the required executables is set by default so that they are available in your path, unless you are using the Singularity container:
 | Tool Parameter                       | Default Value                           | Description                                                         |
@@ -122,6 +124,8 @@ The location of the required executables is set by default so that they are avai
 | `tools.transdecoder_util_gtf2fa`     | `"gtf_genome_to_cdna_fasta.pl"`         | Utility for converting GTF + genome → cDNA FASTA.                   |
 | `tools.transdecoder_util_orf2genome` | `"cdna_alignment_orf_to_genome_orf.pl"` | Maps ORF predictions from cDNA-level to genome coordinates.         |
 | `tools.transdecoder_gtf2gff`         | `"gtf_to_alignment_gff3.pl"`            | Converts GTF to alignment-style GFF3 for TransDecoder.              |
+| `tools.td2_longorfs`                 | `"TD2.LongOrfs"`                        | Long ORF detection of TD2 (`transdecoder: td2`).                    |
+| `tools.td2_predict`                  | `"TD2.Predict"`                         | ORF prediction of TD2 (`transdecoder: td2`).                        |
 | `tools.diamond`                      | `"diamond"`                             | Diamond alignment tool for protein-to-genome searches.              |
 | `tools.bedtools`                     | `"bedtools"`                            | Bedtools for genomic interval operations.                           |
 | `tools.miniprot`                     | `"miniprot"`                            | MiniProt — protein-to-genome aligner.                               |
