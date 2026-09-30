@@ -1,6 +1,6 @@
 nextflow.enable.dsl=2
 
-//  TransDecoder: gtf->fasta, LongOrfs, Predict
+//  TransDecoder (td1) or TD2 (td2): gtf->fasta, LongOrfs, Predict
 process TD_ALL {
   label 'container'
   input:
@@ -13,6 +13,28 @@ process TD_ALL {
     path "transdecoder/*.transdecoder_dir",                   emit: longdir
 
   script:
+  def td = params.transdecoder?.toString()?.toLowerCase() ?: 'td1'
+  if( !(td in ['td1', 'td2']) ) error "params.transdecoder must be 'td1' or 'td2', got '${params.transdecoder}'."
+  if( td == 'td2' )
+  """
+  mkdir -p transdecoder
+
+  # 1) GTF -> transcript FASTA
+  ${params.tools.transdecoder_util_gtf2fa} ${gtf} ${genome} > transdecoder/transcripts.fasta
+
+  # 2) + 3) TD2 writes the final files to the working directory; renamed to
+  # the TransDecoder names for the HC steps
+  cd transdecoder
+  ${params.tools.td2_longorfs} -t transcripts.fasta -O transcripts.fasta.transdecoder_dir -@ ${task.cpus}
+  ${params.tools.td2_predict}  -t transcripts.fasta -O transcripts.fasta.transdecoder_dir ${params.td2_predict_args ?: ''}
+  for ext in pep cds gff3 bed; do mv transcripts.fasta.TD2.\$ext transcripts.fasta.transdecoder.\$ext; done
+
+  # The FASTA headers follow TransDecoder except for minus-strand ORFs: TD2
+  # writes <start>-<end> with start > end, TransDecoder <left>-<right>
+  perl -i -pe 's/:(\\d+)-(\\d+)\\(-\\)\$/":" . (\$1 < \$2 ? "\$1-\$2" : "\$2-\$1") . "(-)"/e if /^>/' \\
+      transcripts.fasta.transdecoder.pep transcripts.fasta.transdecoder.cds
+  """
+  else
   """
   mkdir -p transdecoder
 
