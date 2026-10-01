@@ -240,7 +240,7 @@ GCB 2026 poster. It runs when all of these hold:
 - the run has transcripts (mode `rnaseq`, `isoseq` or `mixed`),
 - the gene finder model is Tiberius `vertebrates` or `mammalia*`, or Vipsania
   `Vertebrata` (`etb1go6q`),
-- `drusilla.lgb_model` is set.
+- `drusilla.lgb_model` is not `null` (the default is the released model).
 
 Steps:
 
@@ -258,13 +258,17 @@ Steps:
 5. A LightGBM model classifies each ab initio transcript as wrong, partial or
    correct, from miniprot alignment and miniprothint hint features. Transcripts
    with P(partial) + P(correct) >= 0.5 whose most likely class is `correct`
-   are kept.
+   are kept. The model (`drusilla_lgb_3class_v1`, a LightGBM text model) is
+   downloaded by Nextflow at the start of the run and checked against its
+   sha256, so the compute nodes need no internet for it.
 6. Hint rescue: loci of `partial` transcripts without a kept transcript are
    predicted again by Tiberius with the hints of the best protein chain of the
    locus. This needs a Tiberius with `--hints` (branch `hint_integration`,
-   with bricks2marble from its branch `intron_hints`), given as
-   `rescue_tiberius`. Otherwise the step is skipped with a warning in the
-   Nextflow log, and no GPU task is started.
+   with bricks2marble from its branch `intron_hints`). The step therefore
+   runs in its own image (see [Containers](#containers)). `rescue_tiberius`
+   is another `tiberius.py` to use instead. If the Tiberius has no `--hints`,
+   the step is skipped with a warning in the Nextflow log, and no GPU task is
+   started.
 7. The kept and rescued ab initio transcripts and the Drusilla ORFs are merged
    into `<tool>_evidence.gff3`.
 
@@ -276,13 +280,17 @@ drusilla:
   config: null
   cache_dir: null        # model cache; null = download in the task, which needs internet
   shards: 1              # parallel Drusilla processes; e.g. 24 on a 48-core CPU node
-  lgb_model: null        # LightGBM model of the ab initio filter (required)
+  lgb_model: https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz
+                         # LightGBM model of the ab initio filter (required): the
+                         # archive (URL or file), its unpacked directory, or a .txt with its .json
+  lgb_model_sha256: d5bf3a9774914c6ca6421507c4cb956ef813b0bd2305bf45717af5f5eb42f1da
+                         # sha256 of the archive; null for another model
   lgb_threshold: 0.5
   lgb_keep: correct      # classes kept after the threshold, e.g. "correct,partial"
   fix_stop: true         # stop codon fix of the ORFs
   fix_start: true        # start codon fix of the ORFs (needs fix_stop)
   rescue: true           # hint rescue of partial ab initio genes
-  rescue_tiberius: null  # tiberius.py with --hints; null = the one of the image
+  rescue_tiberius: null  # tiberius.py with --hints; null = the one of the hint rescue image
   rescue_model_cfg: null # null = the Tiberius model of the run, vertebrates for Vipsania
   rescue_flank: 25000
   rescue_hint_weight: 2.5
@@ -303,17 +311,24 @@ splits the transcripts by gene into parts that run in parallel. On Bos taurus
 
 ## Containers
 
-Paludamentum does not ship its own image.
+Paludamentum does not ship an image of its own, except for the hint rescue.
 
 | Processes | Image | Built from |
 | --- | --- | --- |
 | all evidence tools and Tiberius | `docker://larsgabriel23/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 | Drusilla flow (ORFs, LightGBM filter) | `docker://larsgabriel23/drusilla:latest` | `Dockerfile` in the Drusilla repository |
+| hint rescue of the Drusilla flow | `docker://gaiusaugustus/paludamentum-hint-rescue:0.1.0` | [docker/hint_rescue/Dockerfile](docker/hint_rescue/Dockerfile) |
+
+The hint rescue image is the Tiberius image 2.0.8 with the Tiberius branch
+`hint_integration` and the bricks2marble branch `intron_hints` in place of
+the released versions. It is used for the hint rescue only and will be
+dropped when both branches are released.
 
 The images are pinned in [conf/base.config](conf/base.config) through the
-process labels `container`, `vipsania` and `drusilla`. The image tag must match the
-version of the submodule; the launcher warns when they differ. The pipeline
+process labels `container`, `vipsania`, `drusilla` and `hint_rescue`. The image
+tag of a gene finder must match the version of its submodule; the launcher
+warns when they differ. The pipeline
 scripts in `bin/` are not part of an image. Nextflow adds `bin/` to the
 `PATH` of every task and mounts it into the container.
 
@@ -410,15 +425,15 @@ Carried over unchanged from Tiberius and tracked for a later fix:
 
 Drusilla flow:
 
-- The LightGBM model is not published yet, so `drusilla.lgb_model` has no
-  default. It was trained on Drusilla ORFs of 48 vertebrates and is applied to
-  gene finder predictions.
-- The Drusilla image does not contain `lightgbm`, `scikit-learn` and
-  `pyfaidx`, which the LightGBM filter needs.
+- The LightGBM model was trained on Drusilla ORFs of 48 vertebrates (listed
+  in the `.json` of the archive) and is applied to gene finder predictions.
+- The Drusilla image does not contain `lightgbm`, which the LightGBM filter
+  needs.
 - The Drusilla image has only the tag `latest`.
 - The hint rescue needs the Tiberius branch `hint_integration` and the
-  bricks2marble branch `intron_hints`, which are not part of a release. With
-  the released Tiberius the rescue is skipped with a warning.
+  bricks2marble branch `intron_hints`, which are not part of a release. It
+  runs in a separate image until they are. With a site config that runs the
+  rescue in the released Tiberius image, it is skipped with a warning.
 - The scripts of the flow (`bin/filter_stringtie_gtf.py`,
   `compute_orf_features.py`, `apply_lgb_model_gtf.py`, `fix_stop_by_miniprot.py`,
   `prepare_hint_rescue_loci.py`, `filter_and_merge_rescue_gtf.py`,

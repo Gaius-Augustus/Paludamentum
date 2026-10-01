@@ -172,6 +172,7 @@ process GENEFINDER_LGB_FILTER {
 
   script:
   def keep = (params.drusilla.lgb_keep ?: 'correct').toString().split(/[,\s]+/).findAll { k -> k }.join('|')
+  def sha256 = params.drusilla.lgb_model_sha256 ? "--sha256 ${params.drusilla.lgb_model_sha256}" : ''
   """
   gff_to_cds_gtf.py ${ab_initio} > ab_initio.gtf
   compute_orf_features.py \\
@@ -181,7 +182,7 @@ process GENEFINDER_LGB_FILTER {
       --genome ${genome} \\
       --out features.tsv
   apply_lgb_model_gtf.py \\
-      --model ${lgb_model} \\
+      --model ${lgb_model} ${sha256} \\
       --features features.tsv \\
       --in-gtf ab_initio.gtf \\
       --out-gtf lgb_scored.gtf \\
@@ -202,8 +203,10 @@ process GENEFINDER_LGB_FILTER {
 // Loci where a Drusilla ORF already has all introns of the chain are skipped.
 // Also checks on CPU that the rescue Tiberius has --hints (branch
 // hint_integration); HINTS_OK=false leaves the loci empty.
+// Both rescue processes carry the label 'hint_rescue' (image with a --hints
+// Tiberius) and never the label 'container'.
 process HINT_RESCUE_LOCI {
-  label 'container'
+  label 'hint_rescue'
   input:
     path partial_gtf
     path correct_gtf
@@ -252,7 +255,7 @@ process HINT_RESCUE_LOCI {
 // DRUSILLA_HC runs it only if HINT_RESCUE_LOCI found --hints and loci, so no
 // GPU task is booked for a rescue that cannot run.
 process HINT_RESCUE_TIBERIUS {
-  label 'gpu', 'container'
+  label 'gpu', 'hint_rescue'
   publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy'
   input:
     tuple path(fasta), path(hints), path(manifest)

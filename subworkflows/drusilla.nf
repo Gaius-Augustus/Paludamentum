@@ -46,11 +46,12 @@ workflow DRUSILLA_HC {
         // The GPU task runs only with a --hints Tiberius and at least one locus
         def tiberius = d.rescue_tiberius ?: 'the tiberius.py of the image'
         todo = loci.loci
-            .filter { fasta, hints, manifest, hintsOk ->
+            .filter { fasta, _hints, _manifest, hintsOk ->
                 if( hintsOk != 'true' ) {
                     log.warn "Hint rescue skipped: ${tiberius} has no --hints option. " +
-                             "The rescue needs the Tiberius branch hint_integration (set drusilla.rescue_tiberius); " +
-                             "set drusilla.rescue = false to silence this warning."
+                             "The rescue needs the Tiberius branch hint_integration: use the image of the label " +
+                             "hint_rescue in conf/base.config, or set drusilla.rescue_tiberius. " +
+                             "Set drusilla.rescue = false to silence this warning."
                     return false
                 }
                 if( fasta.size() == 0 ) {
@@ -59,7 +60,7 @@ workflow DRUSILLA_HC {
                 }
                 return true
             }
-            .map { fasta, hints, manifest, hintsOk -> tuple(fasta, hints, manifest) }
+            .map { fasta, hints, manifest, _hintsOk -> tuple(fasta, hints, manifest) }
         rescued = HINT_RESCUE_TIBERIUS(todo, cfgName)
         genefinder_out = kept.gtf.mix(rescued.gtf).collect()
     }
