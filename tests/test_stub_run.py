@@ -255,9 +255,11 @@ def drusilla_params(tmp_path: Path, tool: str, lgb: bool = True) -> dict:
     else:
         params = {"vipsania": {"run": True, "model": "etb1go6q"}}
     if lgb:
-        model = tmp_path / "lgb.pkl"
+        model = tmp_path / "lgb.tar.gz"
         model.write_text("")
         params["drusilla"] = {"lgb_model": str(model)}
+    else:
+        params["drusilla"] = {"lgb_model": None}
     return params
 
 

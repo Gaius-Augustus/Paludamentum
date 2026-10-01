@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# From tiberius_orf_finder/scripts/fix_stop_by_miniprot.py (Lars Gabriel), used unchanged in the Drusilla flow.
+# From tiberius_orf_finder/scripts/fix_stop_by_miniprot.py (Lars Gabriel). Changed in Paludamentum:
+# a corrected CDS is only written if it has no in-frame stop codon before its end.
+# Copyright (c) 2026 Lars Gabriel. Artistic License 1.0, see LICENSE.
 """Fix or recover stop codons in predicted ORFs using miniprot protein-to-genome alignments.
 
 Two cases are handled:
@@ -19,7 +21,10 @@ For each qualifying miniprot alignment the stop codon is located by:
      did not mark StopCodon=1 (e.g., alignment ends at a contig edge).
 
 The stop codon triplet is always verified in the genome FASTA before any
-corrected output is written.
+corrected output is written, and a corrected CDS is only written if its
+translation has no stop codon before the last one (an extension that runs
+through an in-frame stop is dropped, and the ORF is kept as it was, or
+omitted if it was partial). Splice sites of extension exons are not checked.
 
 Usage
 -----
@@ -352,6 +357,28 @@ def scan_for_start(
 # ──────────────────────────────────────────────────────────────────────────────
 # Extension logic
 # ──────────────────────────────────────────────────────────────────────────────
+
+def cds_sequence(
+    segs: list[tuple[int, int]], contig: str, strand: str, genome: Fasta,
+) -> str:
+    """Coding sequence of 0-based half-open segments in reading direction."""
+    seq = "".join(str(genome[contig][s:e]) for s, e in sorted(segs)).upper()
+    return _rev_comp(seq) if strand == "-" else seq
+
+
+def has_internal_stop(
+    segs: list[tuple[int, int]], contig: str, strand: str, genome: Fasta,
+) -> bool:
+    """True if the CDS has a stop codon in frame before its last codon.
+
+    The extension builders check the length modulo 3 and the terminal stop,
+    but an extension through miniprot CDS blocks or hint introns can cross a
+    stop codon in frame. Such a CDS would translate to a truncated protein
+    and must not be written.
+    """
+    seq = cds_sequence(segs, contig, strand, genome)
+    return any(seq[i:i + 3] in STOP_CODONS for i in range(0, len(seq) - 3, 3))
+
 
 def _merge_adjacent(segs: list[tuple[int, int]]) -> list[tuple[int, int]]:
     if not segs:
@@ -948,6 +975,15 @@ def main(argv: list[str] | None = None) -> int:
     n_partial_dropped = 0
     n_partial5_recovered = 0
     n_partial5_dropped = 0
+    n_internal_stop = 0     # corrections dropped for an in-frame stop codon
+
+    def clean(segs, orf):
+        """segs, or None if the corrected CDS has an in-frame stop codon."""
+        nonlocal n_internal_stop
+        if segs is not None and has_internal_stop(segs, orf.contig, orf.strand, genome):
+            n_internal_stop += 1
+            return None
+        return segs
 
     fix_starts_classes: set[str] = set()
     if args.fix_starts:
@@ -964,6 +1000,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.max_extension, args.max_stop_scan,
                 hint_index=hint_index,
             )
+            new_segs = clean(new_segs, orf)
 
             if new_segs is not None:
                 lines = _gtf_lines(
@@ -1000,6 +1037,7 @@ def main(argv: list[str] | None = None) -> int:
                             orf, overlapping, genome, contig_lens,
                             args.max_extension, args.max_start_scan,
                         )
+                    start_segs = clean(start_segs, orf)
                     if start_segs is not None:
                         lines = _gtf_lines(
                             orf.tid, start_segs, orf.contig, orf.strand, orf.source,
@@ -1022,10 +1060,10 @@ def main(argv: list[str] | None = None) -> int:
         # Process 5'-partial ORFs with try_fix_5prime().
         for orf in sorted(partial5_orfs.values(), key=lambda o: o.tid):
             overlapping = find_overlapping(orf, mp_index, args.min_overlap_frac)
-            new_segs = try_fix_5prime(
+            new_segs = clean(try_fix_5prime(
                 orf, overlapping, genome, contig_lens,
                 args.max_extension, args.max_stop_scan,
-            )
+            ), orf)
             if new_segs is not None:
                 lines = _gtf_lines(
                     orf.tid, new_segs, orf.contig, orf.strand, orf.source,
@@ -1053,7 +1091,8 @@ def main(argv: list[str] | None = None) -> int:
         f"Complete ORFs : {n_complete_fixed} stop-fixed, "
         f"{n_complete_unchanged} unchanged.{start_note}\n"
         f"Partial ORFs  : {n_partial_recovered} recovered{hint_note}, "
-        f"{n_partial_dropped} dropped (no protein support).{partial5_note}",
+        f"{n_partial_dropped} dropped (no protein support).{partial5_note}\n"
+        f"Corrections dropped for an in-frame stop codon: {n_internal_stop}.",
         file=sys.stderr,
     )
     print(f"Output: {args.out}", file=sys.stderr)

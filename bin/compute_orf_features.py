@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # From tiberius_orf_finder/scripts/compute_orf_features.py (Lars Gabriel), used unchanged in the Drusilla flow.
+# Copyright (c) 2026 Lars Gabriel. Artistic License 1.0, see LICENSE.
 """Compute per-ORF feature table for scoring and analysis.
 
-Joins with score_tiberius.py output on transcript_id to get the full
-feature set (this script covers protein/LORF/hint features; score_tiberius.py
-covers HMM posteriors).
+The table holds the protein, LORF and hint features of every transcript; it
+is the input of apply_lgb_model_gtf.py (the LightGBM filter of the Drusilla
+flow).
 
 Inputs
 ------

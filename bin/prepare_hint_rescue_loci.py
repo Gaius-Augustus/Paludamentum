@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # From tiberius_orf_finder/scripts/prepare_hint_rescue_loci.py (Lars Gabriel), used unchanged in the Drusilla flow.
+# Copyright (c) 2026 Lars Gabriel. Artistic License 1.0, see LICENSE.
 """
 Prepare a multi-FASTA + combined hints GFF for Tiberius hint-guided rescue.
 
@@ -7,10 +8,14 @@ Logic per locus:
   1. Only rescue partial transcripts that have NO overlapping tib_correct
      prediction on the SAME strand.
   2. Use the single best protein chain (highest sum of al_score) per merged
-     locus — one FASTA entry, one hint set, one Tiberius prediction.
-  3. Skip rescue if any existing ORF transcript already contains ALL intron
-     positions from the top chain (ORF agrees with the protein → no rescue
-     needed).
+     locus — one FASTA entry, one hint set, one Tiberius prediction. A locus
+     without a protein chain is emitted without hints, so Tiberius predicts
+     it ab initio.
+
+The ORF-agreement filter (skip a locus when an ORF transcript already has all
+introns of the chain; orf_agrees() below) is implemented but switched off:
+the benchmark was run without it. --orfs_gtf is read, but does not change the
+output.
 
 Loci are merged per-strand so evidence from opposite strands stays separate.
 Start and stop codon hints from the chain are included alongside intron hints.
@@ -42,7 +47,7 @@ def parse_args():
     p.add_argument('--chained_hints', required=True,
                    help='chain_id-tagged hints (output of chainedHints.py)')
     p.add_argument('--orfs_gtf', required=True, nargs='+',
-                   help='ORF GTF file(s) for intron-agreement check (orfs.gtf etc.)')
+                   help='ORF GTF file(s); read for the intron-agreement check, which is switched off')
     p.add_argument('--genome',  required=True, help='genome.fa (must have .fai)')
     p.add_argument('--outdir',  required=True, help='output directory')
     p.add_argument('--flank', type=int, default=25000,
@@ -357,8 +362,9 @@ def main():
     # ── Filter and collect eligible loci ─────────────────────────────────────
     # Keep every partial transcript that is not already covered by a
     # same-strand tib_correct prediction.  Chain-less loci are emitted as
-    # hint-free FASTA entries so Tiberius still runs ab-initio on them
-    # (option B).  ORF-agrees filter is dropped (option A).
+    # hint-free FASTA entries so Tiberius still runs ab-initio on them.
+    # The ORF-agreement filter (orf_agrees) is switched off, see the module
+    # docstring.
     eligible  = []
     n_correct = 0
 

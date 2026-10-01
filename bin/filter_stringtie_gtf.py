@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # From tiberius_orf_finder/scripts/filter_stringtie_gtf.py (Lars Gabriel), used unchanged in the Drusilla flow.
+# Copyright (c) 2026 Lars Gabriel. Artistic License 1.0, see LICENSE.
 """Pre-filter a StringTie GTF by transcript-level cov/TPM/length thresholds.
 
 Drops whole transcripts (both their ``transcript`` line and all their
@@ -24,8 +25,8 @@ transcripts that TPM (a per-kb quantity) naturally pushes downward::
     tpm_min(length) = min_tpm       otherwise
 
 Defaults (TPM>=1, cov>=3, length>=300; relax to TPM>=0.5 when
-length>=3000) match the discussion in plans/eval_observations.md for
-the vertebrates_test precision pass.
+length>=3000) are the values of the Drusilla benchmark on the vertebrate
+test species.
 
 Outputs
 -------

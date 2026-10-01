@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # From tiberius_orf_finder/scripts/filter_and_merge_rescue_gtf.py (Lars Gabriel), used unchanged in the Drusilla flow.
+# Copyright (c) 2026 Lars Gabriel. Artistic License 1.0, see LICENSE.
 """
 Filter and deduplicate Tiberius hint-rescue predictions.
 
