@@ -8,10 +8,13 @@ process RUN_TIBERIUS {
     // on single-GPU workstations to avoid GPU OOM from parallel chunks.
     maxForks params.tiberius?.max_parallel ? (params.tiberius.max_parallel as Integer) : Integer.MAX_VALUE
 
-    memory '180 GB'
     input:
         path genome
         path model_cfg
+        // extracted weights from params.tiberius.model_dir, staged under their own
+        // names: Tiberius finds <model>_weights in the working directory and
+        // skips the download. Empty list = download.
+        path weights
 
     output:
         path "tiberius.${genome.name}.gtf"
@@ -137,30 +140,6 @@ process MERGE_GENEFINDER_TRAIN {
     stub:
     """
     touch ${prefix}_evidence.gff3
-    """
-}
-
-process MERGE_GENEFINDER_TRAIN_PRIO {
-    label 'container'
-    publishDir "${params.outdir}/", mode:'copy'
-
-    input:
-      val prefix
-      path ab_initio
-      path traingenes
-
-    output:
-      path "${prefix}_train_prio.gff3", emit: merged
-
-    script:
-    """
-    merge_annotations.py --mode priority \\
-        --priority-file ${traingenes} ${ab_initio} ${traingenes} > ${prefix}_train_prio.gff3
-    """
-
-    stub:
-    """
-    touch ${prefix}_train_prio.gff3
     """
 }
 

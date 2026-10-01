@@ -8,28 +8,30 @@ Shipped configs in [conf/](../conf):
 | Config | Use |
 | --- | --- |
 | `base.config` | parameter defaults, process labels, container images. Always loaded by the launcher. |
-| `local.config` | one machine, no scheduler |
-| `slurm_generic.config` | starting point for SLURM clusters |
-| `greifswald_hpc.config` | the Greifswald cluster |
+| `local.config` | one machine, no scheduler; tasks are sized to the machine |
+| `slurm_generic.config` | starting point for SLURM clusters; set your GPU partition |
+| `greifswald_hpc.config` | the Greifswald cluster, as an example of a site config |
 | `user_hpc_template.config` | commented template for your own cluster |
 
-Each of them includes `base.config`. `--nf_config` accepts a path, or the name
-of a shipped config with or without the `.config` suffix (`slurm_generic`).
-
----
-
----
+The launcher loads `base.config` before your config. `--nf_config` accepts a
+path, or the name of a shipped config with or without the `.config` suffix
+(`slurm_generic`).
 
 ## 1. Create your personal HPC config
 
-Copy the template shipped with the repository:
+Copy the template shipped with the repository to any place:
 
 ```bash
 mkdir -p ~/nf_configs
 cp conf/user_hpc_template.config ~/nf_configs/mycluster.config
 ```
 
-Otherwise, use one of the example configs `local.config` for non HPC usage and `slurm_generic` a generic example for a slurm HPC.
+and pass it with `--nf_config ~/nf_configs/mycluster.config`. The copy needs
+no `includeConfig` line: the launcher always loads `conf/base.config` first.
+If you copy `local.config` or `slurm_generic.config` instead, remove their
+first line `includeConfig 'base.config'`, which only resolves inside `conf/`.
+
+For a machine without a scheduler use `local.config` as it is.
 
 ## 2. Edit the config for your cluster
 
@@ -71,21 +73,27 @@ singularity {
   // envWhitelist = 'CUDA_VISIBLE_DEVICES,NVIDIA_VISIBLE_DEVICES'
 }
 ```
-For SLURM you need to set `envWhitelist = 'CUDA_VISIBLE_DEVICES'`
-Make sure to include `containerOptions = '--nv'` in the GPU process section.
+`base.config` already whitelists `CUDA_VISIBLE_DEVICES`, which SLURM needs;
+add more variables here if your site requires them. Make sure to include
+`containerOptions = '--nv'` in the GPU process section.
 
-If you copy a shipped config out of `conf/`, replace its first line
-`includeConfig 'base.config'` by the absolute path of `conf/base.config`, or
-remove the line. The launcher always loads `base.config` before your config.
+Images are pulled once into `singularity.cacheDir`
+(`~/.cache/paludamentum/singularity` by default, or `NXF_SINGULARITY_CACHEDIR`).
+On a cluster put it on a shared file system that the compute nodes can read.
 
 ## Process labels
 
 | Label | Meaning |
 | --- | --- |
 | `container` | runs in the tools image pinned in `base.config` |
+| `vipsania` | runs in the Vipsania image; never combined with `container` |
 | `gpu` | needs a GPU; gets `containerOptions = '--nv'` |
 | `bigmem` | high memory task, 100 GB by default |
+| `download` | SRA and OrthoDB downloads; runs on the submitting host (4 CPUs, 8 GB) |
 | `local_only` | tiny task that runs on the submitting host |
 
 Override resources per label (`withLabel:`) or per process (`withName:`) in
-your config.
+your config. Memory is a closure of `task.attempt` in `base.config`: a task
+that the scheduler killed for memory or time (exit codes 137, 140, 143, 247)
+is retried up to twice with twice and three times the memory; any other
+error ends the run after the running tasks finish.

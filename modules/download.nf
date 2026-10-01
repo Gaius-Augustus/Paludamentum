@@ -1,5 +1,5 @@
 process DOWNLOAD_SRA_PAIRED {
-  label 'container', 'bigmem'
+  label 'container', 'download'
 
   publishDir "${params.outdir}/sra_downloads/rnaseq_sra_paired/", mode: 'copy'
 
@@ -22,7 +22,7 @@ process DOWNLOAD_SRA_PAIRED {
 }
 
 process DOWNLOAD_SRA_SINGLE {
-  label 'container', 'bigmem'
+  label 'container', 'download'
 
   publishDir "${params.outdir}/sra_downloads/rnaseq_sra_single/", mode: 'copy'
 
@@ -45,7 +45,7 @@ process DOWNLOAD_SRA_SINGLE {
 }
 
 process DOWNLOAD_SRA_ISOSEQ {
-  label 'container', 'bigmem'
+  label 'container', 'download'
 
   publishDir "${params.outdir}/sra_downloads/isoseq_sra/", mode: 'copy'
 

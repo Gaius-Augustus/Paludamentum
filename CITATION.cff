@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: >-
+  If you use Paludamentum, please cite the gene finder you ran (Tiberius or
+  Vipsania, see their repositories) and this repository.
+title: "Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders"
+type: software
+authors:
+  - family-names: Hoff
+    given-names: Katharina J.
+    affiliation: University of Greifswald
+repository-code: https://github.com/Gaius-Augustus/Paludamentum
+license: Artistic-1.0
+version: 0.3.0
+date-released: 2026-09-30
+keywords:
+  - genome annotation
+  - gene prediction
+  - Nextflow
+  - Tiberius
+  - Vipsania
+references:
+  - type: software
+    title: Tiberius
+    repository-code: https://github.com/Gaius-Augustus/Tiberius
+  - type: software
+    title: Vipsania
+    repository-code: https://github.com/Gaius-Augustus/Vipsania
+  - type: software
+    title: Drusilla
+    repository-code: https://github.com/Gaius-Augustus/Drusilla

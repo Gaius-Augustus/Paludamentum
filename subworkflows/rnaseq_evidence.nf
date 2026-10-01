@@ -10,6 +10,15 @@ include { STRINGTIE_ASSEMBLE_RNA } from '../modules/assembly.nf'
 include { EMPTY_FILE } from '../modules/util.nf'
 include { asList } from '../lib_nf/functions.nf'
 
+// Library name of a read file: the file name without the FASTQ suffixes and
+// without a trailing read-pair marker (_1, _R1, .1). Two libraries with the same
+// file name in different directories still collide; see SAMTOOLS_MERGE.
+def libraryId(r1) {
+    return r1.name
+        .replaceFirst(/\.(fastq|fq|fasta|fa)(\.gz)?$/, '')
+        .replaceFirst(/([._-]R?1)$/, '')
+}
+
 workflow RNASEQ_EVIDENCE {
 
     take:
@@ -62,11 +71,7 @@ workflow RNASEQ_EVIDENCE {
                 .map { pair ->
                     def r1 = file(pair[0])
                     def r2 = file(pair[1])
-
-                    def id = r1.baseName
-                        .replaceFirst(/([._-]R?1|[._-]1)$/, '')
-
-                    tuple(id, [r1, r2])
+                    tuple(libraryId(r1), [r1, r2])
                 }
         }
         /*
@@ -82,12 +87,8 @@ workflow RNASEQ_EVIDENCE {
 
             def r1 = file(pe[0])
             def r2 = file(pe[1])
-
-            def id = r1.baseName
-                .replaceFirst(/([._-]R?1|[._-]1)$/, '')
-
             CH_PAIRED_LOCAL =
-                channel.of( tuple(id, [r1, r2]) )
+                channel.of( tuple(libraryId(r1), [r1, r2]) )
         }
         else if (DO_PE_LOCAL) {
             error """Invalid rnaseq_paired format.

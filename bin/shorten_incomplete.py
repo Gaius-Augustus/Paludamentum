@@ -8,7 +8,7 @@ FASTA description line.
 
 Example
 -------
-$ shorten_incomplete_orfs.py candidates.pep -o shortened_candidates.pep
+$ shorten_incomplete.py candidates.pep -o shortened_candidates.pep
 """
 
 import argparse

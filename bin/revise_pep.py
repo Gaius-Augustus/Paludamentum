@@ -13,13 +13,13 @@ Two steps:
 
 Example
 -------
-$ revise_transdecoder_candidates.py \
-    --diamond-normal normal.tsv \
-    --diamond-short short.tsv \
-    --transdecoder-pep candidates.pep \
-    --shortened-pep shortened_candidates.pep \
-    --revised-pep revised_candidates.pep \
-    --classifications-json classifications.json
+$ revise_pep.py \
+    --diamond_normal normal.tsv \
+    --diamond_short short.tsv \
+    --transdecoder_pep candidates.pep \
+    --shortened_pep shortened_candidates.pep \
+    --revised_pep revised_candidates.pep \
+    --classifications_json classifications.json
 """
 
 import argparse

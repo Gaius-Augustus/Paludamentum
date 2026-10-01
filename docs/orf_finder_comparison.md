@@ -75,8 +75,8 @@ codon; the HC steps do not use it.
 
 | Item | Value |
 | --- | --- |
-| Genome, reference | *T. rubripes* of the vertebrate test set, `/projects/AI-GUSTUS/tiberius_orf_finder/results/vertebrates_test/Takifugu_rubripes` on brain: `assembly/genome.fa`, `assembly/annot_cds.gff` |
-| Evidence | `varus/VARUS.bam` (mode `rnaseq`), proteins `fix_stop/protein_top4.fa` |
+| Genome, reference | *T. rubripes* (GCF_901000725.2) of the Tiberius vertebrate test set, reference CDS annotation of the same assembly |
+| Evidence | one VARUS RNA-Seq BAM (mode `rnaseq`), proteins of four related species |
 | Gene finder | Vipsania, model `etb1go6q` (Vertebrata) |
 | TransDecoder and TD2 runs | Paludamentum aab81d8, image `tiberius:2.0.8`, 2026-09-30. Both reuse one Vipsania prediction (`vipsania.result`) |
 | Drusilla run | branch `drusilla` with hint rescue, same inputs, 2026-09-27 |
@@ -86,8 +86,6 @@ TD2 is not in the `tiberius:2.0.8` image. For this comparison TD2 1.1.0,
 psauron 1.1.3 and the CPU build of PyTorch were installed with `pip` into a
 directory that the site config adds to `PYTHONPATH` and `PATH` of `TD_ALL`.
 
-The tables of the runs are in `/home/hoffk83/paludamentum_test/eval` on brain
-(`td1_td2_drusilla.tsv`, `vip_td1.tsv`, `vip_td2.tsv`, `dr_vip.tsv`).
 
 ## Limits
 

@@ -4,7 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paludamentum"
-version = "0.3.0"
+# The version lives in paludamentum/__init__.py (single source); keep
+# nextflow.config manifest.version and the README status line in step
+# (tests/test_launcher.py checks it).
+dynamic = ["version"]
+authors = [{ name = "Katharina J. Hoff" }]
 description = "Launcher of the Paludamentum evidence integration pipeline (Nextflow) for the Gaius-Augustus gene finders."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -22,9 +26,13 @@ paludamentum = "paludamentum.cli:main"
 Homepage = "https://github.com/Gaius-Augustus/Paludamentum"
 Issues = "https://github.com/Gaius-Augustus/Paludamentum/issues"
 
+[tool.hatch.version]
+path = "paludamentum/__init__.py"
+
 # The pipeline itself (main.nf, modules, bin, conf) and the submodules
 # (tiberius, vipsania, drusilla) are used from a checkout. Only the launcher
-# is a package.
+# is a package; install it with `pip install -e .` from the checkout, or set
+# PALUDAMENTUM_ROOT to the checkout.
 [tool.hatch.build.targets.wheel]
 packages = ["paludamentum"]
 

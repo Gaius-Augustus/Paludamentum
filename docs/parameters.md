@@ -18,21 +18,23 @@ launcher writes the merged parameters of a run to `<outdir>/params.yaml`.
 Path to the genome FASTA file.
 
 Example:
-```bash
+```yaml
 genome: /path/to/genome.fa
 ```
 
-### Protein Sequences (Required Input)
+### Protein Sequences (required for every mode except `abinitio`)
 Path to one or more FASTA files with protein sequences aligned to the target genome.
-Multiple files are concatenated in input order.
+Multiple files are concatenated in input order. RNA-Seq and Iso-Seq evidence
+need protein evidence, because the high-confidence genes are selected by
+protein homology.
 
 Example:
-```bash
+```yaml
 proteins: /path/to/proteins.faa
 ```
 
 Or a list:
-```bash
+```yaml
 proteins: [
   /path/to/proteins1.faa,
   /path/to/proteins2.faa,
@@ -45,7 +47,7 @@ Available partitions: `Metazoa`, `Vertebrata`, `Viridiplantae`, `Arthropoda`, `F
 `Alveolata`, `Stramenopiles`, `Amoebozoa`, `Euglenozoa`, `Eukaryota`.
 
 Example:
-```bash
+```yaml
 odb12Partitions: [
   Metazoa,
   Fungi,
@@ -56,9 +58,10 @@ odb12Partitions: [
 The pipeline accepts local long and short read data. Add the absolute paths of your files to:
 `rnaseq_single`, `rnaseq_paired`, `isoseq`.
 
-Use absolute paths. Nextflow does **not** expand `~`, and relative paths are
-resolved against the directory where Nextflow is launched, not the directory
-of `params.yaml`.
+The launcher expands `~` and environment variables and resolves relative
+paths against the directory where it is launched, not the directory of
+`params.yaml`; Nextflow itself does neither, so a params file that is passed
+to `nextflow run` directly needs absolute paths. Paths must not contain spaces.
 
 #### `rnaseq_paired`
 Three forms are accepted:
@@ -106,8 +109,10 @@ You can also set parameters of the pipeline within the file, default parameters 
 | Parameter                  | Default Value                          | Description                                                                                                  |
 | -------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `threads`                  | `48`                                   | Default number of CPUs reserved per task. Every tool runs with exactly the CPUs reserved for its task (`task.cpus`); a site config that sets `process.cpus` overrides this default. |
-| `outdir`                   | `"results"`                            | Directory where all final results are written.                                                               |
+| `outdir`                   | `"results"` (the launcher sets `<genefinder>_results`) | Directory where all final results are written.                                                               |
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
+| `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
+| `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. |
 | `transdecoder`             | `"td1"`                                | ORF finder of the HC gene step: `td1` (TransDecoder 5.7.1) or `td2` ([TD2](https://github.com/Markusjsommer/TD2), experimental). TD2 is not in the container image and must be on the `PATH` of the task. See [orf_finder_comparison.md](orf_finder_comparison.md). |
 | `td2_predict_args`         | none                                   | Options appended to `TD2.Predict`, for example `"--precise"`.                                                |
 
@@ -149,9 +154,10 @@ The launcher resolves a name such as `diatoms` to that file.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `tiberius.run` | `false` (the Tiberius launcher sets `true`) | Run Tiberius and merge its predictions with the HC genes. |
+| `tiberius.run` | `false` (the launcher sets `true` for the selected gene finder) | Run Tiberius and merge its predictions with the HC genes. |
 | `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. |
-| `tiberius.result` | none | Existing Tiberius prediction (GTF/GFF3). It is used instead of running Tiberius. |
+| `tiberius.model_dir` | none | Directory that holds the extracted weights directory (`<model>_weights`, from the `weights_url` of the model configuration), for nodes without internet. Without it every task downloads the weights. |
+| `tiberius.result` | none | Existing Tiberius prediction (GTF/GFF3). It is used instead of running Tiberius; a missing file is an error. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
 | `tiberius.max_files` | `20` | Maximal number of genome chunks, which is the upper limit of parallel Tiberius tasks. |
 | `tiberius.max_parallel` | unlimited | Cap of concurrently running Tiberius tasks, for example `1` on a single-GPU workstation. |
@@ -172,4 +178,5 @@ selects one explicitly; without it the block with `run: true` is used.
 The pipeline infers its mode from the inputs, see the table in the
 [README](../README.md#inputs-and-modes). Set `mode` to force one of
 `abinitio`, `proteins`, `rnaseq`, `isoseq`, `mixed`. `tiberius` is accepted as
-the historic name of `abinitio`.
+the historic name of `abinitio`; any other value is an error, as is a forced
+mode whose inputs are missing (for example `rnaseq` without reads).

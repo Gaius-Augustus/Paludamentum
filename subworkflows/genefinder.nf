@@ -19,7 +19,9 @@ workflow GENEFINDER {
     def tool = resolveGenefinder(params_map)
     def cfg  = params_map[tool] ?: [:]
     def predictions
-    def useResult = cfg.result && file(cfg.result).exists()
+    if( cfg.result && !file(cfg.result).exists() )
+        error "params.${tool}.result is set, but the file does not exist: ${cfg.result}"
+    def useResult = cfg.result as boolean
 
     // Vipsania model files as a value channel: a local directory, or a download.
     def models = channel.empty()
@@ -52,7 +54,15 @@ workflow GENEFINDER {
             predictions = RUN_VIPSANIA(chunks, models, cfg.model).gtf.toList()
         } else {
             if( !cfg.model_cfg ) error "params.tiberius.model_cfg is required."
-            predictions = RUN_TIBERIUS(chunks, cfg.model_cfg).toList()
+            if( !file(cfg.model_cfg).exists() ) error "params.tiberius.model_cfg is not a file: ${cfg.model_cfg}"
+            // Pre-downloaded weights (params.tiberius.model_dir) are staged into
+            // every task; without them each task downloads the weights.
+            def weights = channel.value([])
+            if( cfg.model_dir ) {
+                if( !file(cfg.model_dir).isDirectory() ) error "params.tiberius.model_dir is not a directory: ${cfg.model_dir}"
+                weights = channel.fromPath("${cfg.model_dir}/*", type: 'any').collect()
+            }
+            predictions = RUN_TIBERIUS(chunks, cfg.model_cfg, weights).toList()
         }
     }
 

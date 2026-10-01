@@ -5,21 +5,6 @@ include { TD_ALL; SHORTEN_INCOMPLETE_ORFS; CDS_CLASSIFY_AND_REVISE } from '../mo
 include { DIAMOND_MAKEDB; DIAMOND_BLASTP as DIAMOND_BLASTP_NORM; DIAMOND_BLASTP as DIAMOND_BLASTP_SHORT; DIAMOND_BLASTP as DIAMOND_BLASTP_REV } from '../modules/diamond.nf'
 include { HC_SUPPORTED; HC_FORMAT_FILTER } from '../modules/hc.nf'
 
-process EMPTY_TSV {
-  output:
-  path "empty.tsv", emit: tsv
-  script:
-  """
-  : > empty.tsv
-  """
-
-  stub:
-  """
-  touch empty.tsv
-  """
-}
-
-
 workflow HC_GENES {
 
     take:
@@ -28,7 +13,12 @@ workflow HC_GENES {
     proteindb
 
     main:
-    asm      = STRINGTIE_MERGE(asm_gtf_ch.collect())
+    // Without any assembly (every library dropped for its alignment rate) the
+    // run would end without HC genes and without the final annotation.
+    def assemblies = asm_gtf_ch.collect().ifEmpty {
+        error "No transcript assembly: every RNA-Seq/Iso-Seq library was dropped (alignment rate below params.min_alignment_rate = ${params.min_alignment_rate}). Check that the reads belong to this genome, or lower params.min_alignment_rate."
+    }
+    asm      = STRINGTIE_MERGE(assemblies)
     td_all   = TD_ALL(asm.gtf, CH_GENOME)
 
     pep_short = SHORTEN_INCOMPLETE_ORFS(td_all.pep)

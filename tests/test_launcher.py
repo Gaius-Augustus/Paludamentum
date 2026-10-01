@@ -65,9 +65,30 @@ def test_pipeline_paths_root_override(tmp_path: Path):
 
 
 def test_bin_scripts_are_executable():
-    scripts = [p for p in (ROOT / "bin").iterdir() if p.is_file()]
-    assert scripts
-    assert not [p.name for p in scripts if not os.access(p, os.X_OK)]
+    """Scripts (with a shebang) are executable; imported modules are not."""
+    files = [p for p in (ROOT / "bin").iterdir() if p.is_file()]
+    assert files
+    for path in files:
+        has_shebang = path.read_bytes().startswith(b"#!")
+        assert os.access(path, os.X_OK) == has_shebang, path.name
+
+
+def test_pipeline_root_from_environment(tmp_path: Path, monkeypatch):
+    """pip install . copies only the launcher; PALUDAMENTUM_ROOT names the checkout then."""
+    monkeypatch.setenv(launcher.ROOT_ENV, str(ROOT))
+    assert launcher.pipeline_paths()[0] == ROOT
+    monkeypatch.setenv(launcher.ROOT_ENV, str(tmp_path))
+    with pytest.raises(SystemExit, match="not a Paludamentum checkout"):
+        launcher.pipeline_paths()
+
+
+def test_installed_launcher_without_checkout_explains(tmp_path: Path, monkeypatch):
+    fake_site = tmp_path / "site-packages" / "paludamentum"
+    fake_site.mkdir(parents=True)
+    monkeypatch.delenv(launcher.ROOT_ENV, raising=False)
+    monkeypatch.setattr(launcher, "__file__", str(fake_site / "launcher.py"))
+    with pytest.raises(SystemExit, match="pip install -e"):
+        launcher.pipeline_paths()
 
 
 def test_base_config_references_existing_scoring_matrix():
@@ -109,10 +130,16 @@ def test_version_mismatch_is_reported(tmp_path: Path):
 
 
 @needs_tiberius
-def test_nextflow_env_appends_the_tiberius_checkout():
+def test_nextflow_env_appends_a_callable_tiberius_py(tmp_path: Path, monkeypatch):
+    """tiberius.py is not executable in the Tiberius repository: a wrapper makes it callable."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     env = launcher.nextflow_env()
-    assert env["PATH"].split(os.pathsep)[-1] == str(TIBERIUS)
+    bin_dir = Path(env["PATH"].split(os.pathsep)[-1])
     assert env["PATH"].startswith(os.environ["PATH"])
+    script = bin_dir / "tiberius.py"
+    assert os.access(script, os.X_OK)
+    if bin_dir != TIBERIUS:
+        assert str(TIBERIUS / "tiberius.py") in script.read_text()
 
 
 def test_nextflow_env_without_checkout(tmp_path: Path):
@@ -169,6 +196,13 @@ def test_resolve_nf_config_missing(tmp_path: Path, monkeypatch):
         launcher.resolve_nf_config("no_such_cluster")
 
 
+def test_resolve_nf_config_mistyped_path_does_not_fall_back(tmp_path: Path, monkeypatch):
+    """~/x/slurm_generic.config must not silently become conf/slurm_generic.config."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="Nextflow config not found"):
+        launcher.resolve_nf_config(str(tmp_path / "x" / "slurm_generic.config"))
+
+
 # ---------------------------------------------------------------- input validation
 
 def test_validate_input_data_ok(tmp_path: Path):
@@ -209,6 +243,35 @@ def test_relative_paths_are_resolved_against_the_launch_directory(tmp_path: Path
 
 def test_expand_braces():
     assert launcher.expand_braces("a_{1,2}.fq") == ["a_1.fq", "a_2.fq"]
+
+
+def test_validate_gene_finder_files(tmp_path: Path):
+    genome = str(DATA / "tiny.fa")
+    errors = launcher.validate_input_data(
+        {"genome": genome, "tiberius": {"run": True, "result": str(tmp_path / "no.gtf")},
+         "vipsania": {"model_dir": str(tmp_path / "nodir")}, "rnaseq_bam": [str(tmp_path / "no.bam")]},
+        tmp_path / "params.yaml")
+    assert any("Tiberius result missing" in e for e in errors)
+    assert any("Vipsania model_dir missing" in e for e in errors)
+    assert any("RNA-Seq BAM missing" in e for e in errors)
+    (tmp_path / "models").mkdir()
+    ok = launcher.validate_input_data(
+        {"genome": genome, "tiberius": {"run": True, "result": genome},
+         "vipsania": {"model_dir": str(tmp_path / "models")}, "rnaseq_bam": genome},
+        tmp_path / "params.yaml")
+    assert ok == []
+
+
+def test_paths_with_whitespace_are_rejected(tmp_path: Path):
+    genome = tmp_path / "my genome.fa"
+    genome.write_text(">s\nACGT\n")
+    errors = launcher.validate_input_data({"genome": str(genome)}, tmp_path / "params.yaml")
+    assert any("whitespace" in e for e in errors)
+
+
+def test_non_path_value_is_an_error_not_a_traceback(tmp_path: Path):
+    with pytest.raises(SystemExit, match="'proteins'"):
+        launcher.validate_input_data({"genome": str(DATA / "tiny.fa"), "proteins": 42}, tmp_path / "params.yaml")
 
 
 # ---------------------------------------------------------------- launching
@@ -321,7 +384,21 @@ def test_old_java_is_rejected(tmp_path: Path, fake_path: Path):
         {}, nextflow_bin="nextflow", check_tool_binaries=False,
         skip_singularity_check=True, repo_root=ROOT,
     )
-    assert any("11+" in e for e in errors)
+    assert any("17+" in e for e in errors)
+
+
+def test_apptainer_satisfies_the_container_check(tmp_path: Path, fake_path: Path):
+    errors, _ = launcher.validate_executables(
+        {}, nextflow_bin="nextflow", check_tool_binaries=False,
+        skip_singularity_check=False, repo_root=ROOT,
+    )
+    assert any("singularity or apptainer" in e for e in errors)
+    fake_executable(fake_path, "apptainer")
+    errors, _ = launcher.validate_executables(
+        {}, nextflow_bin="nextflow", check_tool_binaries=False,
+        skip_singularity_check=False, repo_root=ROOT,
+    )
+    assert errors == []
 
 
 # ---------------------------------------------------------------- params helpers
@@ -381,7 +458,8 @@ def test_build_params_tiberius_from_the_command_line(tmp_path: Path, monkeypatch
     }
     assert params["vipsania"] == {"run": False}
     assert params["proteins"] == [str(DATA / "tiny_proteins.faa")]
-    assert params["rnaseq_paired"] == "r_{1,2}.fq"   # one value is a glob, not a list
+    # one value is a glob, not a list; relative paths are written absolute
+    assert params["rnaseq_paired"] == str(tmp_path / "r_{1,2}.fq")
     assert params["outdir"] == str(tmp_path / "tiberius_results")
 
 
@@ -419,7 +497,83 @@ def test_build_params_explicit_genefinder_and_result(tmp_path: Path, monkeypatch
     ))
     assert finder == "tiberius"
     params = yaml.safe_load(path.read_text())
-    assert params["tiberius"] == {"run": True, "result": "old.gtf"}   # no model_cfg needed
+    assert params["tiberius"] == {"run": True, "result": str(tmp_path / "old.gtf")}   # no model_cfg needed
+
+
+def test_genefinder_option_overrides_the_params_file(tmp_path: Path, monkeypatch):
+    """--genefinder vipsania with a Tiberius params file runs Vipsania, and only Vipsania."""
+    monkeypatch.chdir(tmp_path)
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text(yaml.safe_dump({
+        "genome": str(DATA / "tiny.fa"), "genefinder": "tiberius",
+        "tiberius": {"run": True, "model_cfg": str(DATA / "tiny.fa")},
+    }))
+    finder, path = launcher.build_params(cli_args("-p", str(params_file), "--genefinder", "vipsania", "--model", "Insecta"))
+    assert finder == "vipsania"
+    params = yaml.safe_load(path.read_text())
+    assert params["genefinder"] == "vipsania"
+    assert params["vipsania"] == {"run": True, "model": "Insecta"}
+    assert params["tiberius"]["run"] is False
+
+
+def test_genefinder_option_switches_a_disabled_block_on(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text(yaml.safe_dump({
+        "genome": str(DATA / "tiny.fa"), "vipsania": {"run": False, "model": "Fungi"},
+    }))
+    _, path = launcher.build_params(cli_args("-p", str(params_file), "--genefinder", "vipsania"))
+    assert yaml.safe_load(path.read_text())["vipsania"]["run"] is True
+    assert "switches vipsania.run on" in capsys.readouterr().out
+
+
+def test_two_enabled_blocks_without_a_choice_are_an_error(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text(yaml.safe_dump({
+        "genome": str(DATA / "tiny.fa"),
+        "tiberius": {"run": True, "model_cfg": str(DATA / "tiny.fa")}, "vipsania": {"run": True, "model": "Fungi"},
+    }))
+    with pytest.raises(SystemExit, match="More than one gene finder"):
+        launcher.build_params(cli_args("-p", str(params_file)))
+
+
+def test_tilde_and_variables_are_expanded_in_the_written_params(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("MYDATA", str(DATA))
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text(yaml.safe_dump({
+        "genome": "$MYDATA/tiny.fa", "proteins": ["~/p.faa"], "tiberius": {"run": True, "result": "~/old.gtf"},
+        "rnaseq_paired": [["~/a_1.fq", "~/a_2.fq"]],
+    }))
+    _, path = launcher.build_params(cli_args("-p", str(params_file)))
+    params = yaml.safe_load(path.read_text())
+    assert params["genome"] == str(DATA / "tiny.fa")
+    assert params["proteins"] == [str(tmp_path / "p.faa")]
+    assert params["tiberius"]["result"] == str(tmp_path / "old.gtf")
+    assert params["rnaseq_paired"] == [[str(tmp_path / "a_1.fq"), str(tmp_path / "a_2.fq")]]
+
+
+def test_zero_is_a_command_line_value(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _, path = launcher.build_params(cli_args(
+        "--genefinder", "vipsania", "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--threads", "0"))
+    params = yaml.safe_load(path.read_text())
+    assert params["threads"] == 0
+    assert launcher.validate_input_data(params, path)   # and the validation rejects it
+
+
+def test_three_paired_files_on_the_command_line_are_rejected(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="rnaseq_paired"):
+        launcher.build_params(cli_args("--genome", str(DATA / "tiny.fa"), "--model", "Fungi",
+                                       "--rnaseq_paired", "a_1.fq", "a_2.fq", "b_1.fq"))
+
+
+def test_mode_has_choices():
+    with pytest.raises(SystemExit):
+        cli_args("--genome", "g.fa", "--mode", "rnaseqq")
 
 
 def test_build_params_evidence_only(tmp_path: Path, monkeypatch):
@@ -474,3 +628,15 @@ def test_cli_forwards_nextflow_args(tmp_path: Path, fake_path: Path, monkeypatch
     assert cmd[-1] == "-stub-run"
     assert cmd[cmd.index("-params-file") + 1] == str(tmp_path / "vipsania_results" / "params.yaml")
     assert env is not None and "PATH" in env
+
+
+# ---------------------------------------------------------------- version
+
+def test_version_is_the_same_everywhere():
+    """paludamentum/__init__.py is the single source; the other places must follow it."""
+    import re
+    version = launcher.__name__ and __import__("paludamentum").__version__
+    manifest = re.search(r"version\s*=\s*'([^']+)'", (ROOT / "nextflow.config").read_text()).group(1)
+    assert manifest == version
+    assert f"**Status (v{version}).**" in (ROOT / "README.md").read_text()
+    assert f"\nversion: {version}\n" in (ROOT / "CITATION.cff").read_text()
