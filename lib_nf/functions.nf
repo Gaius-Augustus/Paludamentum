@@ -14,7 +14,7 @@ def asList(v) {
 // Interpret YAML/CLI values such as true, 'true', 1, 'yes' as boolean.
 def truthy(v) {
     if( v instanceof Boolean ) return v
-    return v?.toString()?.trim()?.toLowerCase() in ['true', '1', 'yes', 'y']
+    return v?.toString()?.trim()?.toLowerCase() in ['true', '1', 'yes', 'y', 'on']
 }
 
 // Name of the selected gene finder: params.genefinder, else the block with run=true.
@@ -71,7 +71,12 @@ def hcMethod(p, String mode) {
     def hasTranscripts = mode in ['rnaseq', 'isoseq', 'mixed']
     if( !auto && !truthy(run) ) return [method: 'transdecoder', note: null]
     if( auto ) {
-        if( !hasTranscripts || !genefinderEnabled(p) || !drusillaModelEligible(p) )
+        if( !hasTranscripts || !genefinderEnabled(p) )
+            return [method: 'transdecoder', note: null]
+        if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.result && !p.tiberius?.model_cfg )
+            return [method: 'transdecoder',
+                    note: "params.tiberius.result is set without params.tiberius.model_cfg, so the pipeline cannot tell whether the prediction comes from a vertebrate model; using the TransDecoder high-confidence genes. Set params.tiberius.model_cfg, or params.drusilla.run = true, for the Drusilla flow."]
+        if( !drusillaModelEligible(p) )
             return [method: 'transdecoder', note: null]
         if( !p.drusilla?.lgb_model )
             return [method: 'transdecoder',
