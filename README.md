@@ -302,8 +302,8 @@ drusilla:
   min_tpm_long: 0.5
 ```
 
-Drusilla runs on a GPU (label `gpu`) in the Drusilla image; the LightGBM
-filter needs `lightgbm`, `scikit-learn`, `joblib` and `pyfaidx`. Without a
+Drusilla runs on a GPU (label `gpu`) in the Drusilla image, which also runs
+the LightGBM filter (`lightgbm` 4.7.0, `pyfaidx`, `pandas`). Without a
 GPU, send `DRUSILLA_ANNOTATE` to CPU nodes in your site config and set
 `shards`: one Drusilla process uses only one to two cores, so `shards`
 splits the transcripts by gene into parts that run in parallel. On Bos taurus
@@ -311,14 +311,20 @@ splits the transcripts by gene into parts that run in parallel. On Bos taurus
 
 ## Containers
 
-Paludamentum does not ship an image of its own, except for the hint rescue.
+Paludamentum does not ship an image of its own, except for the Drusilla flow
+and its hint rescue.
 
 | Processes | Image | Built from |
 | --- | --- | --- |
 | all evidence tools and Tiberius | `docker://larsgabriel23/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
-| Drusilla flow (ORFs, LightGBM filter) | `docker://larsgabriel23/drusilla:latest` | `Dockerfile` in the Drusilla repository |
+| Drusilla flow (ORFs, LightGBM filter) | `docker://gaiusaugustus/drusilla:<version>` | [docker/drusilla/Dockerfile](docker/drusilla/Dockerfile) |
 | hint rescue of the Drusilla flow | `docker://gaiusaugustus/paludamentum-hint-rescue:0.1.0` | [docker/hint_rescue/Dockerfile](docker/hint_rescue/Dockerfile) |
+
+The Drusilla image is Drusilla at the commit the `drusilla/` submodule
+points to, on the same NGC TensorFlow base as the Tiberius image, with
+`lightgbm` 4.7.0 (the version the released LightGBM model was converted
+with). Its tag is the Drusilla version.
 
 The hint rescue image is the Tiberius image 2.0.8 with the Tiberius branch
 `hint_integration` and the bricks2marble branch `intron_hints` in place of
@@ -427,9 +433,6 @@ Drusilla flow:
 
 - The LightGBM model was trained on Drusilla ORFs of 48 vertebrates (listed
   in the `.json` of the archive) and is applied to gene finder predictions.
-- The Drusilla image does not contain `lightgbm`, which the LightGBM filter
-  needs.
-- The Drusilla image has only the tag `latest`.
 - The hint rescue needs the Tiberius branch `hint_integration` and the
   bricks2marble branch `intron_hints`, which are not part of a release. It
   runs in a separate image until they are. With a site config that runs the
