@@ -108,12 +108,13 @@ def test_submodules_are_declared():
 
 def test_container_tags_of_base_config():
     tags = launcher.container_tags(ROOT / "conf" / "base.config")
-    assert set(tags) >= {"tiberius", "vipsania"}
+    assert set(tags) >= {"tiberius", "vipsania", "drusilla"}
+    assert tags["drusilla"] != "latest"
 
 
 @pytest.mark.skipif(
-    not all(launcher.submodule_version(n) for n in launcher.GENEFINDER_CLI),
-    reason="gene finder submodules not checked out",
+    not all(launcher.submodule_version(n) for n in launcher.SUBMODULES),
+    reason="submodules not checked out",
 )
 def test_submodule_versions_match_the_image_tags():
     """The submodule pins the version whose image conf/base.config runs."""

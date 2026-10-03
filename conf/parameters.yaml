@@ -104,3 +104,14 @@ tiberius:
 #   model: Fungi                 # clade name or model id
 #   model_dir: null              # directory with downloaded models (offline nodes)
 #   finetune: false              # true: finetune on the genome first (one task, no chunks)
+
+# ------------------------------------------------------------
+# Drusilla flow (vertebrate models with transcripts; see README "Drusilla flow")
+# ------------------------------------------------------------
+# drusilla:
+#   run: auto                    # auto: vertebrate models only; true: always; false: never
+#   lgb_model: <released model>  # LightGBM filter model; null switches the flow off
+#   lgb_model_sha256: <of it>    # null for another model
+#   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
+#   cache_dir: null              # Drusilla model cache; null = download in the task
+#   rescue: true                 # hint rescue of partial ab initio genes

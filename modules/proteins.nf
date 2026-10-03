@@ -54,6 +54,7 @@ process MINIPROTHINT_CONVERT {
   output:
     path "miniprot/miniprot.gtf", emit: gtf
     path "miniprot/miniprot_trainingGenes.gff", emit: traingff
+    path "miniprot/hc.gff", emit: hc_hints
 
   script: """
   mkdir -p miniprot
@@ -63,7 +64,7 @@ process MINIPROTHINT_CONVERT {
   stub:
   """
   mkdir -p miniprot
-  touch miniprot/miniprot.gtf miniprot/miniprot_trainingGenes.gff
+  touch miniprot/miniprot.gtf miniprot/miniprot_trainingGenes.gff miniprot/hc.gff
   """
 }
 

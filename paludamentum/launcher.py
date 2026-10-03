@@ -204,14 +204,14 @@ def container_tags(base_config: Path) -> Dict[str, str]:
 
 def version_mismatches(root: str | Path | None = None) -> List[str]:
     """
-    Warnings for gene finder submodules whose version differs from the image
-    tag that conf/base.config runs. The submodule pins the version; the image
-    of the same version must be pinned in base.config.
+    Warnings for submodules (gene finders and Drusilla) whose version differs
+    from the image tag that conf/base.config runs. The submodule pins the
+    version; the image of the same version must be pinned in base.config.
     """
     repo_root, _, base_config = pipeline_paths(root)
     tags = container_tags(base_config)
     problems = []
-    for name in GENEFINDER_CLI:
+    for name in SUBMODULES:
         version = submodule_version(name, repo_root)
         tag = tags.get(name)
         if version and tag and version != tag:

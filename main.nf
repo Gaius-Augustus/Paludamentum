@@ -2,7 +2,7 @@ nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { MERGE_GENEFINDER_TRAIN; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod } from './lib_nf/functions.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
@@ -11,6 +11,8 @@ include { RNASEQ_EVIDENCE } from './subworkflows/rnaseq_evidence.nf'
 include { ISOSEQ_EVIDENCE } from './subworkflows/isoseq_evidence.nf'
 include { HC_GENES } from './subworkflows/hc_genes.nf'
 include { AB_INITIO } from './subworkflows/ab_initio.nf'
+include { DRUSILLA_HC } from './subworkflows/drusilla.nf'
+include { STRINGTIE_ASSEMBLE_MIX } from './modules/assembly.nf'
 
 workflow {
   main:
@@ -48,6 +50,10 @@ workflow {
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions)."
     log.info "Running mode: ${MODE}"
     log.info "Gene finder : ${genefinderRun ? genefinder : 'none'}"
+    def hc = hcMethod(params, MODE)
+    if( hc.note ) log.warn hc.note
+    def useDrusilla = hc.method == 'drusilla'
+    if( MODE != 'abinitio' && MODE != 'proteins' ) log.info "HC genes    : ${hc.method}"
 
     def inp  = INPUTS(params)
 
@@ -60,19 +66,23 @@ workflow {
 
       def empty_file = EMPTY_FILE()
 
+      // StringTie assemblies: one per BAM for TransDecoder. Drusilla uses one
+      // assembly of all reads, whose TPM and coverage its pre-filter reads.
+      def asm_mode = !useDrusilla ? 'per_sample' : (MODE == 'mixed' ? 'none' : 'merged')
+
       // Use fully-qualified Channel to avoid any name shadowing issues
       def re = (MODE in ['mixed','rnaseq']) \
-        ? RNASEQ_EVIDENCE(inp.genome, params) \
-        : [hints: empty_file, asm_gtf: nextflow.Channel.empty()]
+        ? RNASEQ_EVIDENCE(inp.genome, params, asm_mode) \
+        : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
 
       def ie = (MODE in ['mixed','isoseq']) \
-        ? ISOSEQ_EVIDENCE(inp.genome, params) \
-        : [hints: empty_file, asm_gtf: nextflow.Channel.empty()]
+        ? ISOSEQ_EVIDENCE(inp.genome, params, asm_mode) \
+        : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
 
       def asm_gtf  = nextflow.Channel.empty()
 
       if( MODE == 'mixed' ) {
-        asm_gtf  = re.asm_gtf.mix(ie.asm_gtf)
+        asm_gtf  = useDrusilla ? STRINGTIE_ASSEMBLE_MIX(re.bam, ie.bam).gtf : re.asm_gtf.mix(ie.asm_gtf)
       } else if( MODE == 'rnaseq' ) {
         asm_gtf  = re.asm_gtf
       } else if( MODE == 'isoseq' ) {
@@ -82,14 +92,19 @@ workflow {
       def all_hints = CONCAT_HINTS(pe.prot_hints, re.hints, ie.hints)
 
       def train_final
-      if( MODE in ['mixed','rnaseq','isoseq'] ) {
+      def genefinder_final = pe.genefinder_gff
+      if( useDrusilla ) {
+        def dr = DRUSILLA_HC(asm_gtf, inp.genome, genefinder, pe.genefinder_gff, pe.scored_gff, pe.prot_hc_hints)
+        train_final      = dr.orfs
+        genefinder_final = dr.genefinder
+      } else if( MODE in ['mixed','rnaseq','isoseq'] ) {
         train_final = HC_GENES(asm_gtf, inp.genome, pe.proteindb)
       } else {
         train_final = HC_FORMAT_FILTER(pe.prot_traingff, inp.genome)
       }
 
       if( genefinderRun ) {
-        MERGE_GENEFINDER_TRAIN(genefinder, pe.genefinder_gff, train_final)
+        MERGE_GENEFINDER_TRAIN(genefinder, genefinder_final, train_final)
         PROTEIN_FROM_GFF_FINAL(genefinder, MERGE_GENEFINDER_TRAIN.out.merged, inp.genome)
       }
     }
