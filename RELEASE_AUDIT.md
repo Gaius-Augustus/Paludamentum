@@ -48,8 +48,8 @@ What works (checked 2026-09-30 on the working trees):
    published at
    `https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz`
    (sha256 `d5bf3a97…2f1da`, checked after the upload). The drusilla worktree
-   downloads it by default and loads it without the pickle (D1, D5). Still
-   open: an image with lightgbm (D2).
+   downloads it by default and loads it without the pickle (D1, D5), in the
+   image `gaiusaugustus/drusilla:0.1.0` with lightgbm 4.7.0 (L7, D2).
 2. **HC gene logic.** RESOLVED 2026-09-29: the intrinsic stage never changed
    the output and is removed (`5eada8e`). Tonight the dead intrinsic code was
    deleted from `bin/hc_module.py` as well. `choose_one_isoform` keeps one ORF
@@ -75,7 +75,6 @@ What works (checked 2026-09-30 on the working trees):
 | L1 | The GitHub repo is still **private**. Make it public last. | GitHub |
 | L2 | `MIGRATION_PLAN.md` (see decision 3). Everything else with internal names (test docstring, `docs/orf_finder_comparison.md`, `docs/hint_rescue_comparison.md`) was rewritten. | `MIGRATION_PLAN.md:81`, README Roadmap |
 | L6 | Submodules are not pinned to releases, although README "Submodule pinning" says they are. Checked 2026-09-30: Tiberius' newest tag is still `v2.0.7` (submodule at `v2.0.7-11-g9734138`, image 2.0.8); Vipsania and Drusilla have no tags. Ask for tags upstream, then point the submodules at them. | `.gitmodules`, README "For maintainers" |
-| L7 | The Drusilla image is `larsgabriel23/drusilla:latest`, the only tag on Docker Hub (pushed 2026-09-07, before Drusilla `ac97d01` added lightgbm). It clones Drusilla HEAD at build time and sets `TF_USE_LEGACY_KERAS=0`, which no committed Dockerfile does, so it cannot be rebuilt. `version_mismatches()` does not check Drusilla. Needs a tagged rebuild and push (not possible from this laptop). | `conf/base.config` (drusilla), `paludamentum/launcher.py` |
 | L8 | Version bump to 0.4.0 with the Drusilla merge. The version now has one source, `paludamentum/__init__.py` (pyproject reads it); `nextflow.config`, the README status line and `CITATION.cff` must follow, which `test_version_is_the_same_everywhere` enforces. | `paludamentum/__init__.py`, `nextflow.config:11`, README:19, `CITATION.cff` |
 | L10 | `CITATION.cff` and `pyproject.toml` `authors` name Katharina J. Hoff only. **Confirm the author list** (Lars Gabriel wrote the Tiberius pipeline the scripts come from). The drusilla README does not cite Drusilla, LightGBM or the hint rescue. | `CITATION.cff`, `pyproject.toml`, README (drusilla) |
 
@@ -93,7 +92,6 @@ open.
 
 | # | Item | Where |
 |---|------|-------|
-| D2 | **The image cannot run the LightGBM filter.** `larsgabriel23/drusilla:latest` has no lightgbm; the brain runs used an injected "pyextra". With the native text model (decision 1, D5 fixed) only lightgbm is needed: no scikit-learn, no joblib. Pin it in the Drusilla Dockerfile (the model was converted and checked with lightgbm 4.7.0). The README still says the filter needs `scikit-learn` and `joblib` (README:306). | `conf/base.config` (label `drusilla`), README:306, README:430 |
 | D3 | **The README claim about the GCB 2026 poster is wrong.** The poster used `epoch_74`, no stop/start fix, no rescue, a `cat` merge, and `cds_length_nt` filled with zeros. The released `vertebrates` model is run009. Say "derived from" and give the benchmark numbers of this flow (T. rubripes 80.26, Bos 79.46; to be re-measured, decision 4). | README:236-238 |
 
 ### SHOULD
@@ -116,15 +114,16 @@ open.
 
 ### Merge notes
 
-`drusilla` will no longer merge cleanly into `main`: tonight's changes on
-`main` touch `main.nf` (include lines, the mode block, the final merge
-block), `lib_nf/functions.nf` (next to `hcMethod`), `conf/base.config`,
-`README.md`, `subworkflows/rnaseq_evidence.nf` (library ids) and the ends of
-`tests/test_stub_run.py` and `tests/stub.config`, which the drusilla branch
-also changes. Expect conflicts in these files; all are small. After the merge,
-`hcMethod()` must use the normalised mode (`normalizeMode`) and the
-`drusilla` params block needs an entry in `conf/parameters.yaml` and
-`docs/parameters.md` (including `lgb_model_sha256`).
+Merging `main` into `drusilla` (2026-10-03, state `d3027cf` into `d89a27d`)
+conflicts in `main.nf`, `conf/base.config`, `README.md`,
+`tests/test_stub_run.py` and the `drusilla` submodule. Resolution: the
+include lines of both sides without `MERGE_GENEFINDER_TRAIN_PRIO` (removed on
+`main`); `HC_GENES` with three inputs (its `scored_gff` input was removed on
+`main`); the `drusilla` params block before the `mode` comment of `main`; both
+test blocks; "Known issues" with the Drusilla items only (`main` fixed the
+others); the submodule at `e3c5cf5`, the commit of the image. `hcMethod()`
+gets the normalised mode. The `drusilla` params block is now in
+`conf/parameters.yaml` and `docs/parameters.md`.
 
 The headers of Lars Gabriel's scripts in `bin/` of the drusilla branch say
 "Artistic License 1.0, see LICENSE", but the branch still has the MIT
@@ -262,17 +261,25 @@ download (D13, part).
 Tests: `tests/test_bin_scripts.py` (9), 15 new launcher tests, 10 new stub
 runs, `tests/test_drusilla_scripts.py` (7). CI runs all of them (L9).
 
+2026-10-01/03 (L7, D2): the Drusilla image of the flow is
+`gaiusaugustus/drusilla:0.1.0` (on Docker Hub, accepted by Katharina on
+2026-10-03), built from
+`docker/drusilla/Dockerfile` (Drusilla `e3c5cf5`, lightgbm 4.7.0, Keras 3,
+NGC TensorFlow stack guarded); the `drusilla` submodule points at the same
+commit; `version_mismatches()` and `test_container_tags_of_base_config` cover
+Drusilla.
+
 ---
 
 ## Suggested order
 
 1. Commit the drusilla worktree (D1, D5 and the script fixes). Decisions 3
    and 4.
-2. Merge `drusilla` into `main` (see "Merge notes"), fix D2, D3, D6, D8, D9,
+2. Merge `drusilla` into `main` (see "Merge notes"), fix D3, D6, D8, D9,
    D10, D13. Run CI through a PR.
 3. Run T. rubripes and Bos taurus again (decision 4); test `tiberius.model_dir`
    on a GPU node (N10).
-4. Get tags upstream and pin the submodules (L6), rebuild and tag the
-   Drusilla image (L7), bump to v0.4.0 (L8), confirm the authors (L10).
+4. Get tags upstream and pin the submodules (L6), bump to v0.4.0 (L8),
+   confirm the authors (L10).
 5. Remove or rewrite `MIGRATION_PLAN.md` (L2). Tag, then make the repo
    public (L1).
