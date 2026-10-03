@@ -266,7 +266,15 @@ runs, `tests/test_drusilla_scripts.py` (7). CI runs all of them (L9).
 `docker/drusilla/Dockerfile` (Drusilla `e3c5cf5`, lightgbm 4.7.0, Keras 3,
 NGC TensorFlow stack guarded); the `drusilla` submodule points at the same
 commit; `version_mismatches()` and `test_container_tags_of_base_config` cover
-Drusilla.
+Drusilla. Checked on brain 2026-10-03 (T. rubripes, `a54fa64`, Tiberius result
+of the benchmark run reused): Drusilla annotation, the ORF fix and the
+LightGBM filter ran in the image, Drusilla on a GPU; the released text model
+gives the same probabilities as the pickle (maximum difference 0) and the
+same 16,359 kept transcripts; the raw ORFs differ by 2 transcripts (23,978
+against 23,976) with the same gene F1 (71.39). Final gene F1 80.36 against
+80.26 of the benchmark. The gain comes from the fixed ORFs (74.23 against
+74.09; 126 of 25,417 CDS structures differ), most likely from the in-frame
+stop check added to the stop/start fix after the benchmark (D4).
 
 2026-10-03 (L8): version 0.4.0 on the drusilla branch
 (`paludamentum/__init__.py`, `nextflow.config`, README status line and
@@ -276,10 +284,10 @@ Roadmap, `CITATION.cff` with date-released 2026-10-03).
 
 ## Suggested order
 
-1. Commit the drusilla worktree (D1, D5 and the script fixes). Decisions 3
-   and 4.
-2. Merge `drusilla` into `main` (see "Merge notes"), fix D3, D6, D8, D9,
-   D10, D13. Run CI through a PR.
+1. Done 2026-10-03: the drusilla worktree is committed, and `drusilla` is
+   merged into `main` through PR #2 (`4f0df0f`, CI green). Still open from
+   this step: decisions 3 and 4.
+2. Fix D3, D6, D8, D9, D10, D13 on `main`. Run CI through a PR.
 3. Run T. rubripes and Bos taurus again (decision 4); test `tiberius.model_dir`
    on a GPU node (N10).
 4. Get tags upstream and pin the submodules (L6), confirm the authors
