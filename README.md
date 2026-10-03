@@ -301,7 +301,9 @@ drusilla:
   weights: null          # a local .weights.h5 instead (needs config)
   config: null
   cache_dir: null        # model cache; null = download in the task, which needs internet
+  batch_size: null       # null = Drusilla sizes the batch from the GPU memory
   shards: 1              # parallel Drusilla processes; e.g. 24 on a 48-core CPU node
+  min_coding_length: 200 # minimal CDS length of a Drusilla ORF
   lgb_model: https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz
                          # LightGBM model of the ab initio filter (required): the
                          # archive (URL or file), its unpacked directory, or a .txt with its .json
