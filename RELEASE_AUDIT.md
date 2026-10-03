@@ -75,7 +75,6 @@ What works (checked 2026-09-30 on the working trees):
 | L1 | The GitHub repo is still **private**. Make it public last. | GitHub |
 | L2 | `MIGRATION_PLAN.md` (see decision 3). Everything else with internal names (test docstring, `docs/orf_finder_comparison.md`, `docs/hint_rescue_comparison.md`) was rewritten. | `MIGRATION_PLAN.md:81`, README Roadmap |
 | L6 | Submodules are not pinned to releases, although README "Submodule pinning" says they are. Checked 2026-09-30: Tiberius' newest tag is still `v2.0.7` (submodule at `v2.0.7-11-g9734138`, image 2.0.8); Vipsania and Drusilla have no tags. Ask for tags upstream, then point the submodules at them. | `.gitmodules`, README "For maintainers" |
-| L8 | Version bump to 0.4.0 with the Drusilla merge. The version now has one source, `paludamentum/__init__.py` (pyproject reads it); `nextflow.config`, the README status line and `CITATION.cff` must follow, which `test_version_is_the_same_everywhere` enforces. | `paludamentum/__init__.py`, `nextflow.config:11`, README:19, `CITATION.cff` |
 | L10 | `CITATION.cff` and `pyproject.toml` `authors` name Katharina J. Hoff only. **Confirm the author list** (Lars Gabriel wrote the Tiberius pipeline the scripts come from). The drusilla README does not cite Drusilla, LightGBM or the hint rescue. | `CITATION.cff`, `pyproject.toml`, README (drusilla) |
 
 ---
@@ -269,6 +268,10 @@ NGC TensorFlow stack guarded); the `drusilla` submodule points at the same
 commit; `version_mismatches()` and `test_container_tags_of_base_config` cover
 Drusilla.
 
+2026-10-03 (L8): version 0.4.0 on the drusilla branch
+(`paludamentum/__init__.py`, `nextflow.config`, README status line and
+Roadmap, `CITATION.cff` with date-released 2026-10-03).
+
 ---
 
 ## Suggested order
@@ -279,7 +282,7 @@ Drusilla.
    D10, D13. Run CI through a PR.
 3. Run T. rubripes and Bos taurus again (decision 4); test `tiberius.model_dir`
    on a GPU node (N10).
-4. Get tags upstream and pin the submodules (L6), bump to v0.4.0 (L8),
-   confirm the authors (L10).
+4. Get tags upstream and pin the submodules (L6), confirm the authors
+   (L10).
 5. Remove or rewrite `MIGRATION_PLAN.md` (L2). Tag, then make the repo
    public (L1).
