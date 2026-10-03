@@ -23,8 +23,7 @@ The submodules were only checked where Paludamentum depends on them.
 | # | Item | Where |
 |---|------|-------|
 | L1 | The GitHub repo is still **private**. Make it public last. | GitHub |
-| L6 | Submodules are not pinned to releases, although README "Submodule pinning" says they are. Tiberius' newest tag is `v2.0.7` (submodule at `v2.0.7-11-g9734138`, image 2.0.8); Vipsania and Drusilla have no tags. Ask for tags upstream, then point the submodules at them. | `.gitmodules`, README "For maintainers" |
-| L10 | `CITATION.cff` and `pyproject.toml` `authors` name Katharina J. Hoff only. **Confirm the author list** (Lars Gabriel wrote the Tiberius pipeline the scripts come from). The README does not cite Drusilla, LightGBM or the hint rescue. | `CITATION.cff`, `pyproject.toml`, README |
+| L6 | Submodules are not pinned to releases, although README "Submodule pinning" says they are. Tiberius' newest tag is `v2.0.7` (submodule at `v2.0.7-11-g9734138`, image 2.0.8); Vipsania and Drusilla have no tags. Tags requested 2026-10-03: [Tiberius#120](https://github.com/Gaius-Augustus/Tiberius/issues/120) (`v2.0.8`), [Vipsania#8](https://github.com/Gaius-Augustus/Vipsania/issues/8) (`v1.0.1`; 1.0.1 is only on the branches `translation_table` and `blackwell-translation-table`, and the Docker Hub tag `1.0.1` is labelled 1.0.0, `1.0.1-tt` is the 1.0.1 build), [Drusilla#1](https://github.com/Gaius-Augustus/Drusilla/issues/1) (`v0.1.0` on `e3c5cf5`). When they exist, check out each tag in its submodule, set `gaiusaugustus/vipsania:1.0.1` in `conf/base.config`, and commit both. | `.gitmodules`, README "For maintainers" |
 | L11 | This file mentions internal checks on brain. Move it to Paludamentum-UG or delete it before the repo goes public. | `RELEASE_AUDIT.md` |
 
 ---
@@ -92,5 +91,5 @@ The submodules were only checked where Paludamentum depends on them.
 1. Fix D6, D8, D9, D10, D13 on `main`. Run CI through a PR.
 2. Run T. rubripes and Bos taurus again ("Before the release"); test `tiberius.model_dir`
    on a GPU node (N10).
-3. Get tags upstream and pin the submodules (L6), confirm the authors (L10).
+3. Pin the submodules to the requested tags (L6).
 4. Move this file out (L11). Tag, then make the repo public (L1).
