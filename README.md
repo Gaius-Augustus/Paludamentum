@@ -242,7 +242,7 @@ that holds the extracted `<model>_weights` directory.
 
 Vipsania finetuning is **off by default**. With `finetune: true` (or
 `--finetune`) Vipsania first trains on the target genome and then annotates
-it. Vipsania 1.0.0 cannot finetune without annotating, so in this case the
+it. Vipsania 1.0.1 cannot finetune without annotating, so in this case the
 genome is processed in a single GPU task instead of chunks. All Vipsania
 parameters, the model download and offline use are described in
 [docs/vipsania.md](docs/vipsania.md).

@@ -23,7 +23,6 @@ The submodules were only checked where Paludamentum depends on them.
 | # | Item | Where |
 |---|------|-------|
 | L1 | The GitHub repo is still **private**. Make it public last. | GitHub |
-| L6 | Vipsania is not pinned to a release, although README "Submodule pinning" says the submodules are (Tiberius `v2.0.8`, Drusilla `v0.1.0` are). Vipsania has no tags, and 1.0.1 is only on the branches `translation_table` and `blackwell-translation-table`; tag requested in [Vipsania#8](https://github.com/Gaius-Augustus/Vipsania/issues/8). The Docker Hub tags `1.0.1` and `latest` held Vipsania 1.0.0 until 2026-10-03 and now point at the 1.0.1 build `1.0.1-tt`. When `v1.0.1` exists, check it out in the submodule, set `gaiusaugustus/vipsania:1.0.1` in `conf/base.config`, change "Vipsania 1.0.0 cannot finetune" to 1.0.1 in README and `docs/vipsania.md` (still true in 1.0.1), and commit them together. | `vipsania`, `conf/base.config` |
 | L11 | This file mentions internal checks on brain. Move it to Paludamentum-UG or delete it before the repo goes public. | `RELEASE_AUDIT.md` |
 
 ---
@@ -91,5 +90,4 @@ The submodules were only checked where Paludamentum depends on them.
 1. Fix D6, D8, D9, D10, D13 on `main`. Run CI through a PR.
 2. Run T. rubripes and Bos taurus again ("Before the release"); test `tiberius.model_dir`
    on a GPU node (N10).
-3. Pin Vipsania to `v1.0.1` (L6).
-4. Move this file out (L11). Tag, then make the repo public (L1).
+3. Move this file out (L11). Tag, then make the repo public (L1).

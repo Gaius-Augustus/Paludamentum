@@ -57,7 +57,7 @@ paludamentum --genefinder vipsania --nf_config slurm_generic --genome genome.fa 
 
 Finetuning is off by default. Vipsania recommends it, in particular when the
 quality of the repeat masking is uncertain. With `vipsania.finetune: true`
-Vipsania trains on the FASTA file that it annotates. Vipsania 1.0.0 cannot
+Vipsania trains on the FASTA file that it annotates. Vipsania 1.0.1 cannot
 finetune without annotating, so the pipeline then runs **one** Vipsania task on
 the whole genome instead of one task per chunk. The checkpoint
 (`finetuning_*`) and the log are published in `intermediate/vipsania/`.
@@ -81,7 +81,7 @@ and set `vipsania.model_dir: /abs/path/vipsania_models`.
 
 Vipsania is not part of the Tiberius image that runs the evidence tools. The
 Vipsania processes carry the label `vipsania`, to which `conf/base.config`
-assigns `docker://gaiusaugustus/vipsania:1.0.0`. They must never carry the
+assigns `docker://gaiusaugustus/vipsania:1.0.1`. They must never carry the
 label `container`, because a config selector overrides a `container` directive
 in the process.
 
