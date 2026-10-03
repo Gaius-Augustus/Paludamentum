@@ -11,7 +11,9 @@ import argparse
 from typing import Sequence
 
 from . import __version__
-from .launcher import GENEFINDER_CLI, build_params, run_nextflow_pipeline
+from .launcher import GENEFINDER_CLI, build_params, load_params, run_nextflow_pipeline
+
+MODES = ("abinitio", "proteins", "rnaseq", "isoseq", "mixed")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument("--rnaseq_sra_paired", nargs="*", default=[], help="RNA-Seq paired-end SRA accession(s).")
     inputs.add_argument("--isoseq", nargs="*", default=[], help="Iso-Seq FASTQ file(s).")
     inputs.add_argument("--isoseq_sra", nargs="*", default=[], help="Iso-Seq SRA accession(s).")
-    inputs.add_argument("--mode", help="Force the pipeline mode: abinitio, proteins, rnaseq, isoseq, mixed.")
+    inputs.add_argument("--mode", choices=MODES, help="Force the pipeline mode instead of inferring it from the inputs.")
     inputs.add_argument("--scoring_matrix", help="Scoring matrix CSV for miniprot-boundary-scorer.")
 
     finder = parser.add_argument_group("Gene finder (both)")
@@ -87,10 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Model configuration: a path, or a name in model_cfg/ of the Tiberius "
                                "submodule (e.g. diatoms).")
     tiberius.add_argument("--seq_len", type=int, help="Forwarded to tiberius.py --seq_len.")
+    finder.add_argument("--model_dir",
+                        help="Directory with downloaded models, for nodes without internet: the extracted "
+                             "weights of the Tiberius model configuration, or 'vipsania download -d DIR'.")
 
     vipsania = parser.add_argument_group("Vipsania")
     vipsania.add_argument("--model", help="Clade name (e.g. Fungi) or model id.")
-    vipsania.add_argument("--model_dir", help="Directory with downloaded models, for nodes without internet.")
     vipsania.add_argument("--finetune", action="store_true",
                           help="Finetune on the genome before annotating (one task, no chunks).")
     vipsania.add_argument("--finetune_epochs", type=int, help="Forwarded to vipsania annotate --finetune_epochs.")
@@ -103,7 +107,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     genefinder, params_path = build_params(args)
-    print(f"[INFO] Gene finder: {genefinder}; params written to {params_path}")
+    running = bool((load_params(params_path).get(genefinder) or {}).get("run"))
+    note = "" if running else " (run: false, evidence only)"
+    print(f"[INFO] Gene finder: {genefinder}{note}; params written to {params_path}")
     args.params_yaml = str(params_path)
     run_nextflow_pipeline(args, genefinder=genefinder)
 

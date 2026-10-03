@@ -95,13 +95,21 @@ process PREPROCESS_PROTEINDB {
   output: path "protein_preprocessed.fa"
 
   script: """
-    # Count protein sequences (FASTA headers start with '>')
-    N_PROT=\$(grep -c '^>' "${proteinDB}" || echo 0)
+    # Count protein sequences (FASTA headers start with '>'); grep -c prints 0
+    # itself for an empty database, its exit code 1 must not stop the task
+    N_PROT=\$(grep -c '^>' "${proteinDB}" || true)
+    # The species selection below needs OrthoDB-style ids (<taxid>_<n>:<hex>);
+    # other databases (UniProt, NCBI) carry no species in the id.
+    N_ODB=\$(grep -c -E '^>[0-9]+_[0-9]+:' "${proteinDB}" || true)
 
-    echo "[PREPROCESS_PROTEINDB] Number of proteins in input: \$N_PROT" >&2
+    echo "[PREPROCESS_PROTEINDB] Number of proteins in input: \$N_PROT (OrthoDB-style ids: \$N_ODB)" >&2
 
-    if [[ "\$N_PROT" -le 1000000 ]]; then
-        echo "[PREPROCESS_PROTEINDB] <= 1,000,000 proteins – using full DB." >&2
+    if [[ "\$N_PROT" -le 1000000 || "\$N_ODB" -lt "\$N_PROT" ]]; then
+        if [[ "\$N_PROT" -le 1000000 ]]; then
+            echo "[PREPROCESS_PROTEINDB] <= 1,000,000 proteins – using full DB." >&2
+        else
+            echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins, but the ids are not OrthoDB-style, so no species can be selected – using full DB." >&2
+        fi
         # Sanitize headers: keep only the first whitespace-delimited token after '>'.
         # An embedded tab (e.g. OrthoDB-style headers) survives into DIAMOND's
         # sseqid as the literal two characters '\\t', breaking downstream
@@ -110,7 +118,6 @@ process PREPROCESS_PROTEINDB {
             "${proteinDB}" > protein_preprocessed.fa
     else
         echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins – running DIAMOND soft filter." >&2
-        set -o pipefail
 
         # Sanitize headers on the way into the database (same as above, streamed,
         # no copy of the FASTA). OrthoDB headers carry a tab, which DIAMOND
@@ -119,7 +126,7 @@ process PREPROCESS_PROTEINDB {
         # are dropped from stderr; everything else DIAMOND reports is kept.
         awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
             "${proteinDB}" \
-          | diamond makedb --db prot_db --threads ${task.cpus} \
+          | ${params.tools.diamond} makedb --db prot_db --threads ${task.cpus} \
               2> >(grep -v -e 'Tabulator character in sequence title' >&2)
 
         # gffread emits '.' for internal stop codons in malformed CDS predictions;
@@ -128,7 +135,7 @@ process PREPROCESS_PROTEINDB {
         awk '/^>/{print; next} {gsub(/\\./, "*"); print}' \
             "${tiberius_prot}" > tiberius_proteins.clean.fa
 
-        diamond blastp \
+        ${params.tools.diamond} blastp \
           --query tiberius_proteins.clean.fa \
           --db prot_db \
           --out diamond_hits.tsv \
@@ -139,6 +146,13 @@ process PREPROCESS_PROTEINDB {
           --threads ${task.cpus}
 
         rank_species_from_diamond.py diamond_hits.tsv 13 > species_rank.tsv
+
+        if [[ ! -s top_species.txt ]]; then
+            echo "[PREPROCESS_PROTEINDB] No species could be ranked (no DIAMOND hits): using the full DB." >&2
+            awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
+                "${proteinDB}" > protein_preprocessed.fa
+            exit 0
+        fi
 
         awk '
         BEGIN {

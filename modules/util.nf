@@ -2,6 +2,7 @@ nextflow.enable.dsl=2
 
 process CONCAT_PROTEINS {
   tag "concat_proteins"
+  label 'container'
 
   input:
   path proteins, stageAs:  "?/*"
@@ -28,6 +29,8 @@ process CONCAT_PROTEINS {
   """
 }
 
+// gunzip a FASTA. The output keeps the input name without .gz, so that a
+// decompressed genome and decompressed proteins do not collide downstream.
 process DECOMPRESS_FASTA {
   tag { infile.name }
   label 'local_only'
@@ -36,25 +39,31 @@ process DECOMPRESS_FASTA {
   path infile
 
   output:
-  path "decompressed.fa"
+  path "${outName(infile)}"
 
   script:
   """
   if [[ "${infile.name}" == *.gz ]]; then
-    gunzip -c ${infile} > decompressed.fa
+    gunzip -c ${infile} > ${outName(infile)}
   else
-    ln -sf \$(readlink -f ${infile}) decompressed.fa
+    ln -sf \$(readlink -f ${infile}) ${outName(infile)}
   fi
   """
 
   stub:
   """
-  touch decompressed.fa
+  touch ${outName(infile)}
   """
+}
+
+def outName(infile) {
+  def name = infile.name
+  return name.toLowerCase().endsWith('.gz') ? name[0..-4] : "decompressed_${name}"
 }
 
 process DOWNLOAD_ODB12_PARTITIONS {
   tag "odb12_partitions"
+  label 'download'
 
   input:
   val partitions
@@ -81,6 +90,7 @@ process DOWNLOAD_ODB12_PARTITIONS {
 
 process CONCAT_HINTS {
   publishDir "${params.outdir}", mode: 'copy'
+  label 'container'
 
   input:
     path(prot)
@@ -118,8 +128,12 @@ process EMPTY_FILE {
   """
 }
 
+// Percent of mapped reads (samtools flagstat). Runs in the tools image; the
+// shell is set to pipefail in base.config, so a missing samtools fails the
+// task instead of writing an empty rate.
 process CALC_ALIGNMENT_RATE {
     tag "${aln_file.simpleName}"
+    label 'container'
 
     input:
     path aln_file
@@ -129,7 +143,7 @@ process CALC_ALIGNMENT_RATE {
 
     script:
     """
-    pct=\$(samtools flagstat ${aln_file} \\
+    pct=\$(${params.tools.samtools} flagstat ${aln_file} \\
         | awk '/ mapped \\(/ {
               # take 5th field, e.g. (99.79%
               val=\$5
@@ -162,14 +176,15 @@ workflow FILTER_ALIGNMENT {
         }
         .set { file_pct_ch }
 
+    def minRate = (params.min_alignment_rate ?: 80) as float
     file_pct_ch
-        .filter { _file, pct -> pct < 80 }
+        .filter { _file, pct -> pct < minRate }
         .view { file, pct ->
-            "Removing ${file.simpleName} (alignment ${String.format('%.2f', pct)}%)"
+            "Removing ${file.simpleName} (alignment ${String.format('%.2f', pct)}% < params.min_alignment_rate ${minRate})"
         }
 
     emit:
     file_pct_ch
-        .filter { _file, pct -> pct >= 80 }
+        .filter { _file, pct -> pct >= minRate }
         .map { file, _pct -> file }
 }

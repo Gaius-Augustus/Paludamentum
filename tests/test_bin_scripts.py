@@ -1,0 +1,184 @@
+"""Unit tests of the pipeline scripts in bin/ on toy inputs. No tools needed."""
+from __future__ import annotations
+
+import importlib.util
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+BIN = ROOT / "bin"
+
+
+def load(name: str):
+    spec = importlib.util.spec_from_file_location(name, BIN / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run(script: str, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(BIN / script), *args], capture_output=True, text=True, cwd=cwd)
+
+
+def rows(text: str) -> list[list[str]]:
+    return [line.split("\t") for line in text.splitlines() if line and not line.startswith("#")]
+
+
+# ---------------------------------------------------------------- split_genome_fasta.py
+
+def test_chunks_are_balanced_and_capped():
+    sg = load("split_genome_fasta")
+    info = [("", f"s{i}", 50_000_000) for i in range(60)]   # 60 x 50 Mb, max 20 chunks
+    groups = sg.make_groups(info, 20_000_000, 20)
+    assert len(groups) == 20
+    assert {len(g) for g in groups} == {3}                  # 150 Mb each, not one 2 Gb chunk
+    assert sg.make_groups([("", "a", 5), ("", "b", 5)], 100, 20) == [["a", "b"]]
+    seven = [("", f"s{i}", 1000) for i in range(7)]
+    assert len(sg.make_groups(seven, 1000, 3)) == 3
+
+
+# ---------------------------------------------------------------- check_stop_codons.py
+
+def test_passing_gff_keeps_gene_and_transcript_lines(tmp_path: Path):
+    (tmp_path / "g.fa").write_text(">c1\nATGAAATAAATGCCCCCC\n")
+    (tmp_path / "in.gff").write_text(
+        "##gff-version 3\n"
+        "c1\tx\tgene\t1\t18\t.\t+\t.\tID=g1\n"
+        "c1\tx\ttranscript\t1\t9\t.\t+\t.\tID=t1;Parent=g1\n"
+        "c1\tx\texon\t1\t9\t.\t+\t.\tID=t1.e1;Parent=t1\n"
+        "c1\tx\tCDS\t1\t9\t.\t+\t0\tID=t1.c1;Parent=t1\n"
+        "c1\tx\ttranscript\t10\t18\t.\t+\t.\tID=t2;Parent=g1\n"
+        "c1\tx\tCDS\t10\t18\t.\t+\t0\tID=t2.c1;Parent=t2\n"       # no stop codon
+        "c1\tx\tgene\t10\t18\t.\t-\t.\tID=g2\n"
+        "c1\tx\ttranscript\t10\t18\t.\t-\t.\tID=t3;Parent=g2\n"
+        "c1\tx\tCDS\t10\t18\t.\t-\t0\tID=t3.c1;Parent=t3\n"
+    )
+    proc = run("check_stop_codons.py", "in.gff", "g.fa", "--write-passing-gff", "out.gff", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    out = rows((tmp_path / "out.gff").read_text())
+    assert [(r[2], r[8]) for r in out] == [
+        ("gene", "ID=g1"), ("transcript", "ID=t1;Parent=g1"),
+        ("exon", "ID=t1.e1;Parent=t1"), ("CDS", "ID=t1.c1;Parent=t1"),
+    ]
+
+
+# ---------------------------------------------------------------- merge_annotations.py
+
+def merge(tmp_path: Path, *contents: str) -> subprocess.CompletedProcess:
+    inputs = []
+    for i, text in enumerate(contents):
+        path = tmp_path / f"in{i}.gtf"
+        path.write_text(text)
+        inputs.append(str(path))
+    return run("merge_annotations.py", "--mode", "full", *inputs)
+
+
+HOST = (
+    'chr1\tTiberius\texon\t100\t200\t.\t+\t.\tgene_id "h"; transcript_id "h.t1";\n'
+    'chr1\tTiberius\tCDS\t100\t200\t.\t+\t0\tgene_id "h"; transcript_id "h.t1";\n'
+    'chr1\tTiberius\texon\t900\t1000\t.\t+\t.\tgene_id "h"; transcript_id "h.t1";\n'
+    'chr1\tTiberius\tCDS\t900\t1000\t.\t+\t1\tgene_id "h"; transcript_id "h.t1";\n'
+)
+NESTED = (
+    'chr1\tTiberius\texon\t400\t500\t.\t+\t.\tgene_id "n"; transcript_id "n.t1";\n'
+    'chr1\tTiberius\tCDS\t400\t500\t.\t+\t0\tgene_id "n"; transcript_id "n.t1";\n'
+)
+HOST_WITH_UTR = (
+    'chr1\tTransDecoder\texon\t50\t200\t.\t+\t.\tgene_id "x"; transcript_id "x.t1";\n'
+    'chr1\tTransDecoder\tfive_prime_UTR\t50\t99\t.\t+\t.\tgene_id "x"; transcript_id "x.t1";\n'
+    'chr1\tTransDecoder\tCDS\t100\t200\t.\t+\t0\tgene_id "x"; transcript_id "x.t1";\n'
+    'chr1\tTransDecoder\texon\t900\t1000\t.\t+\t.\tgene_id "x"; transcript_id "x.t1";\n'
+    'chr1\tTransDecoder\tCDS\t900\t1000\t.\t+\t1\tgene_id "x"; transcript_id "x.t1";\n'
+)
+
+
+def test_gene_nested_in_an_intron_is_its_own_gene(tmp_path: Path):
+    out = rows(merge(tmp_path, HOST + NESTED).stdout)
+    genes = [r for r in out if r[2] == "gene"]
+    assert [(r[3], r[4]) for r in genes] == [("100", "1000"), ("400", "500")]
+    mrnas = [r for r in out if r[2] == "mRNA"]
+    assert len(mrnas) == 2 and len({r[8].split(";")[1] for r in mrnas}) == 2   # different Parents
+
+
+def test_same_cds_with_and_without_utr_is_one_transcript(tmp_path: Path):
+    out = rows(merge(tmp_path, HOST, HOST_WITH_UTR).stdout)
+    assert len([r for r in out if r[2] == "mRNA"]) == 1
+    assert [r for r in out if r[2] == "five_prime_UTR"]          # the UTR version is kept
+    assert [r[3] for r in out if r[2] == "gene"] == ["50"]
+
+
+def test_overlapping_exons_still_form_one_gene(tmp_path: Path):
+    other = 'chr1\tX\texon\t150\t300\t.\t+\t.\tgene_id "o"; transcript_id "o.t1";\n'
+    out = rows(merge(tmp_path, HOST, other).stdout)
+    assert len([r for r in out if r[2] == "gene"]) == 1
+    assert len([r for r in out if r[2] in ("mRNA", "transcript")]) == 2
+
+
+def test_no_transcripts_is_an_empty_gff3_not_an_error(tmp_path: Path):
+    proc = merge(tmp_path, "")
+    assert proc.returncode == 0
+    assert proc.stdout == "##gff-version 3\n"
+    assert "no transcripts" in proc.stderr
+
+
+# ---------------------------------------------------------------- rank_species_from_diamond.py
+
+def diamond_line(q: str, s: str) -> str:
+    # qseqid sseqid pident length evalue bitscore qlen slen
+    return f"{q}\t{s}\t90\t100\t1e-50\t200\t100\t100\n"
+
+
+def test_species_ranking_only_for_orthodb_ids(tmp_path: Path):
+    hits = tmp_path / "hits.tsv"
+    hits.write_text(diamond_line("q1", "9606_0:00001") + diamond_line("q2", "9606_0:00002") + diamond_line("q3", "10090_0:00003"))
+    proc = run("rank_species_from_diamond.py", str(hits), "1", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert (tmp_path / "top_species.txt").read_text() == "9606\n"
+
+    hits.write_text(diamond_line("q1", "sp|P12345|NAME_HUMAN") + diamond_line("q2", "sp|P12346|OTHER_HUMAN"))
+    proc = run("rank_species_from_diamond.py", str(hits), "5", cwd=tmp_path)
+    assert proc.returncode == 0
+    # no grouping by the text before the first '_': every id is its own entry
+    assert set((tmp_path / "top_species.txt").read_text().split()) == {"sp|P12345|NAME_HUMAN", "sp|P12346|OTHER_HUMAN"}
+
+    hits.write_text("")
+    proc = run("rank_species_from_diamond.py", str(hits), "5", cwd=tmp_path)
+    assert proc.returncode == 0 and (tmp_path / "top_species.txt").read_text() == ""
+    assert "empty" in proc.stderr
+
+
+# ---------------------------------------------------------------- hc_module.py
+
+def test_transcript_gff3_has_distinct_gene_and_mrna_ids(tmp_path: Path):
+    pytest.importorskip("Bio")
+    sys.path.insert(0, str(BIN))
+    hc_module = load("hc_module")
+    pep = tmp_path / "hc.pep"
+    pep.write_text(">STRG.1.1.p1 STRG.1.1.p1 GENE.STRG.1.1~~STRG.1.1.p1 ORF type:complete len:4 (+),score=1 STRG.1.1:10-21(+)\nMKR*\n")
+    gtf = tmp_path / "st.gtf"
+    gtf.write_text('c1\tStringTie\texon\t1\t50\t.\t+\t.\tgene_id "STRG.1"; transcript_id "STRG.1.1";\n')
+    out = tmp_path / "out.gff3"
+    hc_module.from_pep_file_to_gff3(str(pep), str(gtf), str(out))
+    lines = rows(out.read_text())
+    gene = next(r for r in lines if r[2] == "gene")
+    mrna = next(r for r in lines if r[2] == "mRNA")
+    gene_id = gene[8].split(";")[0].removeprefix("ID=")
+    assert mrna[8].startswith("ID=STRG.1.1.p1;Parent=" + gene_id)
+    assert gene_id != "STRG.1.1.p1"
+
+
+# ---------------------------------------------------------------- filterIntronsFindStrand.pl
+
+@pytest.mark.skipif(shutil.which("perl") is None, reason="perl not found")
+def test_intron_strand_with_described_fasta_header(tmp_path: Path):
+    (tmp_path / "g.fa").write_text(">chr1 Homo sapiens chromosome 1, GRCh38\nAAAGTAAGTCCCCCCCCCAGGGG\n")
+    (tmp_path / "i.gff").write_text("chr1\tb2h\tintron\t4\t20\t1\t.\t.\tmult=3;src=E\n")
+    proc = subprocess.run(["perl", str(BIN / "filterIntronsFindStrand.pl"), "g.fa", "i.gff", "--score"],
+                          cwd=tmp_path, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert rows(proc.stdout) == [["chr1", "b2h", "intron", "4", "20", "3", "+", ".", "mult=3;src=E"]]
+    assert "does not match" not in proc.stderr

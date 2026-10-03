@@ -67,7 +67,8 @@ process HISAT2_MAP_PAIRED {
 process SAMTOOLS_MERGE {
   label 'container', 'bigmem'
   input:
-    path bams
+    // BAMs of different libraries can carry the same file name (Aligned.out.bam)
+    path bams, stageAs: "?/*"
 
   output:
     path "merged.bam", emit: bam
@@ -89,7 +90,7 @@ process BAM2HINTS {
   input: path bam; path genome
   output: path "${bam.simpleName}.hints.gff", emit: hints
   script: """
-  samtools sort -@ ${task.cpus} -o sorted.bam ${bam}
+  ${params.tools.samtools} sort -@ ${task.cpus} -o sorted.bam ${bam}
   ${params.tools.bam2hints} --intronsonly --in=sorted.bam --out=${bam}.temp
   filterIntronsFindStrand.pl ${genome} ${bam}.temp --score > ${bam.simpleName}.hints.gff
   """

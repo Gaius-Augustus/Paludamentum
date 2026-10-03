@@ -22,7 +22,7 @@ def run(*args: str) -> subprocess.CompletedProcess:
 
 
 def test_rtx_pro_6000_96gb_is_capped():
-    """The crash seen on brain/storm: automatic 24 x 400050 x 256 > int32."""
+    """A 96 GB GPU (RTX PRO 6000): the automatic 24 x 400050 x 256 overflows int32."""
     assert tbs.tiberius_auto_batch_size(VERTEBRATES_SEQ_LEN, 97887 / 1024) == 24
     assert tbs.batch_size_cap(VERTEBRATES_SEQ_LEN, 97887) == 20
     assert 20 * VERTEBRATES_SEQ_LEN * 256 <= tbs.INT32_MAX < 24 * VERTEBRATES_SEQ_LEN * 256

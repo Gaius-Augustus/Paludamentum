@@ -4,11 +4,13 @@ Split a genome FASTA into multiple chunk FASTAs.
 
 Rules:
   - A sequence (contig/chromosome) is never split across files.
-  - Each output file aims to contain at least --min-size bases (default 20M).
+  - Each output file aims to contain at least --min-size bases (default 20M),
+    or total / --max-files bases if that is more, so that the chunks are of
+    similar size.
   - A file may contain multiple sequences.
   - The total number of files is capped by --max-files.
-  - If the genome is small or --max-files is too low, some files may have less
-    than --min-size bases (especially the last one).
+  - If the genome is small, some files may have less than --min-size bases
+    (especially the last one).
 
 Usage:
     python split_genome_fasta.py \
@@ -78,48 +80,45 @@ def make_groups(seq_info, min_size, max_files):
     seq_info: list of (header, name, length)
 
     Returns: list of list of seq_names, one inner list per output file.
+
+    The target size of a chunk is max(min_size, total / max_files), so the
+    chunks are of similar size and the cap on their number holds without
+    piling the rest of the genome into the last chunk. A sequence is never
+    split, so one chunk can exceed the target by the length of one sequence.
     """
-    total_len = sum(l for _, _, l in seq_info)
     if not seq_info:
         return []
+    total_len = sum(l for _, _, l in seq_info)
 
     # If the genome is smaller than min_size or max_files == 1, everything in one file
-    if total_len <= min_size or max_files == 1:
+    if total_len <= min_size or max_files <= 1:
         return [[name for _, name, _ in seq_info]]
+
+    target = max(min_size, ceil(total_len / max_files))
 
     groups = []
     current_group = []
     current_len = 0
-    remaining_seqs = len(seq_info)
-
-    for idx, (header, name, length) in enumerate(seq_info):
-        remaining_seqs -= 1
+    for _header, name, length in seq_info:
         current_group.append(name)
         current_len += length
-
-        # remaining groups we are allowed to create after this one
-        used_groups = len(groups) + 1  # including current
-        remaining_groups_allowed = max_files - used_groups
-
-        # remaining sequences must be at least remaining_groups_allowed
-        # so that each future group can get at least one sequence
-        can_split_here = remaining_groups_allowed > 0 and remaining_seqs >= remaining_groups_allowed
-
-        # Close group if we've reached min_size and can still make more groups
-        if current_len >= min_size: #and can_split_here:
+        if current_len >= target:
             groups.append(current_group)
             current_group = []
             current_len = 0
 
-    # Add leftover sequences to last group
+    # Add leftover sequences to the last group
     if current_group:
         groups.append(current_group)
 
-    # If we somehow exceeded max_files (shouldn't happen with the logic above), merge last ones
+    # Sequence granularity can still give one group too many: merge the
+    # smallest neighbouring pair until the cap holds.
+    lengths = {name: length for _, name, length in seq_info}
     while len(groups) > max_files:
-        # merge the last two groups
-        last = groups.pop()
-        groups[-1].extend(last)
+        sizes = [sum(lengths[n] for n in g) for g in groups]
+        pairs = [sizes[i] + sizes[i + 1] for i in range(len(groups) - 1)]
+        i = pairs.index(min(pairs))
+        groups[i].extend(groups.pop(i + 1))
 
     return groups
 

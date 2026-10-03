@@ -11,8 +11,8 @@
 #                                                                                                  #
 # Release date: December 11th 2019                                                                 #
 #                                                                                                  #
-# This script is under the Artistic Licence                                                        #
-# (http://www.opensource.org/licenses/artistic-license.php)                                        #
+# This script is under the Artistic Licence 1.0                                                    #
+# (https://opensource.org/license/Artistic-1.0)                                                    #
 #                                                                                                  #
 ####################################################################################################
 
@@ -24,6 +24,7 @@
 # | not match -> program   stops then |                |           |
 # | excempt already stranded hints    | Katharina Hoff |11.12.2019 |
 # | output both strands if ambigous   |                |           |
+# | key sequences by first header word| Paludamentum   |30.09.2026 |
 # ------------------------------------------------------------------
 
 use strict;
@@ -117,7 +118,9 @@ if(! -f "$introns"){
 open (FASTA, "<".$genome) or die "Cannot open file: $genome\n";
 while(<FASTA>) {
   chomp;
-  if(m/^>(.*)/){
+  if(m/^>(\S+)/){
+    # the first word of the header is the sequence name that bam2hints,
+    # HISAT2 and minimap2 use; descriptions after it are ignored
     if(defined($seqname)){
       $annos{$seqname} = $seq;
     }

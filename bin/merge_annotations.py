@@ -7,8 +7,11 @@ Two modes:
 1) Full merge (mode=full)
    - Take the union of all transcripts across all inputs.
    - Define each transcript by its exon structure (seqid, strand, exon coordinates).
-   - Cluster overlapping transcripts into "genes" (loci) per seqid/strand.
-   - Within each locus, collapse identical transcript structures.
+   - Cluster transcripts that share exon sequence into "genes" (loci) per
+     seqid/strand. A gene nested in an intron of another gene is a gene of
+     its own.
+   - Within each locus, collapse identical transcripts: the same CDS (for
+     coding transcripts) or the same exons (for non-coding ones).
    - Assign new gene IDs: gene_000001, gene_000002, ...
    - Assign new transcript IDs: gene_000001.t1, gene_000001.t2, ...
 
@@ -23,9 +26,10 @@ Two modes:
 
 UTR handling:
    - UTR features are parsed and carried over to output for any transcript that has them.
-   - UTRs do NOT affect transcript merging/deduplication (structure key is exon-only).
-   - If identical transcript structures exist in multiple inputs, the representative with the
-     longer total UTR region is retained (ties keep the first encountered).
+   - UTRs do NOT affect transcript merging/deduplication.
+   - If identical transcripts exist in multiple inputs, the representative with
+     more exon sequence (UTR exons), then the longer total UTR region, is
+     retained (ties keep the first encountered).
    - Output transcript/gene coordinates include UTRs when present (merge logic still does not).
 
 Input:
@@ -35,6 +39,8 @@ Input:
 Output:
     A GFF3 written to stdout (or redirected by the user). Source (column 2)
     preserves the originating annotation source for each gene and child feature.
+    Transcripts with a CDS are written as mRNA and their genes get
+    gene_biotype=protein_coding, as in NCBI/Ensembl GFF3 (Annotrieve).
 """
 
 import sys
@@ -301,10 +307,76 @@ def _prefer_tx_by_utr(existing: Transcript, candidate: Transcript) -> Transcript
     return existing
 
 
+def _dedup_key(tx: Transcript):
+    """
+    Key of identical transcripts. Coding transcripts are identical when their
+    CDS is identical: the same CDS with and without UTR exons (e.g. from
+    TransDecoder and from the gene finder) is one transcript. Non-coding
+    transcripts are identical when their exons are identical.
+    """
+    if tx.cds:
+        return tx.seqid, tx.strand, "cds", tuple(sorted((s, e) for s, e, _ in tx.cds))
+    return tx.seqid, tx.strand, "exon", tuple(sorted(tx.exon_intervals))
+
+
+def _prefer_duplicate(existing: Transcript, candidate: Transcript) -> Transcript:
+    """
+    Of two identical transcripts keep the one that carries more of the
+    transcript: more exon bp (UTR exons), then more UTR features; ties keep
+    the first encountered.
+    """
+    ex_bp, ca_bp = total_bp(existing.exon_intervals), total_bp(candidate.exon_intervals)
+    if ca_bp != ex_bp:
+        return candidate if ca_bp > ex_bp else existing
+    return _prefer_tx_by_utr(existing, candidate)
+
+
+def _exon_overlap_components(tx_list: List[Transcript]) -> List[List[Transcript]]:
+    """
+    Connected components of transcripts (same seqid and strand) that share at
+    least one base of exon (or CDS, if no exons). A gene nested in the intron
+    of another gene shares no exon base and stays a gene of its own; the span
+    of the host would swallow it.
+    """
+    # union-find over transcript indices
+    parent = list(range(len(tx_list)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    # sweep the exons ordered by start; an exon joins every transcript whose
+    # exon is still open at its start
+    events = []
+    for idx, tx in enumerate(tx_list):
+        for s, e in merge_intervals(tx.exon_intervals):
+            events.append((s, e, idx))
+    events.sort()
+    open_exons: List[Tuple[int, int]] = []   # (end, idx), ends >= current start
+    for s, e, idx in events:
+        open_exons = [(oe, oi) for oe, oi in open_exons if oe >= s]
+        for _oe, oi in open_exons:
+            union(oi, idx)
+        open_exons.append((e, idx))
+
+    groups: Dict[int, List[Transcript]] = defaultdict(list)
+    for idx, tx in enumerate(tx_list):
+        groups[find(idx)].append(tx)
+    return list(groups.values())
+
+
 def build_gene_clusters_from_transcripts(transcripts: List[Transcript]) -> List[GeneCluster]:
     """
-    Cluster transcripts into genes by overlap, using tx.span (exon/CDS only).
-    UTRs do not affect overlap clustering nor struct_key.
+    Cluster transcripts into genes: transcripts of the same seqid and strand
+    that share exon sequence (transitively) form one gene. UTRs do not affect
+    the clustering.
     """
     clusters: List[GeneCluster] = []
     by_chr_strand: Dict[Tuple[str, str], List[Transcript]] = defaultdict(list)
@@ -312,60 +384,31 @@ def build_gene_clusters_from_transcripts(transcripts: List[Transcript]) -> List[
         by_chr_strand[(tx.seqid, tx.strand)].append(tx)
 
     for (seqid, strand), tx_list in by_chr_strand.items():
-        tx_list_sorted = sorted(tx_list, key=lambda t: t.span[0])
-
-        current_group: List[Transcript] = []
-        current_start = None
-        current_end = None
-
-        for tx in tx_list_sorted:
-            t_start, t_end = tx.span
-            if not current_group:
-                current_group = [tx]
-                current_start, current_end = t_start, t_end
-            else:
-                if t_start <= current_end:
-                    current_group.append(tx)
-                    current_end = max(current_end, t_end)
-                else:
-                    clusters.append(
-                        GeneCluster(
-                            gene_id="",
-                            seqid=seqid,
-                            strand=strand,
-                            start=current_start,
-                            end=current_end,
-                            transcripts=current_group,
-                        )
-                    )
-                    current_group = [tx]
-                    current_start, current_end = t_start, t_end
-
-        if current_group:
+        for group in _exon_overlap_components(tx_list):
             clusters.append(
                 GeneCluster(
                     gene_id="",
                     seqid=seqid,
                     strand=strand,
-                    start=current_start,
-                    end=current_end,
-                    transcripts=current_group,
+                    start=min(tx.span[0] for tx in group),
+                    end=max(tx.span[1] for tx in group),
+                    transcripts=group,
                 )
             )
 
     # Deduplicate identical transcripts within each cluster
-    # If duplicates, keep the one with longer UTR region.
     for cluster in clusters:
-        seen_structs: Dict[Tuple[str, str, Tuple[Tuple[int, int], ...]], Transcript] = {}
+        seen: Dict[Tuple, Transcript] = {}
         for tx in cluster.transcripts:
-            key = tx.struct_key
-            if key not in seen_structs:
-                seen_structs[key] = tx
+            key = _dedup_key(tx)
+            if key not in seen:
+                seen[key] = tx
             else:
-                seen_structs[key] = _prefer_tx_by_utr(seen_structs[key], tx)
+                seen[key] = _prefer_duplicate(seen[key], tx)
         # preserve deterministic order by span start then internal_id
-        cluster.transcripts = sorted(seen_structs.values(), key=lambda t: (t.span[0], t.internal_id))
+        cluster.transcripts = sorted(seen.values(), key=lambda t: (t.span[0], t.internal_id))
 
+    clusters.sort(key=lambda gc: (gc.seqid, gc.start, gc.end, gc.strand))
     return clusters
 
 
@@ -408,8 +451,8 @@ def write_clusters_as_gff3(clusters: List[GeneCluster], out_handle):
     Write gene clusters as a GFF3 to out_handle.
 
     Features:
-        - gene
-        - transcript
+        - gene (gene_biotype=protein_coding if any transcript has a CDS)
+        - mRNA (transcript with CDS) or transcript (without CDS)
         - exon
         - UTR (and/or five_prime_UTR / three_prime_UTR, as in input)
         - CDS
@@ -434,6 +477,8 @@ def write_clusters_as_gff3(clusters: List[GeneCluster], out_handle):
         gene_source = ",".join(gene_sources) if gene_sources else "merge"
 
         gene_attrs = {"ID": gc.gene_id}
+        if any(tx.cds for tx in gc.transcripts):
+            gene_attrs["gene_biotype"] = "protein_coding"
         out_handle.write("\t".join([
             gc.seqid, gene_source, "gene",
             str(gc.start), str(gc.end),
@@ -451,8 +496,9 @@ def write_clusters_as_gff3(clusters: List[GeneCluster], out_handle):
 
             t_start, t_end = tx.output_span  # output includes UTR
 
+            # Coding transcripts are mRNA, as in NCBI/Ensembl GFF3 (Annotrieve).
             out_handle.write("\t".join([
-                tx.seqid, tx.source, "transcript",
+                tx.seqid, tx.source, "mRNA" if tx.cds else "transcript",
                 str(t_start), str(t_end),
                 ".", tx.strand, ".",
                 attrs_to_str({"ID": tx_id, "Parent": gc.gene_id}),
@@ -516,8 +562,12 @@ def main():
 
     transcripts = parse_all_inputs(args.inputs)
     if not transcripts:
-        sys.stderr.write("No transcripts (exon/CDS features) found in inputs.\n")
-        return 1
+        # e.g. a gene finder without predictions on a tiny genome: an empty
+        # annotation is a valid result, not an error
+        sys.stderr.write("Warning: no transcripts (exon/CDS features) found in inputs; "
+                         "writing an empty GFF3.\n")
+        sys.stdout.write("##gff-version 3\n")
+        return 0
 
     if args.mode == "full":
         clusters = build_gene_clusters_from_transcripts(transcripts)

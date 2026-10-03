@@ -78,11 +78,17 @@ def load_cds_from_gff(gff_path):
     Read GFF file; return:
       transcripts[tid] = list of (seqid,start,end,strand)
       lines: list of raw lines (for rewriting GFF)
-      parents: map from line index -> transcript ID(s) (Parent=)
+      parents: map from line index -> transcript ID(s) that the line belongs to.
+        A feature line maps to its Parent, a transcript/mRNA line to its own
+        ID, and a gene line to the IDs of its transcripts, so that the
+        filtered GFF3 keeps the gene and transcript lines of passing
+        transcripts.
     """
     transcripts = defaultdict(list)
     lines = []
     parents = {}  # line index -> set of transcript IDs
+    gene_lines = {}  # gene ID -> line index
+    gene_transcripts = defaultdict(set)  # gene ID -> transcript IDs
 
     with open(gff_path, "r", encoding="utf-8") as fh:
         for i, line in enumerate(fh):
@@ -99,16 +105,29 @@ def load_cds_from_gff(gff_path):
             seqid, _, ftype, start, end, _, strand, _, attrs_str = cols
             attrs = parse_attributes(attrs_str)
             parent = attrs.get("Parent")
+            feature_id = attrs.get("ID")
+
+            if ftype in ("mRNA", "transcript") and feature_id:
+                parents.setdefault(i, set()).add(feature_id)
+                if parent:
+                    for gene_id in parent.split(","):
+                        gene_transcripts[gene_id].add(feature_id)
+                continue
+
             if parent is None:
+                if ftype == "gene" and feature_id:
+                    gene_lines[feature_id] = i
                 continue
 
             # track which transcript(s) the line belongs to
-            parents.setdefault(i, set()).add(parent)
+            for tid in parent.split(","):
+                parents.setdefault(i, set()).add(tid)
+                if ftype == "CDS":
+                    transcripts[tid].append((seqid, int(start), int(end), strand))
 
-            if ftype == "CDS":
-                transcripts[parent].append(
-                    (seqid, int(start), int(end), strand)
-                )
+    for gene_id, i in gene_lines.items():
+        if gene_transcripts.get(gene_id):
+            parents[i] = set(gene_transcripts[gene_id])
 
     return transcripts, lines, parents
 

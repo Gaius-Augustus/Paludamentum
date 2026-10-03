@@ -75,16 +75,16 @@ tests/                     # test_launcher.py, test_stub_run.py, stub.config, da
 | 2 | Tiberius | `paludamentum` | submodule added at `v0.1.0`, shim, config shims | done (superseded by step 6) |
 | 3 | Tiberius | `paludamentum` | original pipeline files deleted | done |
 | 4 | Paludamentum | `main` | gene finder abstraction, Vipsania processes | done, tag `v0.2.0` |
-| 5 | Paludamentum | `main` | submodules `tiberius/`, `vipsania/`, `drusilla/`; `paludamentum` command line; model_cfg resolution; docs | commit, push, tag `v0.3.0` |
-| 6 | Tiberius | `paludamentum` | submodule, shims and pipeline options removed; docs point to Paludamentum | commit, push, merge to `main`, release |
-| 7 | Vipsania | `paludamentum` | docs point to Paludamentum (`docs/pipeline.md`, README section) | commit, push, merge to `main` |
-| 8 | Paludamentum | `main` | submodule pointers bumped to the merged Tiberius and Vipsania commits | commit |
+| 5 | Paludamentum | `main` | submodules `tiberius/`, `vipsania/`, `drusilla/`; `paludamentum` command line; model_cfg resolution; docs | done, `v0.3.0` |
+| 6 | Tiberius | `paludamentum` | submodule, shims and pipeline options removed; docs point to Paludamentum | done, merged to `main` (2.0.8) |
+| 7 | Vipsania | `paludamentum` | docs point to Paludamentum (`docs/pipeline.md`, README section) | done, merged to `main` |
+| 8 | Paludamentum | `main` | submodule pointers bumped to the merged Tiberius and Vipsania commits, image `tiberius:2.0.8`, Drusilla pointer at `ba0765d` | done, tested on storm (T. rubripes gene F1 74.01 Tiberius, 66.11 Vipsania) |
 
 Steps 5, 6 and 7 are independent of each other. Step 8 needs the commits of
-steps 6 and 7 on GitHub. Until step 8, `tiberius/` points at Tiberius `main`
-(v2.0.7 plus the Blackwell Dockerfile change), which still carries the old
-in-tree pipeline; that does not affect Paludamentum, which uses only
-`model_cfg/` and `tiberius.py` from the checkout.
+steps 6 and 7 on GitHub. Merging step 6 met Tiberius' version bump to 2.0.8,
+which changed `conf/base.config` in Tiberius; the file was a shim of the old
+in-tree pipeline and stays deleted. Step 8 therefore pins the image
+`tiberius:2.0.8`.
 
 ### Step 5 [Paludamentum]. v0.3.0: import the gene finders
 

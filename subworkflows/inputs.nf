@@ -89,28 +89,10 @@ workflow INPUTS {
     def DO_PE  = DO_PE_LOCAL  || (params_map.rnaseq_sra_paired && params_map.rnaseq_sra_paired.size() > 0)
     def DO_ISO = DO_ISO_LOCAL || (params_map.isoseq_sra        && params_map.isoseq_sra.size()        > 0)
 
-    // ---- infer mode ----
-    def hasPaired   = DO_PE
-    def hasSingle   = DO_SE
-    def hasIso      = DO_ISO
-    def hasProteins = proteinsList.size() > 0 || odb12List.size() > 0
-
-    def MODE
-    if( params_map.mode ) {
-        MODE = params_map.mode
-    } else {
-        if( hasIso && (hasPaired || hasSingle) && hasProteins ) MODE = 'mixed'
-        else if( hasIso && hasProteins )                        MODE = 'isoseq'
-        else if( hasPaired || hasSingle && hasProteins )        MODE = 'rnaseq'
-        else if( hasProteins )                   MODE = 'proteins'
-        else                                     MODE = 'tiberius' 
-    }
-
     emit:
     genome      = CH_GENOME
     proteins    = CH_PROTEINS
     score       = CH_SCORE
-    mode        = MODE
     do_se       = nextflow.Channel.value(DO_SE)
     do_pe       = nextflow.Channel.value(DO_PE)
     do_iso      = nextflow.Channel.value(DO_ISO)

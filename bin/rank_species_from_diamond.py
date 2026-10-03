@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 import sys
 from collections import defaultdict
 
@@ -14,14 +15,20 @@ MAX_EVALUE = 1e-5
 MIN_PIDENT = 30.0
 MIN_QCOV   = 0.5   # coverage = aligned_length / qlen
 
+ORTHODB_ID = re.compile(r"^\d+_\d+:")   # OrthoDB v10-v12 ids: <taxid>_<n>:<hex>
+
+
 def get_species_id(sseqid: str) -> str:
     """
-    Extract species ID from OrthoDB-style sseqid.
-    Example: '101020_0:000003' -> '101020'
-    Adjust if your header format is different.
+    Species of a subject: the NCBI taxonomy id in front of the first '_' of an
+    OrthoDB-style id ('101020_0:000003' -> '101020'). For any other id format
+    the whole id is returned, so that every protein counts as its own
+    "species" and nothing is grouped by a meaningless prefix.
     """
     head = sseqid.split()[0]
-    return head.split("_", 1)[0]
+    if ORTHODB_ID.match(head):
+        return head.split("_", 1)[0]
+    return head
 
 # best hit *per query* (over all species)
 # q -> (best_score, best_species)
@@ -82,4 +89,8 @@ with open("top_species.txt", "w") as out_sp:
         if i < TOP_N:
             out_sp.write(sp + "\n")
 
-sys.stderr.write(f"Wrote top {TOP_N} species to top_species.txt\n")
+if not ranking:
+    sys.stderr.write("No DIAMOND hit passed the thresholds: top_species.txt is empty. "
+                     "The caller must then keep the whole protein database.\n")
+else:
+    sys.stderr.write(f"Wrote top {min(TOP_N, len(ranking))} species to top_species.txt\n")

@@ -1,34 +1,39 @@
 # ============================================================
-# EvidencePipeline Parameters Template (parameters.yaml)
+# Paludamentum parameters template (parameters.yaml)
 # ============================================================
-# Copy this file and edit paths according to your project.
-# All fields are optional unless stated otherwise.
+# Copy this file and edit the paths for your project. Only `genome` is
+# required; every other field is optional. Lines that start with '#' are
+# examples. Pass the file to the launcher:
+#     paludamentum --params_yaml parameters.yaml --nf_config slurm_generic
+# The launcher expands '~' and environment variables and writes absolute
+# paths to <outdir>/params.yaml. Use absolute paths in a params file that
+# Nextflow reads directly; relative paths are resolved against the launch
+# directory, not against this file.
 # ============================================================
 
 # ------------------------------------------------------------
 # Required input
 # ------------------------------------------------------------
-genome: /path/to/genome.fa   # REQUIRED
+genome: /path/to/genome.fa
 
 # ------------------------------------------------------------
-# RNA-Seq short reads (FASTQ)
+# RNA-Seq short reads
 # ------------------------------------------------------------
 
-rnaseq_bam: [
-  # path to aligned short read RNA-Seq BAM files, e.g. from VARUS
-]
+# Aligned short reads (BAM), for example from VARUS. They skip HISAT2.
+# rnaseq_bam:
+#   - /path/to/sample1.bam
 
-# Single-end RNA-Seq reads (list of FASTQ files)
-rnaseq_single: [
-  # /path/to/sample1.fastq.gz,
-  # /path/to/sample2.fastq.gz,
-]
+# Single-end reads (list of FASTQ files, or one glob string)
+# rnaseq_single:
+#   - /path/to/sample1.fastq.gz
+#   - /path/to/sample2.fastq.gz
 
-# Paired-end RNA-Seq reads. Use ONE of the three accepted forms:
+# Paired-end reads. Use ONE of the three accepted forms:
 #
-# (a) Single glob string. Matches one or many libraries via fromFilePairs.
-#     A LIST of globs is NOT supported - use one glob that covers all files.
-rnaseq_paired: "/path/to/rnaseq/*_{1,2}.fastq.gz"
+# (a) One glob string that matches all libraries (fromFilePairs).
+#     A LIST of globs is NOT supported; use one glob that covers all files.
+# rnaseq_paired: "/path/to/rnaseq/*_{1,2}.fastq.gz"
 #
 # (b) Explicit list of [r1, r2] pairs (one entry per library):
 # rnaseq_paired:
@@ -39,85 +44,74 @@ rnaseq_paired: "/path/to/rnaseq/*_{1,2}.fastq.gz"
 # rnaseq_paired:
 #   - /abs/path/sample_R1.fastq.gz
 #   - /abs/path/sample_R2.fastq.gz
-#
-# Note: '~' is not expanded; use absolute paths or paths relative to the
-# directory where Nextflow is launched (not to this YAML file).
 
 # ------------------------------------------------------------
-# Iso-Seq long reads (FASTQ)
+# Iso-Seq long reads (FASTQ): one glob string or a list
 # ------------------------------------------------------------
-isoseq: "/path/to/isoseq/*.fastq.gz"
-# OR:
-# isoseq: [
-#   /path/to/isoseq1.fastq.gz,
-#   /path/to/isoseq2.fastq.gz,
-# ]
+# isoseq: "/path/to/isoseq/*.fastq.gz"
+# isoseq:
+#   - /path/to/isoseq1.fastq.gz
 
 # ------------------------------------------------------------
-# SRA download
+# SRA downloads (run accessions)
 # ------------------------------------------------------------
-
-# Paired-end RNA-Seq SRA run IDs
-rnaseq_sra_paired: [
-  # SRRXXXXXX,
-  # SRRYYYYYY,
-]
-
-# Single-end RNA-Seq SRA run IDs
-rnaseq_sra_single: []
-
-# Iso-Seq SRA run IDs
-isoseq_sra: [
-  # DRRXXXXX,
-]
+# rnaseq_sra_paired: [SRRXXXXXXX, SRRYYYYYYY]
+# rnaseq_sra_single: [SRRZZZZZZZ]
+# isoseq_sra: [DRRXXXXXXX]
 
 # ------------------------------------------------------------
 # Protein evidence (FASTA)
 # ------------------------------------------------------------
-# Single file:
+# One file, or a list that is concatenated:
 # proteins: /path/to/proteins.faa
-# OR multiple files (will be concatenated):
-proteins: [
-#   /path/to/proteins1.faa,
-#   /path/to/proteins2.faa,
-]
+# proteins:
+#   - /path/to/proteins1.faa
+#   - /path/to/proteins2.faa
 
-# Optional ODB12 partitions (downloaded, extracted, then concatenated)
-odb12Partitions: [
-#   Metazoa,
-#   Vertebrata,
-]
+# OrthoDB v12 partitions, downloaded and appended to the proteins:
+# Metazoa, Vertebrata, Viridiplantae, Arthropoda, Fungi, Alveolata,
+# Stramenopiles, Amoebozoa, Euglenozoa, Eukaryota
+# odb12Partitions: [Vertebrata]
 
 # ------------------------------------------------------------
-# General Settings
+# General settings (defaults shown; see docs/parameters.md)
 # ------------------------------------------------------------
-threads: 32
-outdir: results
-restart: false
+# outdir: results                # the launcher sets <genefinder>_results
+# threads: 48                    # CPUs reserved per task
+# mode: null                     # inferred: abinitio, proteins, rnaseq, isoseq, mixed
+# min_alignment_rate: 80         # libraries below this mapping rate are dropped
+# transdecoder: td1              # ORF finder of the HC gene step: td1 or td2
 
 # ------------------------------------------------------------
-# Gene finder: enable ONE of the two blocks (tiberius or vipsania)
-# ------------------------------------------------------------
-# ------------------------------------------------------------
-# Tiberius Integration (optional)
+# Gene finder: exactly one of the two blocks has run: true
 # ------------------------------------------------------------
 tiberius:
   run: true
-  min_split_size: 5000000
-  max_files: 20
-  # name of the Tiberius configuration available at
-  # https://github.com/Gaius-Augustus/Tiberius/tree/main/model_cfg
-  # or path to a local configuration file
-  model_cfg: model_cfg.yaml
+  # Name of a model configuration in tiberius/model_cfg of the submodule
+  # (https://github.com/Gaius-Augustus/Tiberius/tree/main/model_cfg), or the
+  # path of a configuration file.
+  model_cfg: eudicotyledons
+  # min_split_size: 20000000     # minimal genome chunk in bp
+  # max_files: 20                # maximal number of chunks (parallel GPU tasks)
+  # max_parallel: null           # cap of concurrent GPU tasks, e.g. 1 on a workstation
+  # model_dir: null              # extracted weights for nodes without internet
 
-# ------------------------------------------------------------
-# Vipsania Integration (optional, alternative to Tiberius)
-# ------------------------------------------------------------
-# See docs/vipsania.md. Set tiberius.run to false when you use Vipsania.
+# Vipsania instead of Tiberius (see docs/vipsania.md):
+# tiberius:
+#   run: false
 # vipsania:
 #   run: true
-#   model: Fungi            # clade name or model id
-#   model_dir: null         # directory with downloaded models (offline nodes)
-#   finetune: false         # true: finetune on the genome first (one task, no chunks)
-#   min_split_size: 5000000
-#   max_files: 20
+#   model: Fungi                 # clade name or model id
+#   model_dir: null              # directory with downloaded models (offline nodes)
+#   finetune: false              # true: finetune on the genome first (one task, no chunks)
+
+# ------------------------------------------------------------
+# Drusilla flow (vertebrate models with transcripts; see README "Drusilla flow")
+# ------------------------------------------------------------
+# drusilla:
+#   run: auto                    # auto: vertebrate models only; true: always; false: never
+#   lgb_model: <released model>  # LightGBM filter model; null switches the flow off
+#   lgb_model_sha256: <of it>    # null for another model
+#   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
+#   cache_dir: null              # Drusilla model cache; null = download in the task
+#   rescue: true                 # hint rescue of partial ab initio genes

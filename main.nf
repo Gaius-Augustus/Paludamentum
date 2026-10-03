@@ -1,8 +1,8 @@
 nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
-include { MERGE_GENEFINDER_TRAIN; MERGE_GENEFINDER_TRAIN_PRIO; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
-include { inferMode; resolveGenefinder; genefinderEnabled; asList; hcMethod } from './lib_nf/functions.nf'
+include { MERGE_GENEFINDER_TRAIN; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod } from './lib_nf/functions.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
@@ -16,7 +16,6 @@ include { STRINGTIE_ASSEMBLE_MIX } from './modules/assembly.nf'
 
 workflow {
   main:
-    def OUT_CH = null
     def outdir = params.outdir ?: "results"
     file(outdir).mkdirs()
 
@@ -41,9 +40,14 @@ workflow {
     def genefinder    = resolveGenefinder(params)
     def genefinderRun = genefinderEnabled(params)
 
-    def MODE = params.mode ?: inferMode(hasPaired, hasSingle, hasIso, hasBAM, hasProteins)
-    // 'tiberius' is the historic name of the ab initio mode
-    if( MODE in ['tiberius', 'vipsania'] ) MODE = 'abinitio'
+    def MODE = params.mode ? normalizeMode(params.mode) : inferMode(hasPaired, hasSingle, hasIso, hasBAM, hasProteins)
+    // A forced mode without its inputs would end without the main outputs.
+    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM) )
+      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam or rnaseq_sra_*)."
+    if( MODE in ['isoseq', 'mixed'] && !hasIso )
+      error "params.mode '${MODE}' needs Iso-Seq reads (isoseq or isoseq_sra)."
+    if( MODE != 'abinitio' && !hasProteins )
+      error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions)."
     log.info "Running mode: ${MODE}"
     log.info "Gene finder : ${genefinderRun ? genefinder : 'none'}"
     def hc = hcMethod(params, MODE)
@@ -54,7 +58,7 @@ workflow {
     def inp  = INPUTS(params)
 
     if( MODE == 'abinitio' ) {
-      OUT_CH = AB_INITIO(inp.genome, params)
+      AB_INITIO(inp.genome, params)
 
     } else {
 
@@ -94,7 +98,7 @@ workflow {
         train_final      = dr.orfs
         genefinder_final = dr.genefinder
       } else if( MODE in ['mixed','rnaseq','isoseq'] ) {
-        train_final = HC_GENES(asm_gtf, inp.genome, pe.proteindb, pe.scored_gff)
+        train_final = HC_GENES(asm_gtf, inp.genome, pe.proteindb)
       } else {
         train_final = HC_FORMAT_FILTER(pe.prot_traingff, inp.genome)
       }
@@ -102,9 +106,6 @@ workflow {
       if( genefinderRun ) {
         MERGE_GENEFINDER_TRAIN(genefinder, genefinder_final, train_final)
         PROTEIN_FROM_GFF_FINAL(genefinder, MERGE_GENEFINDER_TRAIN.out.merged, inp.genome)
-        // MERGE_GENEFINDER_TRAIN_PRIO(genefinder, pe.genefinder_gff, train_final)
       }
-
-      OUT_CH = all_hints.hints
     }
 }

@@ -9,7 +9,7 @@ process STRINGTIE_ASSEMBLE_RNA {
     path "stringtie_${rnabam.baseName}.gff3", emit: gff3
   script:
   """
-  samtools sort -@ ${task.cpus} -o sorted.bam ${rnabam}
+  ${params.tools.samtools} sort -@ ${task.cpus} -o sorted.bam ${rnabam}
   ${params.tools.stringtie} -p ${task.cpus} -o stringtie_${rnabam.baseName}.gtf sorted.bam
   ${params.tools.transdecoder_gtf2gff} stringtie_${rnabam.baseName}.gtf > stringtie_${rnabam.baseName}.gff3
   """
@@ -54,14 +54,13 @@ process STRINGTIE_MERGE {
     ls ${gtfs} > mergelist.txt
 
     set +e
-    stringtie --merge -o stringtie.gtf mergelist.txt
+    ${params.tools.stringtie} --merge -o stringtie.gtf mergelist.txt
     exitcode=\$?
     set -e
 
     if [ "\$exitcode" -ne 0 ]; then
         echo "WARNING: stringtie --merge failed with code \$exitcode, using custom merge." >&2
 
-        # your script: outputs GFF3 to stdout
         merge_annotations.py --mode full \\
             ${gtfs.join(' ')} > merged.gff3
 
@@ -81,30 +80,6 @@ process STRINGTIE_MERGE {
 }
 
 
-// process STRINGTIE_MERGE {
-//     tag "stringtie-merge"
-
-//     label 'container'
-
-//     input:
-//     path gtfs, stageAs: "?/*"
-
-//     output:
-//     path "stringtie.gtf", emit: gtf
-//     path "stringtie.gff3", emit: gff3
-
-//     script:
-//     """
-//     ls ${gtfs} > mergelist.txt
-
-//     stringtie \
-//         --merge \
-//         -o stringtie.gtf \
-//         mergelist.txt
-//     ${params.tools.transdecoder_gtf2gff} stringtie.gtf > stringtie.gff3
-//     """
-// }
-
 process STRINGTIE_ASSEMBLE_MIX {
   label 'container'
   input:
@@ -116,7 +91,10 @@ process STRINGTIE_ASSEMBLE_MIX {
   script:
   """
   mkdir -p stringtie
-  ${params.tools.stringtie} -p ${task.cpus} -o stringtie/stringtie.gtf --mix rna.bam isoseq.bam
+  # StringTie needs coordinate-sorted BAMs; user BAMs may be unsorted
+  ${params.tools.samtools} sort -@ ${task.cpus} -o rna.sorted.bam rna.bam
+  ${params.tools.samtools} sort -@ ${task.cpus} -o isoseq.sorted.bam isoseq.bam
+  ${params.tools.stringtie} -p ${task.cpus} -o stringtie/stringtie.gtf --mix rna.sorted.bam isoseq.sorted.bam
   ${params.tools.transdecoder_gtf2gff} stringtie/stringtie.gtf > stringtie/stringtie.gff3
   """
 

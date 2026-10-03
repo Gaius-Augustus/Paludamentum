@@ -37,12 +37,34 @@ def genefinderEnabled(p) {
     return truthy(p[resolveGenefinder(p)]?.run)
 }
 
+// Pipeline modes; 'tiberius' and 'vipsania' are accepted as historic names of 'abinitio'.
+def modes() {
+    return ['abinitio', 'proteins', 'rnaseq', 'isoseq', 'mixed']
+}
+
+// Mode of a run from its inputs. Transcript evidence (short reads, BAM, Iso-Seq)
+// needs protein evidence, because the high-confidence genes need both; the
+// caller reports that as an error.
 def inferMode(boolean hasPaired, boolean hasSingle, boolean hasIso, boolean hasBAM, boolean hasProteins) {
-  if ((hasPaired || hasSingle || hasBAM) && hasIso && hasProteins) return 'mixed'
-  if (hasIso && hasProteins) return 'isoseq'
-  if (hasPaired || hasSingle || hasBAM && hasProteins) return 'rnaseq'
-  if (hasProteins && hasProteins) return 'proteins'
-  return 'tiberius'
+  def hasShortReads = hasPaired || hasSingle || hasBAM
+  if( !hasProteins ) {
+    if( hasShortReads || hasIso )
+      error "RNA-Seq and Iso-Seq evidence need protein evidence (params.proteins or params.odb12Partitions): the high-confidence genes are selected by protein homology."
+    return 'abinitio'
+  }
+  if( hasShortReads && hasIso ) return 'mixed'
+  if( hasIso )                  return 'isoseq'
+  if( hasShortReads )           return 'rnaseq'
+  return 'proteins'
+}
+
+// params.mode normalised to one of modes(), or an error for anything else.
+def normalizeMode(value) {
+  def mode = value.toString().trim().toLowerCase()
+  if( mode in ['tiberius', 'vipsania'] ) mode = 'abinitio'
+  if( !(mode in modes()) )
+    error "Unknown params.mode '${value}'. Supported: ${modes().join(', ')}."
+  return mode
 }
 
 // True if the selected gene finder model is one that the Drusilla flow serves:

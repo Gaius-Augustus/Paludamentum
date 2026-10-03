@@ -244,6 +244,62 @@ def test_bam_alone_is_inferred_as_rnaseq(bam, tmp_path: Path) -> None:
     assert "Running mode: rnaseq" in proc.stdout
 
 
+# ---------------------------------------------------------------- input handling and guards
+
+def test_gzipped_genome_and_proteins(tmp_path: Path) -> None:
+    """Both are decompressed under their own names, so they do not collide in MINIPROT_ALIGN."""
+    import gzip
+    genome_gz = tmp_path / "genome.fa.gz"
+    proteins_gz = tmp_path / "proteins.faa.gz"
+    genome_gz.write_bytes(gzip.compress((DATA / "tiny.fa").read_bytes()))
+    proteins_gz.write_bytes(gzip.compress((DATA / "tiny_proteins.faa").read_bytes()))
+    params = {**GENEFINDER["tiberius"], "genome": str(genome_gz), "proteins": str(proteins_gz)}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "tiberius_evidence.gff3" in published
+
+
+def test_two_bams_with_the_same_file_name(tmp_path: Path) -> None:
+    """Typical STAR output: <sample>/Aligned.out.bam for every sample."""
+    bams = []
+    for sample in ("s1", "s2"):
+        (tmp_path / sample).mkdir()
+        bam = tmp_path / sample / "Aligned.out.bam"
+        bam.write_text("")
+        bams.append(str(bam))
+    proc, published = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS, "rnaseq_bam": bams})
+    assert_ok(proc)
+    assert {"tiberius_evidence.gff3", "hintsfile.gff"} <= published
+
+
+def test_tiberius_model_dir_is_staged(tmp_path: Path) -> None:
+    model_dir = tmp_path / "weights"
+    (model_dir / "tiny_weights").mkdir(parents=True)
+    (model_dir / "tiny_weights" / "model.h5").write_text("")
+    params = {"tiberius": {"run": True, "model_cfg": str(DATA / "tiny.fa"), "model_dir": str(model_dir)}}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "tiberius_ab_initio.gff3" in published
+
+
+@pytest.mark.parametrize("params,message", [
+    ({"mode": "rnaseqq", **PROTEINS}, "Unknown params.mode"),
+    ({"mode": "rnaseq", **PROTEINS}, "needs short reads"),
+    ({"mode": "isoseq", **PROTEINS}, "needs Iso-Seq reads"),
+    ({"mode": "proteins"}, "needs protein evidence"),
+    (ISOSEQ, "need protein evidence"),
+    ({"tiberius": {"run": True, "result": "/nonexistent/old.gtf"}, **PROTEINS}, "does not exist"),
+    ({"tiberius": {"run": True, "model_cfg": "/nonexistent/m.yaml"}}, "not a file"),
+], ids=["mode-typo", "rnaseq-without-reads", "isoseq-without-reads", "proteins-without-proteins",
+        "isoseq-without-proteins", "missing-result", "missing-model-cfg"])
+def test_bad_inputs_stop_the_run_early(params, message, tmp_path: Path) -> None:
+    """Instead of a run that ends with exit 0 and without its main outputs, or a GPU task for nothing."""
+    base = GENEFINDER["tiberius"] if "tiberius" not in params else {}
+    proc, _ = run_pipeline(tmp_path, {**base, **params})
+    assert proc.returncode != 0
+    assert message in proc.stdout + proc.stderr, proc.stdout[-2000:] + proc.stderr[-1000:]
+
+
 # ---- Drusilla flow -----------------------------------------------------------
 
 def drusilla_params(tmp_path: Path, tool: str, lgb: bool = True) -> dict:

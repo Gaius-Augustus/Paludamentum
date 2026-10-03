@@ -2,24 +2,35 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, drusilla]
   pull_request:
 
 jobs:
-  launcher:
+  # Launcher and script tests: the oldest supported Python and a current one.
+  python:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12"]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: python -m pip install .[test]
-      - run: python -m pytest tests/test_launcher.py
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e .[test] biopython
+      - run: python -m pytest tests --ignore=tests/test_stub_run.py
 
+  # Nextflow stub runs: the oldest supported Nextflow (manifest.nextflowVersion)
+  # and the latest stable release.
   stub-run:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        nextflow-version: ["25.04.0", "latest-stable"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +43,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: nf-core/setup-nextflow@v2
-      - run: python -m pip install .[test]
-      - run: nextflow lint main.nf modules subworkflows
+        with:
+          version: ${{ matrix.nextflow-version }}
+      - run: python -m pip install -e .[test]
+      - run: nextflow lint main.nf modules subworkflows lib_nf
       - run: python -m pytest tests/test_stub_run.py

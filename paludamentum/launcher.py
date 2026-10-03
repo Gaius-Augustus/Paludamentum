@@ -65,10 +65,13 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
 
 GENERAL_COMMANDS = {
     "nextflow": "Nextflow executable used to launch the pipeline",
-    "java": "Java runtime (version 11 or newer)",
+    "java": "Java runtime (version 17 or newer, required by Nextflow)",
     "singularity": "Singularity/Apptainer runtime",
     "python3": "System Python 3 interpreter",
 }
+# Either command satisfies the container runtime check.
+CONTAINER_COMMANDS = ("singularity", "apptainer")
+MIN_JAVA = 17
 
 # Checked only with --check_tools (i.e. when not relying on the container).
 OPTIONAL_COMMANDS = {
@@ -100,15 +103,42 @@ TOP_LEVEL_CLI_KEYS = (
     "mode", "scoring_matrix",
 )
 GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
-    "tiberius": ("model_cfg", "result", "min_split_size", "max_files", "max_parallel", "batch_size", "seq_len"),
+    "tiberius": ("model_cfg", "model_dir", "result", "min_split_size", "max_files", "max_parallel", "batch_size",
+                 "seq_len"),
     "vipsania": ("model", "model_dir", "result", "min_split_size", "max_files", "max_parallel", "batch_size",
                  "context", "finetune", "finetune_epochs"),
 }
 
+# Params values that are paths: they are written as absolute paths, because
+# Nextflow expands neither '~' nor environment variables.
+PATH_KEYS = ("genome", "proteins", "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "isoseq", "scoring_matrix")
+GENEFINDER_PATH_KEYS = ("result", "model_cfg", "model_dir")
+
+ROOT_ENV = "PALUDAMENTUM_ROOT"
+
 
 def _default_repo_root() -> Path:
-    """Root of the Paludamentum checkout (the directory that holds main.nf)."""
-    return Path(__file__).resolve().parent.parent
+    """
+    Root of the Paludamentum checkout (the directory that holds main.nf):
+    ``$PALUDAMENTUM_ROOT``, else the checkout that this module is imported
+    from (``pip install -e .``, ``python -m paludamentum`` in the checkout).
+    A plain ``pip install .`` copies only the launcher into site-packages, so
+    the pipeline must then be named by the environment variable.
+    """
+    env_root = os.environ.get(ROOT_ENV)
+    if env_root:
+        root = Path(env_root).expanduser().resolve()
+        if not (root / "main.nf").is_file():
+            raise SystemExit(f"{ROOT_ENV}={env_root} is not a Paludamentum checkout (no main.nf in it).")
+        return root
+    root = Path(__file__).resolve().parent.parent
+    if (root / "main.nf").is_file():
+        return root
+    raise SystemExit(
+        "The Paludamentum pipeline (main.nf, conf/, modules/) was not found next to the installed "
+        f"launcher ({root}). Install the launcher from the checkout with 'pip install -e .', or set "
+        f"{ROOT_ENV} to the directory of the checkout."
+    )
 
 
 def pipeline_paths(root_override: str | Path | None = None) -> Tuple[Path, Path, Path]:
@@ -129,14 +159,21 @@ def resolve_nf_config(value: str | Path, root: str | Path | None = None) -> Path
     repo_root, _, _ = pipeline_paths(root)
     conf_dir = repo_root / "conf"
     raw = Path(os.path.expandvars(str(value))).expanduser()
-    candidates = [raw, conf_dir / raw.name]
+    if raw.is_file():
+        return raw.resolve()
+    # A path (with a directory part) that does not exist is an error; only
+    # the shorthand conf/<name> and a bare name are looked up in conf/.
+    if raw.parent != Path(".") and raw.parent != Path("conf"):
+        raise SystemExit(f"Nextflow config not found: {raw}")
+    candidates = [conf_dir / raw.name]
     if raw.suffix != ".config":
         candidates.append(conf_dir / f"{raw.name}.config")
     for candidate in candidates:
         if candidate.is_file():
             return candidate.resolve()
-    searched = ", ".join(str(c) for c in candidates)
-    raise SystemExit(f"Nextflow config not found: {value} (searched: {searched})")
+    shipped = ", ".join(sorted(p.stem for p in conf_dir.glob("*.config")))
+    raise SystemExit(f"Nextflow config not found: {value} (searched: {raw}, "
+                     f"{', '.join(str(c) for c in candidates)}). Shipped configs: {shipped}")
 
 
 def submodule_root(name: str, root: str | Path | None = None) -> Path:
@@ -191,16 +228,43 @@ def tiberius_checkout(root: str | Path | None = None) -> Path | None:
     return directory if (directory / "tiberius.py").is_file() else None
 
 
+def tiberius_bin_dir(root: str | Path | None = None) -> Path | None:
+    """
+    Directory that makes ``tiberius.py`` of the checkout callable, or None
+    without a checkout. ``tiberius.py`` is not executable in the Tiberius
+    repository, so a wrapper is written to ``~/.cache/paludamentum/bin`` (or
+    ``$XDG_CACHE_HOME/paludamentum/bin``) that runs it with python3.
+    """
+    checkout = tiberius_checkout(root)
+    if not checkout:
+        return None
+    script = checkout / "tiberius.py"
+    if os.access(script, os.X_OK):
+        return checkout
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "paludamentum" / "bin"
+    wrapper = cache / "tiberius.py"
+    body = f'#!/bin/sh\nexec python3 "{script}" "$@"\n'
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        if not wrapper.is_file() or wrapper.read_text(encoding="utf-8") != body:
+            wrapper.write_text(body, encoding="utf-8")
+        wrapper.chmod(0o755)
+    except OSError as exc:
+        print(f"[WARN] Cannot write the tiberius.py wrapper {wrapper}: {exc}")
+        return None
+    return cache
+
+
 def nextflow_env(root: str | Path | None = None) -> Dict[str, str]:
     """
-    Environment for the Nextflow process. The Tiberius checkout is appended to
-    PATH, so that runs without containers find tiberius.py; an installed
-    Tiberius earlier on PATH wins.
+    Environment for the Nextflow process. The directory with the callable
+    tiberius.py of the checkout is appended to PATH, so that runs without
+    containers find it; an installed Tiberius earlier on PATH wins.
     """
     env = os.environ.copy()
-    checkout = tiberius_checkout(root)
-    if checkout:
-        env["PATH"] = os.pathsep.join(part for part in (env.get("PATH", ""), str(checkout)) if part)
+    bin_dir = tiberius_bin_dir(root)
+    if bin_dir:
+        env["PATH"] = os.pathsep.join(part for part in (env.get("PATH", ""), str(bin_dir)) if part)
     return env
 
 
@@ -300,7 +364,8 @@ def infer_genefinder(args, loaded: Dict) -> str:
     """
     Gene finder of a run: ``--genefinder``, else ``genefinder`` in the params
     file, else the single block with ``run: true``, else the gene finder whose
-    model option was given on the command line, else Tiberius.
+    model option was given on the command line, else Tiberius. Two blocks
+    with ``run: true`` and no explicit choice are an error.
     """
     explicit = getattr(args, "genefinder", None)
     if explicit:
@@ -311,6 +376,11 @@ def infer_genefinder(args, loaded: Dict) -> str:
         name for name in GENEFINDER_CLI
         if isinstance(loaded.get(name), dict) and loaded[name].get("run")
     ]
+    if len(enabled) > 1:
+        raise SystemExit(
+            f"More than one gene finder has run: true in the params file ({', '.join(enabled)}). "
+            "Set 'genefinder' in the file or use --genefinder."
+        )
     if len(enabled) == 1:
         return enabled[0]
     if getattr(args, "model", None) and not getattr(args, "model_cfg", None):
@@ -324,7 +394,9 @@ def cli_overrides(args, genefinder: str) -> Dict:
 
     def value_of(key: str):
         value = getattr(args, key, None)
-        if value in (None, "", [], False):
+        # unset: None, an empty string or list, or a flag that was not given.
+        # 0 is a value (--threads 0 is rejected by the validation later).
+        if value is None or value is False or (isinstance(value, (str, list)) and not value):
             return None
         return value
 
@@ -337,6 +409,12 @@ def cli_overrides(args, genefinder: str) -> Dict:
     paired = overrides.get("rnaseq_paired")
     if isinstance(paired, list) and len(paired) == 1:
         overrides["rnaseq_paired"] = paired[0]
+    elif isinstance(paired, list) and len(paired) > 2:
+        raise SystemExit(
+            "--rnaseq_paired takes one glob for all libraries (\"RNA/*_{1,2}.fastq.gz\") or the two "
+            f"files of one library, not {len(paired)} files. Put several libraries as [r1, r2] pairs "
+            "into the params file (rnaseq_paired)."
+        )
 
     block: Dict = {}
     for key in GENEFINDER_CLI_KEYS.get(genefinder, ()):
@@ -362,16 +440,38 @@ def build_params(args, genefinder: str | None = None, root: str | Path | None = 
             raise SystemExit(f"Params YAML not found: {params_path}")
         loaded = load_params(params_path)
 
+    explicit = bool(getattr(args, "genefinder", None))
     genefinder = genefinder or infer_genefinder(args, loaded)
+    if genefinder not in GENEFINDER_CLI:
+        raise SystemExit(f"Unknown gene finder '{genefinder}'. Supported: {', '.join(GENEFINDER_CLI)}.")
     params = default_params(genefinder, root)
     merge_params(params, loaded)
     merge_params(params, cli_overrides(args, genefinder))
 
+    # The launcher's choice is the pipeline's choice: one gene finder runs,
+    # the others are off, whatever the params file says (--genefinder wins).
+    params["genefinder"] = genefinder
+    for name in GENEFINDER_CLI:
+        if not isinstance(params.get(name), dict):
+            params[name] = {}
+        if name != genefinder:
+            params[name]["run"] = False
+    cfg = params[genefinder]
+    if explicit and not cfg.get("run"):
+        print(f"[INFO] --genefinder {genefinder} switches {genefinder}.run on (the params file had run: false).")
+        cfg["run"] = True
+
     if not params.get("genome"):
         raise SystemExit("A genome is required: --genome, or 'genome' in the params file.")
 
-    cfg = params.get(genefinder)
-    if isinstance(cfg, dict) and cfg.get("run") and not cfg.get("result"):
+    for key in PATH_KEYS:
+        if params.get(key):
+            params[key] = absolute_paths(params[key], key)
+    for key in GENEFINDER_PATH_KEYS:
+        if cfg.get(key):
+            cfg[key] = absolute_paths(cfg[key], f"{genefinder}.{key}")
+
+    if cfg.get("run") and not cfg.get("result"):
         if genefinder == "tiberius":
             if not cfg.get("model_cfg"):
                 raise SystemExit("Tiberius needs a model configuration: --model_cfg, or tiberius.model_cfg in the params file.")
@@ -382,8 +482,27 @@ def build_params(args, genefinder: str | None = None, root: str | Path | None = 
     return genefinder, write_params_yaml(params)
 
 
+def absolute_paths(value, key: str):
+    """
+    ``value`` (a path string, a glob, or a list of those, nested for read
+    pairs) with '~' and environment variables expanded and relative paths
+    made absolute against the launch directory, as Nextflow resolves them.
+    """
+    if isinstance(value, list):
+        return [absolute_paths(v, key) for v in value]
+    if not isinstance(value, (str, Path)):
+        raise SystemExit(f"'{key}' must be a path or a list of paths, got {type(value).__name__}: {value!r}")
+    expanded = os.path.expandvars(os.path.expanduser(str(value).strip()))
+    if not expanded:
+        return expanded
+    path = Path(expanded)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return os.path.normpath(str(path))
+
+
 def load_params(params_path: Path) -> Dict:
-    with params_path.open() as handle:
+    with params_path.open(encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     if not isinstance(data, dict):
         raise SystemExit(f"Expected a mapping at the top-level of {params_path}, got {type(data).__name__}.")
@@ -410,22 +529,23 @@ def expand_braces(pattern: str) -> List[str]:
     return expanded
 
 
-def iter_strings(value) -> Iterable[str]:
+def iter_strings(value, key: str = "") -> Iterable[str]:
     if isinstance(value, (list, tuple, set)):
         for sub in value:
-            yield from iter_strings(sub)
+            yield from iter_strings(sub, key)
     elif isinstance(value, (str, Path)):
         yield str(value)
     elif value is None:
         return
     else:
-        raise TypeError(f"Unsupported value type in params file: {type(value)}")
+        raise SystemExit(f"'{key}' in the params file must be a path or a list of paths, "
+                         f"got {type(value).__name__}: {value!r}")
 
 
-def resolve_data_entries(value, base_dir: Path) -> Tuple[List[Path], List[str]]:
+def resolve_data_entries(value, key: str = "") -> Tuple[List[Path], List[str]]:
     resolved: List[Path] = []
     errors: List[str] = []
-    for raw in iter_strings(value):
+    for raw in iter_strings(value, key):
         cleaned = raw.strip()
         if not cleaned:
             continue
@@ -450,48 +570,55 @@ def resolve_data_entries(value, base_dir: Path) -> Tuple[List[Path], List[str]]:
 
 
 def validate_input_data(params: Dict, params_path: Path) -> List[str]:
+    """Problems with the input files named in ``params`` (empty list: none)."""
     errors: List[str] = []
-    base_dir = params_path.parent
 
-    def ensure_required(key: str, label: str) -> None:
-        value = params.get(key)
-        if not value:
-            errors.append(f"{label} ('{key}') is not set in {params_path}")
-            return
-        check_entries(value, label)
-
-    def check_entries(value, label: str) -> None:
-        files, errs = resolve_data_entries(value, base_dir)
+    def check_entries(value, label: str, key: str, directory: bool = False) -> None:
+        files, errs = resolve_data_entries(value, key)
         errors.extend(errs)
-        if not files:
-            return
         for file_path in files:
+            text = str(file_path)
+            if any(ch.isspace() for ch in text):
+                # the shell commands of the processes do not quote file names
+                errors.append(f"{label} path contains whitespace, which the pipeline does not support: {text}")
             if not file_path.exists():
                 errors.append(f"{label} missing: {file_path}")
-            elif not file_path.is_file():
+            elif directory and not file_path.is_dir():
+                errors.append(f"{label} is not a directory: {file_path}")
+            elif not directory and not file_path.is_file():
                 errors.append(f"{label} is not a file: {file_path}")
 
-    ensure_required("genome", "Genome FASTA")
-    # ensure_required("proteins", "Protein FASTA")
+    if not params.get("genome"):
+        errors.append(f"Genome FASTA ('genome') is not set in {params_path}")
+    else:
+        check_entries(params["genome"], "Genome FASTA", "genome")
 
     optional_fields = {
         "rnaseq_single": "RNA-Seq single-end FASTQ",
         "rnaseq_paired": "RNA-Seq paired-end FASTQ",
+        "rnaseq_bam": "RNA-Seq BAM",
         "isoseq": "Iso-Seq FASTQ",
         "scoring_matrix": "Scoring matrix",
         "proteins": "Protein FASTA",
     }
     for key, label in optional_fields.items():
-        if key in params and params.get(key):
-            check_entries(params[key], label)
+        if params.get(key):
+            check_entries(params[key], label, key)
 
-    # tiberius_cfg = params.get("tiberius") or {}
-    # if isinstance(tiberius_cfg, dict) and tiberius_cfg.get("run"):
-    #     model_cfg = tiberius_cfg.get("model_cfg")
-    #     if not model_cfg:
-    #         errors.append("Tiberius is enabled but params.tiberius.model_cfg is missing.")
-    #     else:
-    #         check_entries(model_cfg, "Tiberius model_cfg")
+    for name in GENEFINDER_CLI:
+        cfg = params.get(name)
+        if not isinstance(cfg, dict):
+            continue
+        # A mistyped result must not silently start the GPU gene finder.
+        if cfg.get("result"):
+            check_entries(cfg["result"], f"{name.capitalize()} result", f"{name}.result")
+        if cfg.get("model_dir"):
+            check_entries(cfg["model_dir"], f"{name.capitalize()} model_dir", f"{name}.model_dir", directory=True)
+        if name == "tiberius" and cfg.get("run") and cfg.get("model_cfg") and not cfg.get("result"):
+            check_entries(cfg["model_cfg"], "Tiberius model_cfg", "tiberius.model_cfg")
+
+    if params.get("threads") is not None and (not isinstance(params["threads"], int) or params["threads"] < 1):
+        errors.append(f"'threads' must be a positive integer, got {params['threads']!r}")
 
     return errors
 
@@ -527,11 +654,11 @@ def check_java_version(java_path: Path) -> Tuple[bool, str | None]:
         version = version_line.split(marker)[1]
         major = version.split(".")[0]
         try:
-            if int(major) >= 11:
+            if int(major) >= MIN_JAVA:
                 return True, None
         except ValueError:
             pass
-        return False, f"Java version {version} detected, but 11+ is required."
+        return False, f"Java version {version} detected, but {MIN_JAVA}+ is required by Nextflow."
     return False, "Unable to parse Java version output."
 
 
@@ -572,8 +699,12 @@ def validate_executables(
     for cmd, desc in GENERAL_COMMANDS.items():
         if cmd == "nextflow":
             check_command(nextflow_bin, desc)
-        elif cmd == "singularity" and skip_singularity_check:
-            continue
+        elif cmd == "singularity":
+            if skip_singularity_check:
+                continue
+            if not any(resolve_executable(c, repo_root) for c in CONTAINER_COMMANDS):
+                errors.append(f"{desc} not found on PATH (looked for {' or '.join(CONTAINER_COMMANDS)}). "
+                              "Use --skip_singularity_check to run without containers.")
         elif cmd == "java":
             check_command(cmd, desc, java=True)
         else:
@@ -591,14 +722,15 @@ def validate_executables(
             label = TOOL_DESCRIPTIONS.get(key, f"Tool '{key}'")
             check_command(cmd, label)
 
-        checkout = tiberius_checkout(repo_root)
         for name, cli in GENEFINDER_CLI.items():
             finder_cfg = params.get(name) or {}
-            if not (isinstance(finder_cfg, dict) and finder_cfg.get("run")):
+            if not (isinstance(finder_cfg, dict) and finder_cfg.get("run")) or finder_cfg.get("result"):
                 continue
-            if name == "tiberius" and checkout and not resolve_executable(cli, repo_root):
-                # tiberius.py of the submodule is appended to PATH for the Nextflow process
-                continue
+            if name == "tiberius" and not resolve_executable(cli, repo_root):
+                # tiberius.py of the checkout is appended to PATH for the Nextflow process
+                bin_dir = tiberius_bin_dir(repo_root)
+                if bin_dir and os.access(bin_dir / cli, os.X_OK):
+                    continue
             check_command(cli, f"{name.capitalize()} CLI ({cli})")
 
     return errors, warnings

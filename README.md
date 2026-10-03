@@ -37,7 +37,6 @@ them; they do not depend on Paludamentum.
 - [For maintainers](#for-maintainers)
 - [Testing](#testing)
 - [Roadmap](#roadmap)
-- [Known issues](#known-issues)
 - [License and citation](#license-and-citation)
 - [Funding](#funding)
 
@@ -55,7 +54,9 @@ them; they do not depend on Paludamentum.
    are assembled with StringTie, and intron hints are extracted.
 4. **High-confidence genes.** Assembled transcripts get ORFs from TransDecoder.
    ORFs that are supported by protein homology (DIAMOND) and by the scored
-   protein alignments become the high-confidence (HC) gene set.
+   protein alignments become the high-confidence (HC) gene set. TD2 can
+   replace TransDecoder (`transdecoder: td2`); a comparison is in
+   [docs/orf_finder_comparison.md](docs/orf_finder_comparison.md).
 5. **Integration.** The HC genes are merged with the ab initio predictions into
    the final annotation, and its protein sequences are extracted.
 
@@ -70,13 +71,16 @@ parallelize a gene finder over several GPUs.
 ```bash
 git clone --recursive https://github.com/Gaius-Augustus/Paludamentum
 cd Paludamentum
-pip install .
+pip install -e .
 ```
 
 `--recursive` checks out the submodules `tiberius/`, `vipsania/` and
 `drusilla/`. In an existing clone run `git submodule update --init` after
-`git pull`. `pip install .` installs the launcher (`paludamentum`, also
-`python -m paludamentum`); the pipeline runs from the checkout.
+`git pull`. `pip install -e .` installs the launcher (`paludamentum`, also
+`python -m paludamentum`) linked to the checkout; the pipeline (`main.nf`,
+`conf/`, `bin/`) runs from the checkout. If you install without `-e`, or
+move the checkout, point the launcher at it with
+`export PALUDAMENTUM_ROOT=/path/to/Paludamentum`.
 
 The pipeline runs the gene finders and all tools in containers, so the
 submodules do not have to be installed. The Tiberius checkout is used to
@@ -87,10 +91,10 @@ without containers, to find `tiberius.py`.
 
 On the machine that launches the pipeline:
 
-- Nextflow
-- Java 11 or newer
+- Nextflow 25.04 or newer
+- Java 17 or newer (required by Nextflow)
 - Singularity or Apptainer (all tools run in containers, see [Containers](#containers))
-- Python 3 with `pyyaml`
+- Python 3.9 or newer with `pyyaml`
 - an NVIDIA GPU on the nodes that run the gene finder step
 
 You do not need to install HISAT2, miniprot, StringTie and the other tools
@@ -114,7 +118,9 @@ paludamentum --genefinder vipsania --nf_config local --genome genome.fa --model 
 ```
 
 `--nf_config` takes a path or the name of a config in `conf/`
-(`local`, `slurm_generic`, ...). Evidence can be given on the command line
+(`local`, `slurm_generic`, ...); `local` sizes the tasks to the machine it
+runs on, `slurm_generic` needs your GPU partition (see
+[Running on an HPC](#running-on-an-hpc)). Evidence can be given on the command line
 (`--proteins`, `--odb12Partitions`, `--rnaseq_paired`, `--rnaseq_single`,
 `--isoseq`, `--rnaseq_sra_paired`, `--rnaseq_sra_single`, `--isoseq_sra`) or
 in the params file; command line values override the file. Useful options:
@@ -137,10 +143,11 @@ tiberius:
   model_cfg: eudicotyledons
 ```
 
-Use absolute paths. Nextflow does not expand `~`, and relative paths are
-resolved against the launch directory, not the location of the params file.
-All parameters are documented in [docs/parameters.md](docs/parameters.md).
-The launcher writes the merged parameters of a run to `<outdir>/params.yaml`.
+The launcher expands `~` and environment variables and resolves relative
+paths against the launch directory, not against the params file; it writes
+the merged parameters of a run with absolute paths to `<outdir>/params.yaml`.
+Paths must not contain spaces. All parameters are documented in
+[docs/parameters.md](docs/parameters.md).
 
 ## Inputs and modes
 
@@ -153,8 +160,11 @@ The launcher writes the merged parameters of a run to `<outdir>/params.yaml`.
 | `rnaseq_bam` | aligned short reads, for example from VARUS |
 | `isoseq` | Iso-Seq FASTQ files |
 | `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra` | SRA run accessions, downloaded by the pipeline |
+| `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80 |
 
-The mode is inferred from the inputs and can be forced with `mode`:
+The mode is inferred from the inputs and can be forced with `mode`
+(`--mode`). A forced mode without its inputs, or transcript evidence without
+proteins, is an error:
 
 | Mode | Inputs |
 | --- | --- |
@@ -200,6 +210,7 @@ gene finder runs per pipeline run.
 tiberius:
   run: true
   model_cfg: eudicotyledons   # name in tiberius/model_cfg of the submodule, or a path
+  model_dir: null             # directory with the extracted weights, for offline nodes
   result: null                # reuse an existing prediction instead of running
   min_split_size: 20000000    # minimal chunk size in bp
   max_files: 20               # maximal number of chunks
@@ -222,6 +233,11 @@ vipsania:
   result: null
   max_parallel: null
 ```
+
+Without `model_dir` every Tiberius task downloads the weights of the model
+configuration (`weights_url` in the YAML). For nodes without internet,
+download and extract the archive once and set `model_dir` to the directory
+that holds the extracted `<model>_weights` directory.
 
 Vipsania finetuning is **off by default**. With `finetune: true` (or
 `--finetune`) Vipsania first trains on the target genome and then annotates
@@ -338,6 +354,10 @@ warns when they differ. The pipeline
 scripts in `bin/` are not part of an image. Nextflow adds `bin/` to the
 `PATH` of every task and mounts it into the container.
 
+Images are pulled once into `~/.cache/paludamentum/singularity` and shared by
+all runs. Set `NXF_SINGULARITY_CACHEDIR`, or `singularity.cacheDir` in your
+config, to use another directory (the Tiberius image is 11 GB).
+
 Vipsania requires `tensorflow<2.20` and therefore does not support Blackwell
 GPUs. See the Vipsania container documentation.
 
@@ -352,7 +372,11 @@ queues, GPU options and scratch paths, and pass it with `--nf_config`.
 
 GPU processes carry the label `gpu`. Give them your GPU queue and
 `containerOptions = '--nv'`. On SLURM keep
-`singularity.envWhitelist = 'CUDA_VISIBLE_DEVICES'`.
+`singularity.envWhitelist = 'CUDA_VISIBLE_DEVICES'`. Downloads (SRA reads,
+OrthoDB partitions, Vipsania models) carry the label `download` or
+`local_only` and run on the submitting host, which needs internet access.
+Tasks that the scheduler kills for memory or time are retried twice with more
+memory; any other error stops the run.
 
 ## Repository layout
 
@@ -368,7 +392,7 @@ paludamentum/          Python launcher (paludamentum, python -m paludamentum)
 tiberius/              submodule: Tiberius (gene finder)
 vipsania/              submodule: Vipsania (gene finder)
 drusilla/              submodule: Drusilla (ORF annotator for transcripts)
-docs/                  parameters.md, hpc.md, vipsania.md
+docs/                  parameters.md, hpc.md, vipsania.md, orf_finder_comparison.md
 tests/                 launcher tests and Nextflow stub runs
 ```
 
@@ -387,7 +411,10 @@ tests/                 launcher tests and Nextflow stub runs
   parameter block, a branch in `subworkflows/genefinder.nf`, and entries in
   the launcher's `GENEFINDER_CLI`, `SUBMODULES` and `GENEFINDER_CLI_KEYS`
   tables. The process takes a genome FASTA and emits GTF or GFF3.
-  `bin/merge_annotations.py` renumbers gene IDs during merging.
+  `bin/merge_annotations.py` renumbers gene IDs during merging, writes
+  transcripts with a CDS as `mRNA` and marks their genes
+  `gene_biotype=protein_coding`, as in NCBI/Ensembl GFF3, so that
+  [Annotrieve](https://genome.crg.es/annotrieve/) reports them the same way.
 - Renaming a process invalidates `-resume` for runs in progress. Mention it in
   the release notes.
 
@@ -395,10 +422,13 @@ tests/                 launcher tests and Nextflow stub runs
 
 ```bash
 pip install -e .[test]
-pytest tests/test_launcher.py      # launcher, no Nextflow needed
-pytest tests/test_stub_run.py      # needs nextflow, or NEXTFLOW_BIN=/path/to/nextflow
-nextflow lint main.nf modules subworkflows
+pytest tests --ignore=tests/test_stub_run.py   # launcher and scripts, no Nextflow needed
+pytest tests/test_stub_run.py                  # needs nextflow, or NEXTFLOW_BIN=/path/to/nextflow
+nextflow lint main.nf modules subworkflows lib_nf
 ```
+
+CI runs the same on Python 3.9 and 3.12, and the stub runs on the oldest
+supported Nextflow (25.04.0) and the latest stable release.
 
 The stub runs execute `nextflow run main.nf -stub-run -c tests/stub.config` for
 every mode on the tiny inputs in `tests/data`. They check the wiring and the
@@ -423,12 +453,6 @@ The full plan is in [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
 
 ## Known issues
 
-Carried over unchanged from Tiberius and tracked for a later fix:
-
-- The automatic mode inference has operator precedence slips. Set `mode`
-  explicitly if the inferred mode is not what you expect.
-- `restart` and `prothint_conflict_filter` are declared but unused.
-
 Drusilla flow:
 
 - The LightGBM model was trained on Drusilla ORFs of 48 vertebrates (listed
@@ -444,9 +468,12 @@ Drusilla flow:
 
 ## License and citation
 
-MIT, see [LICENSE](LICENSE).
+Artistic License 1.0, see [LICENSE](LICENSE). Scripts in `bin/` copied from
+Tiberius say so in their header and stay under its MIT License, see
+[LICENSE-Tiberius](LICENSE-Tiberius).
 
-If you use the pipeline, cite the gene finder you ran. The references are in
+If you use the pipeline, cite the gene finder you ran and this repository
+([CITATION.cff](CITATION.cff)). The references are in
 the READMEs of [Tiberius](https://github.com/Gaius-Augustus/Tiberius) and
 [Vipsania](https://github.com/Gaius-Augustus/Vipsania). Please also cite the
 tools that the pipeline runs on your data: miniprot, miniprot-boundary-scorer,
