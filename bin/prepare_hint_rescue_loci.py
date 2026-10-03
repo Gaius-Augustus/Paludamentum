@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# From tiberius_orf_finder/scripts/prepare_hint_rescue_loci.py (Lars Gabriel), used unchanged in the Drusilla flow.
+# From tiberius_orf_finder/scripts/prepare_hint_rescue_loci.py (Lars Gabriel); the
+# ORF-agreement filter is an option (--orf_filter) here.
 # Copyright (c) 2026 Lars Gabriel. Artistic License 1.0, see LICENSE.
 """
 Prepare a multi-FASTA + combined hints GFF for Tiberius hint-guided rescue.
@@ -12,10 +13,9 @@ Logic per locus:
      without a protein chain is emitted without hints, so Tiberius predicts
      it ab initio.
 
-The ORF-agreement filter (skip a locus when an ORF transcript already has all
-introns of the chain; orf_agrees() below) is implemented but switched off:
-the benchmark was run without it. --orfs_gtf is read, but does not change the
-output.
+With --orf_filter, a locus is skipped when an ORF transcript of --orfs_gtf
+already has all introns of its chain (orf_agrees() below). The filter is off by
+default: the benchmark was run without it, and --orfs_gtf is then not read.
 
 Loci are merged per-strand so evidence from opposite strands stays separate.
 Start and stop codon hints from the chain are included alongside intron hints.
@@ -28,7 +28,7 @@ Usage:
         --orfs_gtf     orfs.gtf [orfs.partial.gtf ...] \\
         --genome       genome.fa \\
         --outdir       hint_rescue/ \\
-        [--flank 25000]
+        [--flank 25000] [--orf_filter]
 """
 import argparse
 import bisect
@@ -47,11 +47,14 @@ def parse_args():
     p.add_argument('--chained_hints', required=True,
                    help='chain_id-tagged hints (output of chainedHints.py)')
     p.add_argument('--orfs_gtf', required=True, nargs='+',
-                   help='ORF GTF file(s); read for the intron-agreement check, which is switched off')
+                   help='ORF GTF file(s) of the ORF-agreement filter (read only with --orf_filter)')
     p.add_argument('--genome',  required=True, help='genome.fa (must have .fai)')
     p.add_argument('--outdir',  required=True, help='output directory')
     p.add_argument('--flank', type=int, default=25000,
                    help='bp flanking each side of a locus (default 25000)')
+    p.add_argument('--orf_filter', action='store_true',
+                   help='skip loci where an ORF transcript already has all introns '
+                        'of the chain (default: off)')
     return p.parse_args()
 
 
@@ -352,9 +355,10 @@ def main():
     correct_idx = build_strand_index(correct_txs)
     print(f'[load]   {len(correct_txs)} tib_correct transcripts', file=sys.stderr)
 
-    orf_index = load_orf_introns(args.orfs_gtf)
-    n_orf = sum(len(v[2]) for v in orf_index.values())
-    print(f'[load]   {n_orf} multi-exon ORF transcripts', file=sys.stderr)
+    if args.orf_filter:
+        orf_index = load_orf_introns(args.orfs_gtf)
+        n_orf = sum(len(v[2]) for v in orf_index.values())
+        print(f'[load]   {n_orf} multi-exon ORF transcripts', file=sys.stderr)
 
     partial_txs = load_transcripts(args.partial_gtf)
     print(f'[load]   {len(partial_txs)} tib_partial transcripts', file=sys.stderr)
@@ -363,8 +367,7 @@ def main():
     # Keep every partial transcript that is not already covered by a
     # same-strand tib_correct prediction.  Chain-less loci are emitted as
     # hint-free FASTA entries so Tiberius still runs ab-initio on them.
-    # The ORF-agreement filter (orf_agrees) is switched off, see the module
-    # docstring.
+    # The ORF-agreement filter (--orf_filter) is applied per merged locus below.
     eligible  = []
     n_correct = 0
 
@@ -390,6 +393,7 @@ def main():
     n_entries       = 0
     n_with_chain    = 0
     n_without_chain = 0
+    n_orf_agrees    = 0
 
     with open(out_fa,   'w') as fa_fh, \
          open(out_gff,  'w') as gff_fh, \
@@ -402,6 +406,12 @@ def main():
                 intron_index, chain_scores, chrom, strand, bed_start, bed_end)
 
             chain_hints = hints_by_chain.get((chrom, best_chain), []) if best_chain else []
+
+            if args.orf_filter and orf_agrees(
+                    orf_index, chrom, strand,
+                    get_chain_introns_genome(chain_hints), bed_start, bed_end):
+                n_orf_agrees += 1
+                continue
 
             seq = fetch_sequence(args.genome, chrom, bed_start, bed_end)
             if not seq:
@@ -449,6 +459,9 @@ def main():
                 print(f'[progress] {locus_idx+1}/{len(merged)} loci, '
                       f'{n_entries} entries so far', file=sys.stderr)
 
+    if args.orf_filter:
+        print(f'[filter] {n_orf_agrees} skipped: an ORF has all introns of the chain',
+              file=sys.stderr)
     print(f'[out]    {n_entries} rescue loci written '
           f'({n_with_chain} with chain hints, {n_without_chain} ab-initio)',
           file=sys.stderr)

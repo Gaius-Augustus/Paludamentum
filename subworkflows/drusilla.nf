@@ -9,7 +9,8 @@ nextflow.enable.dsl=2
 //   4. a LightGBM model filters the gene finder predictions with protein
 //      alignment (miniprot) and hint (miniprothint) features,
 //   5. partial gene finder genes are predicted again by Tiberius with the hints
-//      of their best protein chain (hint rescue).
+//      of their best protein chain, ab initio where there is no chain (hint
+//      rescue; the ORF-agreement filter rescue_orf_filter is off by default).
 // The ORFs, the kept and the rescued gene finder genes are merged by
 // MERGE_GENEFINDER_TRAIN in main.nf, as in the TransDecoder flow.
 

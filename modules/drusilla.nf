@@ -18,7 +18,7 @@ process FILTER_STRINGTIE {
   script:
   """
   filter_stringtie_gtf.py \\
-      --in-gtf ${gtf} \\
+      --in-gtf "${gtf}" \\
       --out-gtf stringtie.filtered.gtf \\
       --out-tsv stringtie.decisions.tsv \\
       --min-length ${params.drusilla.min_length} \\
@@ -48,7 +48,7 @@ process DRUSILLA_ANNOTATE {
     path "drusilla/orfs.partial5.gtf", emit: partial5
 
   script:
-  def model = params.drusilla.weights ? "--weights ${params.drusilla.weights}" + (params.drusilla.config ? " --config ${params.drusilla.config}" : '') \
+  def model = params.drusilla.weights ? "--weights \"${params.drusilla.weights}\"" + (params.drusilla.config ? " --config \"${params.drusilla.config}\"" : '') \
                         : "--model ${params.drusilla.model ?: 'vertebrates'}"
   def extra = ''
   if( params.drusilla.batch_size )                extra += " --batch-size ${params.drusilla.batch_size}"
@@ -59,28 +59,28 @@ process DRUSILLA_ANNOTATE {
   def shards = (params.drusilla.shards ?: 1) as Integer
   def threads = Math.max(1, (task.cpus as Integer).intdiv(shards))
   """
-  export DRUSILLA_CACHE_DIR=${cache}
+  export DRUSILLA_CACHE_DIR="${cache}"
   mkdir -p drusilla
   annotate() {
       drusilla annotate \\
-          --stringtie-gtf \$1 \\
-          --genome ${genome} \\
+          --stringtie-gtf "\$1" \\
+          --genome "${genome}" \\
           ${model} \\
-          --out-dir \$2 \\
+          --out-dir "\$2" \\
           --threads ${threads} \\
           --no-subseq-collapse \\
           --lorf-class \\
-          --partial-out \$2/orfs.partial.gtf \\
-          --partial5-out \$2/orfs.partial5.gtf${extra}
-      touch \$2/orfs.partial.gtf \$2/orfs.partial5.gtf
+          --partial-out "\$2/orfs.partial.gtf" \\
+          --partial5-out "\$2/orfs.partial5.gtf"${extra}
+      touch "\$2/orfs.partial.gtf" "\$2/orfs.partial5.gtf"
   }
   if [ ${shards} -le 1 ]; then
-      annotate ${gtf} drusilla
+      annotate "${gtf}" drusilla
   else
       awk -F'\t' -v n=${shards} '/^#/ {next} {
               match(\$9, /gene_id "[^"]+"/); g = substr(\$9, RSTART, RLENGTH)
               if (!(g in shard)) shard[g] = k++ % n
-              print > ("shard_" shard[g] ".gtf") }' ${gtf}
+              print > ("shard_" shard[g] ".gtf") }' "${gtf}"
       pids=""
       for f in shard_*.gtf; do
           i=\${f#shard_}; i=\${i%.gtf}
@@ -129,9 +129,9 @@ process FIX_ORFS {
       --orfs orfs.raw.gtf \\
       --partial orfs.partial.gtf \\
       --partial5 orfs.partial5.gtf \\
-      --miniprot ${miniprot_gff} \\
-      --hints ${hints_gff} \\
-      --genome ${genome} \\
+      --miniprot "${miniprot_gff}" \\
+      --hints "${hints_gff}" \\
+      --genome "${genome}" \\
       --out orfs.fixed.gtf""" + (fixStart ? """ \\
       --fix-starts \\
       --fix-starts-classes LORF_NOUPSTOP upLORF \\
@@ -174,15 +174,15 @@ process GENEFINDER_LGB_FILTER {
   def keep = (params.drusilla.lgb_keep ?: 'correct').toString().split(/[,\s]+/).findAll { k -> k }.join('|')
   def sha256 = params.drusilla.lgb_model_sha256 ? "--sha256 ${params.drusilla.lgb_model_sha256}" : ''
   """
-  gff_to_cds_gtf.py ${ab_initio} > ab_initio.gtf
+  gff_to_cds_gtf.py "${ab_initio}" > ab_initio.gtf
   compute_orf_features.py \\
       --orfs-gtf ab_initio.gtf \\
-      --miniprot-gff ${miniprot_gff} \\
-      --hints-gff ${hints_gff} \\
-      --genome ${genome} \\
+      --miniprot-gff "${miniprot_gff}" \\
+      --hints-gff "${hints_gff}" \\
+      --genome "${genome}" \\
       --out features.tsv
   apply_lgb_model_gtf.py \\
-      --model ${lgb_model} ${sha256} \\
+      --model "${lgb_model}" ${sha256} \\
       --features features.tsv \\
       --in-gtf ab_initio.gtf \\
       --out-gtf lgb_scored.gtf \\
@@ -223,19 +223,20 @@ process HINT_RESCUE_LOCI {
 
   script:
   def tiberius = params.drusilla.rescue_tiberius ?: '\$(command -v tiberius.py)'
-  def orfFilter = truthy(params.drusilla.rescue_orf_filter) ? ' \\\n          --orf_filter' : ''
+  // ORF-agreement filter, off unless rescue_orf_filter is set
+  def orfFilter = (params.drusilla.rescue_orf_filter?.toString()?.toLowerCase() in ['true', '1', 'yes']) ? ' --orf_filter' : ''
   """
   mkdir -p rescue
-  if python3 ${tiberius} --help 2>&1 | grep -q -- '--hints'; then
+  if python3 "${tiberius}" --help 2>&1 | grep -q -- '--hints'; then
       HINTS_OK=true
-      samtools faidx ${genome}
-      chainedHints.py ${hints_gff} ${miniprot_gff} --output chained_hints.gff
+      samtools faidx "${genome}"
+      chainedHints.py "${hints_gff}" "${miniprot_gff}" --output chained_hints.gff
       prepare_hint_rescue_loci.py \\
-          --partial_gtf ${partial_gtf} \\
-          --correct_gtf ${correct_gtf} \\
+          --partial_gtf "${partial_gtf}" \\
+          --correct_gtf "${correct_gtf}" \\
           --chained_hints chained_hints.gff \\
-          --orfs_gtf ${orfs_gtf} \\
-          --genome ${genome} \\
+          --orfs_gtf "${orfs_gtf}" \\
+          --genome "${genome}" \\
           --outdir rescue \\
           --flank ${params.drusilla.rescue_flank}${orfFilter}
   else
@@ -275,17 +276,17 @@ process HINT_RESCUE_TIBERIUS {
   // Loci are short: a small seq_len avoids padding every locus to a genome chunk
   def seqLen = params.drusilla.rescue_seq_len
   def batch = params.tiberius?.batch_size ? "BATCH_ARG='--batch_size ${params.tiberius.batch_size}'" :
-      "BATCH_ARG=\$(tiberius_batch_size.py --model_cfg \$(dirname ${tiberius})/model_cfg/${model_cfg}.yaml" +
+      "BATCH_ARG=\$(tiberius_batch_size.py --model_cfg \"\$(dirname \"${tiberius}\")/model_cfg/${model_cfg}.yaml\"" +
       (seqLen ? " --seq_len ${seqLen}" : '') + ")"
   """
   ${batch}
-  python3 ${tiberius} \\
-      --genome ${fasta} \\
+  python3 "${tiberius}" \\
+      --genome "${fasta}" \\
       --model_cfg ${model_cfg} \\
-      --hints ${hints} \\
+      --hints "${hints}" \\
       --hint_weight ${params.drusilla.rescue_hint_weight} \\
       --out rescue_raw.gtf${seqLen ? " --seq_len ${seqLen}" : ''} \${BATCH_ARG:-}
-  filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} hint_rescue.gtf
+  filter_and_merge_rescue_gtf.py rescue_raw.gtf "${hints}" "${manifest}" hint_rescue.gtf
   """
 
   stub:
