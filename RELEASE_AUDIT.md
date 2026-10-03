@@ -7,17 +7,13 @@ The submodules were only checked where Paludamentum depends on them.
 
 ---
 
-## Decisions needed before the release
+## Before the release
 
 1. **Benchmark again** (T. rubripes and Bos taurus): the annotation merge
    (exon-overlap clustering, CDS deduplication) and the in-frame stop check
    of the stop/start fix change the output. Gene-level F1 should move little,
    but it must be measured. T. rubripes with the v0.4.0 images: 80.36
    (80.26 before).
-2. **HC genes per transcript.** `choose_one_isoform` keeps one ORF per
-   StringTie transcript, not per gene, so HC training genes overlap. Grouping
-   by gene would drop about 4,100 HC transcripts per genome; kept unless a
-   benchmark says otherwise (`bin/hc_module.py`).
 
 ---
 
@@ -38,7 +34,7 @@ The submodules were only checked where Paludamentum depends on them.
 
 | # | Item | Where |
 |---|------|-------|
-| D3 | **The README claim about the GCB 2026 poster is wrong.** The poster used `epoch_74`, no stop/start fix, no rescue, a `cat` merge, and `cds_length_nt` filled with zeros. The released `vertebrates` model is run009. Say "derived from" and give the benchmark numbers of this flow (T. rubripes 80.36, Bos 79.46; to be re-measured, decision 1). | README:254-255 |
+| D3 | **The README claim about the GCB 2026 poster is wrong.** The poster used `epoch_74`, no stop/start fix, no rescue, a `cat` merge, and `cds_length_nt` filled with zeros. The released `vertebrates` model is run009. Say "derived from" and give the benchmark numbers of this flow (T. rubripes 80.36, Bos 79.46; to be re-measured, see "Before the release"). | README:254-255 |
 
 ### SHOULD
 
@@ -65,11 +61,7 @@ The submodules were only checked where Paludamentum depends on them.
 ### NIT
 
 - `params.yaml` is written before validation, so a failed `--dry_run` leaves
-  it behind (`cli.py`). Harmless; restructuring `build_params` to validate
-  before writing is the fix.
-- `--nf_config` accepts a bare name that matches a file in the launch
-  directory (`./local.config` wins over `conf/local.config`); a test locks
-  this in.
+  it behind (`paludamentum/launcher.py`). Validate before writing.
 
 ---
 
@@ -80,15 +72,11 @@ The submodules were only checked where Paludamentum depends on them.
 | # | Item | Where |
 |---|------|-------|
 | N10 | `tiberius.model_dir` stages the extracted weights into the task directory, where Tiberius' `download_weights()` finds `<model>_weights` and skips the download. Checked against the Tiberius code and in a stub run only: **run it once on a GPU node without internet** before documenting it as supported. | `modules/genefinder.nf`, `subworkflows/genefinder.nf`, `tiberius/tiberius/main.py:357-395` |
-| N14 | The retry rule retries only exit codes 137, 140, 143 and 247 with memory × attempt, and ends the run on anything else (`finish`). SLURM reports OOM kills as 137 in most setups, but some sites use other codes; check the first real failure on a cluster. | `conf/base.config` |
 
 ### NIT
 
-- N19: the shell blocks do not quote file variables. The launcher rejects
-  paths with whitespace, and the README says so; a params file that bypasses
-  the launcher is not protected.
-- `main.nf` has no `-resume`-safe guard against renamed processes; mention
-  renames in release notes (already in README "For maintainers").
+- N19: the shell blocks do not quote file variables, so a path with
+  whitespace in a params file run without the launcher breaks the run.
 
 ---
 
@@ -99,9 +87,6 @@ The submodules were only checked where Paludamentum depends on them.
 - `extend_cds_with_stop_codon.py`: a stop codon split by an intron extends
   the CDS across the intron. `check_stop_codons` removes these genes later,
   so the effect is a lost gene, not a wrong one.
-- `merge_annotations.py --mode priority` and
-  `shorten_incomplete.py --keep-non-incomplete` are unused by the pipeline
-  (kept: they work and are cheap).
 - Upstream, in the Tiberius Dockerfile: TransDecoder master is cloned without
   a pin, next to v5.7.1.
 
@@ -110,7 +95,7 @@ The submodules were only checked where Paludamentum depends on them.
 ## Suggested order
 
 1. Fix D3, D6, D8, D9, D10, D13 on `main`. Run CI through a PR.
-2. Run T. rubripes and Bos taurus again (decision 1); test `tiberius.model_dir`
+2. Run T. rubripes and Bos taurus again ("Before the release"); test `tiberius.model_dir`
    on a GPU node (N10).
 3. Get tags upstream and pin the submodules (L6), confirm the authors (L10).
 4. Move this file out (L11). Tag, then make the repo public (L1).
