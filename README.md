@@ -16,10 +16,11 @@ them; they do not depend on Paludamentum.
 | [Vipsania](https://github.com/Gaius-Augustus/Vipsania) (`vipsania/`) | gene finder | supported, see [docs/vipsania.md](docs/vipsania.md) |
 | [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (`drusilla/`) | ORF annotator for assembled transcripts | high-confidence genes for vertebrate models, see [Drusilla flow](#drusilla-flow) |
 
-> **Status (v0.3.0).** Paludamentum is the entry point: `paludamentum`
+> **Status (v0.4.0).** Paludamentum is the entry point: `paludamentum`
 > launches the pipeline with Tiberius or Vipsania. Earlier versions were a
 > submodule of Tiberius and were launched by `tiberius.py`; that direction is
-> reversed since v0.3.0.
+> reversed since v0.3.0. v0.4.0 adds the [Drusilla flow](#drusilla-flow) for
+> vertebrate models.
 
 ## Table of contents
 
@@ -447,7 +448,7 @@ The full plan is in [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
 - [x] v0.3.0: Paludamentum imports the gene finders (submodules `tiberius/`,
       `vipsania/`, `drusilla/`) and is launched by `paludamentum`; Tiberius
       no longer runs the pipeline
-- [ ] v0.4.0: Drusilla flow for vertebrate models (Drusilla ORFs as HC genes,
+- [x] v0.4.0: Drusilla flow for vertebrate models (Drusilla ORFs as HC genes,
       LightGBM filter of the ab initio predictions)
 - [ ] `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation
 
