@@ -138,7 +138,7 @@ def load_lgb():
 
 
 def test_feature_matrix_follows_the_model_columns():
-    import pandas as pd
+    pd = pytest.importorskip("pandas")
     lgb = load_lgb()
     df = pd.DataFrame({
         "transcript_id": ["a", "b"],
@@ -153,7 +153,7 @@ def test_feature_matrix_follows_the_model_columns():
 
 
 def test_a_missing_feature_is_an_error():
-    import pandas as pd
+    pd = pytest.importorskip("pandas")
     lgb = load_lgb()
     df = pd.DataFrame({"transcript_id": ["a"], "n_exons": [1]})
     with pytest.raises(SystemExit, match="best_identity"):
@@ -162,7 +162,7 @@ def test_a_missing_feature_is_an_error():
 
 def test_feature_table_has_every_feature_of_the_released_model():
     """The columns of compute_orf_features.py give all features of the model."""
-    import pandas as pd
+    pd = pytest.importorskip("pandas")
     pytest.importorskip("pyfaidx")
     lgb = load_lgb()
     features = load("compute_orf_features")
