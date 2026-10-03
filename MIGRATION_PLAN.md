@@ -165,7 +165,7 @@ in-tree pipeline; that does not affect Paludamentum, which uses only
 
 ## Risks
 
-- `base.config` pins `tiberius:2.0.7`; the submodule pins Tiberius `main`. Each
+- `base.config` pins `tiberius:2.0.8`; the submodule pins the matching Tiberius commit. Each
   Tiberius release needs one Paludamentum commit that bumps both.
 - Existing Tiberius users who call `tiberius.py --nf_config` get an error with the
   new command; their params files work unchanged with `paludamentum --params_yaml`.
