@@ -10,7 +10,6 @@ Shipped configs in [conf/](../conf):
 | `base.config` | parameter defaults, process labels, container images. Always loaded by the launcher. |
 | `local.config` | one machine, no scheduler; tasks are sized to the machine |
 | `slurm_generic.config` | starting point for SLURM clusters; set your GPU partition |
-| `greifswald_hpc.config` | the Greifswald cluster, as an example of a site config |
 | `user_hpc_template.config` | commented template for your own cluster |
 
 The launcher loads `base.config` before your config. `--nf_config` accepts a

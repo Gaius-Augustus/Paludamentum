@@ -441,8 +441,6 @@ smoke tests use `tiberius/test_data/Panthera_pardus` and
 
 ## Roadmap
 
-The full plan is in [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
-
 - [x] v0.1.0: copy of the pipeline from Tiberius, launcher, stub blocks, tests, CI
 - [x] v0.2.0: gene finder abstraction and Vipsania processes
 - [x] v0.3.0: Paludamentum imports the gene finders (submodules `tiberius/`,

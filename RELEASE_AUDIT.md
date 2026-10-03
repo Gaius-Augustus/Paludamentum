@@ -1,63 +1,23 @@
 # Paludamentum pre-release audit
 
-Audited 2026-09-29 (`main` at `18110c1`, `drusilla` at `ea68c20`). Updated
-2026-09-30, 2026-10-01 and 2026-10-03: fixed items are removed; what remains
-is open. The fixed items are summarised at the end.
+Open items only; fixed items are deleted, the git history has them. Last
+checked 2026-10-03 on `main` (v0.4.0, after the Drusilla merge, PR #2).
 
-State 2026-10-03: the `drusilla` branch is merged into `main` through PR #2
-(`4f0df0f`, version 0.4.0). Everything below refers to `main` at `a1404a6`;
-each open item was checked again there.
-
-Scope: launcher and packaging, Nextflow code and configs, `bin/` scripts, the
-Drusilla flow, CI, docs and licences. The submodules were only checked
-where Paludamentum depends on them.
-
-Tags:
-
-- **[repro]** marks a failure reproduced on a toy input or in a stub run.
-- All other items were checked by reading the code.
-
-What works (checked 2026-10-03 on the merged code):
-
-- 158 tests: 137 pass and 21 skip without lightgbm and pandas, including 54
-  Nextflow stub runs, with Nextflow 25.04.6.
-- `nextflow lint main.nf modules subworkflows lib_nf` is clean.
-- `conf/local.config` runs a stub of the ab initio mode on an 8-CPU laptop.
-- The Tiberius and Vipsania images are pinned (`tiberius:2.0.8`,
-  `vipsania:1.0.0`) and can be pulled publicly.
-- No secrets are in the repo.
-- No shell injection: `subprocess` is always called with argument lists and
-  YAML is read with `safe_load`.
-- CI passed on `4f0df0f` (`main`, after the merge) in all four jobs: Python
-  3.9 and 3.12, stub runs on Nextflow 25.04.0 and latest-stable.
+The submodules were only checked where Paludamentum depends on them.
 
 ---
 
 ## Decisions needed before the release
 
-1. **LightGBM model for the Drusilla flow.** RESOLVED 2026-10-01: the
-   pickle was converted to a native LightGBM text model plus a JSON sidecar
-   (48 training species, script names, labels, hyperparameters; no paths) and
-   published at
-   `https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz`
-   (sha256 `d5bf3a97…2f1da`, checked after the upload). The Drusilla flow
-   downloads it by default and loads it without the pickle (D1, D5), in the
-   image `gaiusaugustus/drusilla:0.1.0` with lightgbm 4.7.0 (L7, D2).
-2. **HC gene logic.** RESOLVED 2026-09-29: the intrinsic stage never changed
-   the output and is removed (`5eada8e`). On 2026-09-30 the dead intrinsic
-   code was deleted from `bin/hc_module.py` as well. `choose_one_isoform` keeps one ORF
-   per StringTie transcript, not per gene; changing that would drop about
-   4,100 HC transcripts per genome and needs a benchmark.
-3. **Internal files:**
-   - `MIGRATION_PLAN.md` is still tracked and the README Roadmap links to
-     it. It mentions "storm" and internal steps. Remove it, or rewrite it
-     for the public.
-   - `conf/greifswald_hpc.config`: keep as a labelled example (docs/hpc.md
-     now calls it that), or drop.
-4. **Benchmark again** (T. rubripes and Bos taurus) before the release: the
-   merge (B5, B6) and the stop/start fix (D4) now change the output. Expected
-   effect: fewer wrong isoforms and no CDS with an in-frame stop; gene-level
-   F1 should move little, but it must be measured.
+1. **Benchmark again** (T. rubripes and Bos taurus): the annotation merge
+   (exon-overlap clustering, CDS deduplication) and the in-frame stop check
+   of the stop/start fix change the output. Gene-level F1 should move little,
+   but it must be measured. T. rubripes with the v0.4.0 images: 80.36
+   (80.26 before).
+2. **HC genes per transcript.** `choose_one_isoform` keeps one ORF per
+   StringTie transcript, not per gene, so HC training genes overlap. Grouping
+   by gene would drop about 4,100 HC transcripts per genome; kept unless a
+   benchmark says otherwise (`bin/hc_module.py`).
 
 ---
 
@@ -66,32 +26,30 @@ What works (checked 2026-10-03 on the merged code):
 | # | Item | Where |
 |---|------|-------|
 | L1 | The GitHub repo is still **private**. Make it public last. | GitHub |
-| L2 | `MIGRATION_PLAN.md` (see decision 3). Everything else with internal names (test docstring, `docs/orf_finder_comparison.md`, `docs/hint_rescue_comparison.md`) was rewritten. | `MIGRATION_PLAN.md:81`, README Roadmap |
-| L6 | Submodules are not pinned to releases, although README "Submodule pinning" says they are. Checked 2026-09-30: Tiberius' newest tag is still `v2.0.7` (submodule at `v2.0.7-11-g9734138`, image 2.0.8); Vipsania and Drusilla have no tags. Ask for tags upstream, then point the submodules at them. | `.gitmodules`, README "For maintainers" |
+| L6 | Submodules are not pinned to releases, although README "Submodule pinning" says they are. Tiberius' newest tag is `v2.0.7` (submodule at `v2.0.7-11-g9734138`, image 2.0.8); Vipsania and Drusilla have no tags. Ask for tags upstream, then point the submodules at them. | `.gitmodules`, README "For maintainers" |
 | L10 | `CITATION.cff` and `pyproject.toml` `authors` name Katharina J. Hoff only. **Confirm the author list** (Lars Gabriel wrote the Tiberius pipeline the scripts come from). The README does not cite Drusilla, LightGBM or the hint rescue. | `CITATION.cff`, `pyproject.toml`, README |
+| L11 | This file mentions internal checks on brain. Move it to Paludamentum-UG or delete it before the repo goes public. | `RELEASE_AUDIT.md` |
 
 ---
 
 ## 2. Drusilla flow
 
-On `main` since PR #2 (`4f0df0f`). Line numbers refer to `main`.
-
 ### BLOCKER
 
 | # | Item | Where |
 |---|------|-------|
-| D3 | **The README claim about the GCB 2026 poster is wrong.** The poster used `epoch_74`, no stop/start fix, no rescue, a `cat` merge, and `cds_length_nt` filled with zeros. The released `vertebrates` model is run009. Say "derived from" and give the benchmark numbers of this flow (T. rubripes 80.26, Bos 79.46; to be re-measured, decision 4). | README:254-255 |
+| D3 | **The README claim about the GCB 2026 poster is wrong.** The poster used `epoch_74`, no stop/start fix, no rescue, a `cat` merge, and `cds_length_nt` filled with zeros. The released `vertebrates` model is run009. Say "derived from" and give the benchmark numbers of this flow (T. rubripes 80.36, Bos 79.46; to be re-measured, decision 1). | README:254-255 |
 
 ### SHOULD
 
 | # | Item | Where |
 |---|------|-------|
-| D4 | Done: a corrected CDS is now written only if it has no in-frame stop codon (`has_internal_stop`, tested). Still open: the splice sites of extension exons are not checked. | `bin/fix_stop_by_miniprot.py` |
-| D6 | The ORF-agreement filter of the hint rescue is switched off (benchmarked that way). The script docstrings and `docs/hint_rescue_comparison.md` now say so. Still wrong: the module comments ("each with the hints of its best protein chain", "the predictions that agree with the hints") and the README sentence "hints of the best protein chain". Loci without a chain run ab initio without hints. | `modules/drusilla.nf:202`, `:254`, README:282, `conf/base.config:103` |
-| D8 | `DRUSILLA_ANNOTATE` and `HINT_RESCUE_TIBERIUS` have no memory label, so they get the 30 GB default (now growing with the attempt). Measured: 40 GB for Bos, more than 90 GB for the rescue at seq_len 400k. Give them `bigmem`, or their own label. | `modules/drusilla.nf:40`, `:258`, `conf/base.config` |
+| D4 | The splice sites of the extension exons of the stop/start fix are not checked. | `bin/fix_stop_by_miniprot.py` |
+| D6 | The ORF-agreement filter of the hint rescue is switched off (benchmarked that way), but the module comments ("each with the hints of its best protein chain", "the predictions that agree with the hints") and the README sentence "hints of the best protein chain" still describe it. Loci without a chain run ab initio without hints. | `modules/drusilla.nf:202`, `:254`, README:282, `conf/base.config:103` |
+| D8 | `DRUSILLA_ANNOTATE` and `HINT_RESCUE_TIBERIUS` have no memory label, so they get the 30 GB default (growing with the attempt). Measured: 40 GB for Bos, more than 90 GB for the rescue at seq_len 400k. Give them `bigmem`, or their own label. | `modules/drusilla.nf:40`, `:258`, `conf/base.config` |
 | D9 | With `shards > 1` and `cache_dir: null`, all shards download and extract into the same `drusilla_cache` at once; the Drusilla registry `rmtree`s before it extracts, so the shards race. Download the model once before the fork. The weights URL has no sha256 in the manifest; which run the weights are (run009) is recorded nowhere. Nodes without internet fail. | `modules/drusilla.nf:56`, `drusilla/model_cfg/vertebrates.yaml` |
-| D10 | Remaining gaps in `hcMethod()` after 2026-09-30 (`run: "on"` is now true; `tiberius.result` without `model_cfg` now warns and uses TransDecoder): <br>• Forcing `run: true` with `tiberius.result` and no model sets the rescue model to the string `"null"`. <br>• A custom model path counts as a vertebrate model by its file name (`/my/vertebrates.yaml`); read `target_species` from the YAML instead, or document it. | `subworkflows/drusilla.nf:43-44`, `lib_nf/functions.nf` drusillaModelEligible |
-| D12 | Tests added: `gff_to_cds_gtf`, the in-frame stop check, feature/model column alignment, the empty feature table; on 2026-10-01 the model loader (archive, directory, .txt, both checksums, pickle refused), a missing feature, the columns of `compute_orf_features.py` against the 26 features of the released model, and the filter end to end on a tiny model. These need lightgbm and pandas, which CI does not install (`.[test]` is pytest only), so CI skips them. Still without tests: `compute_orf_features.py`, `filter_stringtie_gtf.py`, `prepare_hint_rescue_loci.py`, `filter_and_merge_rescue_gtf.py`, and stub runs of `mammalia*`, `Vertebrata`, `shards > 1`, `fix_stop: false`, `lgb_keep`, `tiberius.result` with Drusilla. | `tests/test_drusilla_scripts.py`, `tests/test_stub_run.py` |
+| D10 | Gaps in `hcMethod()`: <br>• Forcing `run: true` with `tiberius.result` and no model sets the rescue model to the string `"null"`. <br>• A custom model path counts as a vertebrate model by its file name (`/my/vertebrates.yaml`); read `target_species` from the YAML instead, or document it. | `subworkflows/drusilla.nf:43-44`, `lib_nf/functions.nf` drusillaModelEligible |
+| D12 | Without tests: `compute_orf_features.py` (only its columns are tested), `filter_stringtie_gtf.py`, `prepare_hint_rescue_loci.py`, `filter_and_merge_rescue_gtf.py`, and stub runs of `mammalia*`, `Vertebrata`, `shards > 1`, `fix_stop: false`, `lgb_keep`, `tiberius.result` with Drusilla. The script tests need lightgbm and pandas, which CI does not install, so CI skips them. | `tests/test_drusilla_scripts.py`, `tests/test_stub_run.py` |
 
 ### NIT
 
@@ -109,9 +67,9 @@ On `main` since PR #2 (`4f0df0f`). Line numbers refer to `main`.
 - `params.yaml` is written before validation, so a failed `--dry_run` leaves
   it behind (`cli.py`). Harmless; restructuring `build_params` to validate
   before writing is the fix.
-- `--nf_config` still accepts a bare name that matches a file in the launch
+- `--nf_config` accepts a bare name that matches a file in the launch
   directory (`./local.config` wins over `conf/local.config`); a test locks
-  this in. A mistyped *path* now errors instead of falling back.
+  this in.
 
 ---
 
@@ -121,33 +79,20 @@ On `main` since PR #2 (`4f0df0f`). Line numbers refer to `main`.
 
 | # | Item | Where |
 |---|------|-------|
-| N10 | `tiberius.model_dir` (added 2026-09-30) stages the extracted weights into the task directory, where Tiberius' `download_weights()` finds `<model>_weights` and skips the download. Checked against the Tiberius code and in a stub run only: **run it once on a GPU node without internet** before documenting it as supported. | `modules/genefinder.nf`, `subworkflows/genefinder.nf`, `tiberius/tiberius/main.py:357-395` |
-| N14 | The retry rule now retries only exit codes 137, 140, 143 and 247 with memory × attempt, and ends the run on anything else (`finish`). SLURM reports OOM kills as 137 in most setups, but some sites use other codes; check the first real failure on your cluster. | `conf/base.config` |
-| N15 | `greifswald_hpc.config` holds site partitions (`snowball,pinky,batch,vision`) and is listed as a shipped config (decision 3). | `conf/greifswald_hpc.config`, `docs/hpc.md` |
+| N10 | `tiberius.model_dir` stages the extracted weights into the task directory, where Tiberius' `download_weights()` finds `<model>_weights` and skips the download. Checked against the Tiberius code and in a stub run only: **run it once on a GPU node without internet** before documenting it as supported. | `modules/genefinder.nf`, `subworkflows/genefinder.nf`, `tiberius/tiberius/main.py:357-395` |
+| N14 | The retry rule retries only exit codes 137, 140, 143 and 247 with memory × attempt, and ends the run on anything else (`finish`). SLURM reports OOM kills as 137 in most setups, but some sites use other codes; check the first real failure on a cluster. | `conf/base.config` |
 
 ### NIT
 
-- N19: the shell blocks still do not quote file variables. The launcher now
-  rejects paths with whitespace, and the README says so; a params file that
-  bypasses the launcher is not protected.
+- N19: the shell blocks do not quote file variables. The launcher rejects
+  paths with whitespace, and the README says so; a params file that bypasses
+  the launcher is not protected.
 - `main.nf` has no `-resume`-safe guard against renamed processes; mention
   renames in release notes (already in README "For maintainers").
 
 ---
 
-## 5. `bin/` scripts (main)
-
-### Inherited HC logic
-
-Resolved (decision 2): `training.gff` = `choose_one_isoform(P)`, where P is
-the strict DIAMOND set. The intrinsic stage and its helpers were deleted from
-`hc_module.py` on 2026-09-30 (they were dead code since `5eada8e`), which removed
-the items about `hc_module.py:654` (overlap test), `:440-441` (stop in 5'
-UTR) with them. Kept by decision, benchmark needed to change:
-
-- `hc_module.py` `choose_one_isoform` groups by transcript, not by gene, so
-  HC training genes overlap (about 4,100 more HC transcripts per genome reach
-  the final merge).
+## 5. `bin/` scripts
 
 ### NIT
 
@@ -162,119 +107,10 @@ UTR) with them. Kept by decision, benchmark needed to change:
 
 ---
 
-## Fixed 2026-09-30 (for the release notes)
-
-Launcher (`paludamentum/`): the pipeline root is found from the checkout or
-`PALUDAMENTUM_ROOT`, with a clear error after a plain `pip install .` (P1);
-`--genefinder` overrides the params file and switches the other finder off
-(P2), two `run: true` blocks are an error (P4), `--genefinder` with
-`run: false` switches the block on and says so (P5); a mistyped `--nf_config`
-path errors (P6); `tiberius.py` of the checkout is called through an
-executable wrapper (P7); `~`, `$VARS` and relative paths are written absolute
-(P8); `rnaseq_bam`, `*.result`, `*.model_dir`, `tiberius.model_cfg` are
-validated and paths with whitespace rejected (P9, N19); `--mode` has choices
-(P10); Java 17 (P13); `apptainer` satisfies the container check (P14);
-`--threads 0` is a value, three `--rnaseq_paired` files and non-string paths
-are errors, no more unused arguments or commented code (NITs). Single version
-source (L8; since 2026-10-03 `paludamentum/__init__.py`), `authors` set.
-
-Nextflow: `nextflowVersion >= 25.04.0` (N1); decompressed files keep their
-names (N2); `slurm_generic.config` books a GPU (N3); `CALC_ALIGNMENT_RATE`
-and the `CONCAT_*` processes run in the image, and all tasks run with
-`pipefail` (N4, N9); a run without any assembly, a forced mode without its
-inputs, a wrong mode, transcript evidence without proteins, and a missing
-`result` or `model_cfg` stop the run early (N5, N7, P9, P10);
-`min_alignment_rate` is a parameter (N5); same-named BAMs and read files no
-longer collide (N6); the dead `memory '180 GB'` is gone (N8);
-`tiberius.model_dir` (N10); downloads carry the label `download` and run on
-the submitting host (N11); `singularity.cacheDir` defaults to
-`~/.cache/paludamentum/singularity` (N12); the HPC template needs no
-`includeConfig` and `docs/hpc.md` says so (N13); retries only after a memory
-or time kill, with memory × attempt (N14); `params.tools.*` is used
-everywhere (N16); the `grep -c` count is right (N17); `restart`,
-`prothint_conflict_filter`, `MERGE_GENEFINDER_TRAIN_PRIO`, `EMPTY_TSV`,
-`OUT_CH` and the commented `STRINGTIE_MERGE` are removed (N18); the
-`local.config` sizes tasks to the machine (P3); `parameters.yaml` works with
-only the genome filled in (P11); the defaults tables agree (P12);
-`STRINGTIE_ASSEMBLE_MIX` sorts its BAMs (D11).
-
-Scripts: FASTA headers with descriptions keep their intron hints (B1); the
-`STRG.` crash path is gone with the intrinsic stage (B2); genome chunks are
-balanced under the `max_files` cap (B3); `hc.gff3` keeps gene and transcript
-lines (B4); a gene nested in an intron is its own gene (B5); the same CDS
-with and without UTRs is one transcript (B6); species ranking only for
-OrthoDB ids, full database otherwise or when no species passes (B7); gene and
-mRNA lines have distinct IDs (B8); an empty merge is an empty GFF3, not an
-error (B9); `--transdecoder_util` is honoured, dead code removed, modules
-without shebang are not executable, `generate_hc_genes.py` logs and has a
-main guard, docstring names fixed (NITs). Drusilla branch: in-frame stop
-check in the stop/start fix (D4), empty feature table guard (D15), batch
-mode removed (D16), private paths and names removed from docstrings and docs
-(L2, L3), `run: "on"` and `tiberius.result` without model in `hcMethod`
-(D10, part), first script tests (D12, part).
-
-Fixed 2026-10-01 (`main`): the overnight fixes are committed (`29a00c4`) and
-pushed, and the first CI run with the new jobs (Python 3.9, Nextflow 25.04.0)
-passed (L9). Drusilla branch: the hint rescue runs in its own image,
-`gaiusaugustus/paludamentum-hint-rescue:0.1.0`, built from
-`docker/hint_rescue/Dockerfile` and pushed (`ecde717`, `3513075`).
-
-Fixed 2026-10-01 (drusilla worktree): the released LightGBM model is the
-default `drusilla.lgb_model` (URL, downloaded once by Nextflow, sha256 in
-`drusilla.lgb_model_sha256`) (D1); `apply_lgb_model_gtf.py` loads the
-LightGBM text model and its JSON instead of the joblib pickle, checks the
-sha256 of the archive and of the text model, the classes and the feature
-count, and stops on a feature missing from the table instead of filling it
-with 0 (D5); Artistic License 1.0 and copyright lines in the headers of the
-six scripts from tiberius_orf_finder; the README describes the model and its
-download (D13, part).
-
-Tests: `tests/test_bin_scripts.py` (9), 15 new launcher tests, 10 new stub
-runs, `tests/test_drusilla_scripts.py` (7 then, 13 now). CI runs all of them
-(L9); the Drusilla script tests skip there without pandas.
-
-2026-10-01/03 (L7, D2): the Drusilla image of the flow is
-`gaiusaugustus/drusilla:0.1.0` (on Docker Hub, accepted by Katharina on
-2026-10-03), built from
-`docker/drusilla/Dockerfile` (Drusilla `e3c5cf5`, lightgbm 4.7.0, Keras 3,
-NGC TensorFlow stack guarded); the `drusilla` submodule points at the same
-commit; `version_mismatches()` and `test_container_tags_of_base_config` cover
-Drusilla. Checked on brain 2026-10-03 (T. rubripes, `a54fa64`, Tiberius result
-of the benchmark run reused): Drusilla annotation, the ORF fix and the
-LightGBM filter ran in the image, Drusilla on a GPU; the released text model
-gives the same probabilities as the pickle (maximum difference 0) and the
-same 16,359 kept transcripts; the raw ORFs differ by 2 transcripts (23,978
-against 23,976) with the same gene F1 (71.39). Final gene F1 80.36 against
-80.26 of the benchmark. The gain comes from the fixed ORFs (74.23 against
-74.09; 126 of 25,417 CDS structures differ), most likely from the in-frame
-stop check added to the stop/start fix after the benchmark (D4).
-
-2026-10-03 (L8): version 0.4.0 on the drusilla branch
-(`paludamentum/__init__.py`, `nextflow.config`, README status line and
-Roadmap, `CITATION.cff` with date-released 2026-10-03).
-
-2026-10-03: `main` merged into `drusilla` (`684b1bc`), then `drusilla` into
-`main` through PR #2 (`4f0df0f`). Conflicts were resolved as follows: the
-include lines of both sides without `MERGE_GENEFINDER_TRAIN_PRIO` (removed on
-`main`); `HC_GENES` with three inputs; the `drusilla` params block before the
-`mode` comment of `main`, and documented in `conf/parameters.yaml` and
-`docs/parameters.md`; both test blocks; "Known issues" with the Drusilla items
-only; the submodule at `e3c5cf5`, the commit of the image. `hcMethod()` gets
-the normalised mode. The Drusilla script tests skip without pandas, as CI does
-not install it (`2cf43f0`). With the merge, `LICENSE` and the README say
-Artistic License 1.0, matching the headers of the scripts in `bin/`.
-
----
-
 ## Suggested order
 
-1. Done 2026-10-03: the drusilla worktree is committed, and `drusilla` is
-   merged into `main` through PR #2 (`4f0df0f`, CI green). Still open from
-   this step: decisions 3 and 4.
-2. Fix D3, D6, D8, D9, D10, D13 on `main`. Run CI through a PR.
-3. Run T. rubripes and Bos taurus again (decision 4); test `tiberius.model_dir`
+1. Fix D3, D6, D8, D9, D10, D13 on `main`. Run CI through a PR.
+2. Run T. rubripes and Bos taurus again (decision 1); test `tiberius.model_dir`
    on a GPU node (N10).
-4. Get tags upstream and pin the submodules (L6), confirm the authors
-   (L10).
-5. Remove or rewrite `MIGRATION_PLAN.md` (L2). Tag, then make the repo
-   public (L1).
+3. Get tags upstream and pin the submodules (L6), confirm the authors (L10).
+4. Move this file out (L11). Tag, then make the repo public (L1).
