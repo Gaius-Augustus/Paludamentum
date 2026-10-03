@@ -11,7 +11,7 @@ import argparse
 from typing import Sequence
 
 from . import __version__
-from .launcher import GENEFINDER_CLI, build_params, load_params, run_nextflow_pipeline
+from .launcher import GENEFINDER_CLI, merge_run_params, run_nextflow_pipeline
 
 MODES = ("abinitio", "proteins", "rnaseq", "isoseq", "mixed")
 
@@ -70,10 +70,17 @@ def build_parser() -> argparse.ArgumentParser:
                         help='Paired-end RNA-Seq: one quoted glob for all libraries ("RNA/*_{1,2}.fastq.gz"), '
                              "or the two files of one library. Several explicit pairs go into the params file.")
     inputs.add_argument("--rnaseq_bam", nargs="*", default=[], help="Aligned short read BAM file(s).")
+    inputs.add_argument("--rnaseq_varus", nargs="*", default=[],
+                        help="pyVARUS output directory(ies) of short-read runs, instead of their BAM.")
     inputs.add_argument("--rnaseq_sra_single", nargs="*", default=[], help="RNA-Seq single-end SRA accession(s).")
     inputs.add_argument("--rnaseq_sra_paired", nargs="*", default=[], help="RNA-Seq paired-end SRA accession(s).")
     inputs.add_argument("--isoseq", nargs="*", default=[], help="Iso-Seq FASTQ file(s).")
     inputs.add_argument("--isoseq_sra", nargs="*", default=[], help="Iso-Seq SRA accession(s).")
+    inputs.add_argument("--isoseq_varus", nargs="*", default=[],
+                        help="pyVARUS output directory(ies) of --longreads runs, instead of their BAM.")
+    inputs.add_argument("--mixed_varus",
+                        help="Output directory of 'varus assemble --short --long': the assembly of the "
+                             "Drusilla flow in mixed mode.")
     inputs.add_argument("--mode", choices=MODES, help="Force the pipeline mode instead of inferring it from the inputs.")
     inputs.add_argument("--scoring_matrix", help="Scoring matrix CSV for miniprot-boundary-scorer.")
 
@@ -106,12 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    genefinder, params_path = build_params(args)
-    running = bool((load_params(params_path).get(genefinder) or {}).get("run"))
-    note = "" if running else " (run: false, evidence only)"
-    print(f"[INFO] Gene finder: {genefinder}{note}; params written to {params_path}")
-    args.params_yaml = str(params_path)
-    run_nextflow_pipeline(args, genefinder=genefinder)
+    # params.yaml is written only after the validation passed
+    genefinder, params = merge_run_params(args)
+    note = "" if params[genefinder].get("run") else " (run: false, evidence only)"
+    print(f"[INFO] Gene finder: {genefinder}{note}")
+    run_nextflow_pipeline(args, genefinder=genefinder, params=params)
 
 
 if __name__ == "__main__":

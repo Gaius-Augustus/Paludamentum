@@ -98,8 +98,8 @@ SUBMODULES: Dict[str, str] = {
 # Params keys that the command line can set, by params block.
 TOP_LEVEL_CLI_KEYS = (
     "threads", "outdir", "genome", "proteins", "odb12Partitions",
-    "rnaseq_single", "rnaseq_paired", "rnaseq_bam",
-    "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_sra",
+    "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "rnaseq_varus",
+    "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_sra", "isoseq_varus", "mixed_varus",
     "mode", "scoring_matrix",
 )
 GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
@@ -111,7 +111,8 @@ GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
 
 # Params values that are paths: they are written as absolute paths, because
 # Nextflow expands neither '~' nor environment variables.
-PATH_KEYS = ("genome", "proteins", "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "isoseq", "scoring_matrix")
+PATH_KEYS = ("genome", "proteins", "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "isoseq", "scoring_matrix",
+             "rnaseq_varus", "isoseq_varus", "mixed_varus")
 GENEFINDER_PATH_KEYS = ("result", "model_cfg", "model_dir")
 
 ROOT_ENV = "PALUDAMENTUM_ROOT"
@@ -347,11 +348,17 @@ def merge_params(base: Dict, overrides: Dict) -> Dict:
     return base
 
 
-def write_params_yaml(params: Dict, outdir: str | Path | None = None) -> Path:
-    """Write the merged params to ``<outdir>/params.yaml`` and return the path."""
+def resolve_outdir(params: Dict, outdir: str | Path | None = None) -> Path:
+    """Absolute output directory of a run; nothing is created."""
     out = Path(outdir or params.get("outdir") or "results").expanduser()
     if not out.is_absolute():
         out = (Path.cwd() / out).resolve()
+    return out
+
+
+def write_params_yaml(params: Dict, outdir: str | Path | None = None) -> Path:
+    """Write the merged params to ``<outdir>/params.yaml`` and return the path."""
+    out = resolve_outdir(params, outdir)
     out.mkdir(parents=True, exist_ok=True)
     params["outdir"] = str(out)
     params_path = out / "params.yaml"
@@ -426,11 +433,11 @@ def cli_overrides(args, genefinder: str) -> Dict:
     return overrides
 
 
-def build_params(args, genefinder: str | None = None, root: str | Path | None = None) -> Tuple[str, Path]:
+def merge_run_params(args, genefinder: str | None = None, root: str | Path | None = None) -> Tuple[str, Dict]:
     """
-    Build the params file of a run: launcher defaults, then the params file
-    (``args.params_yaml``), then command line values. The result is written
-    to ``<outdir>/params.yaml``. Returns the gene finder and the written path.
+    The params of a run: launcher defaults, then the params file
+    (``args.params_yaml``), then command line values. Nothing is written.
+    Returns the gene finder and the merged params.
     """
     loaded: Dict = {}
     params_yaml = getattr(args, "params_yaml", None)
@@ -479,6 +486,15 @@ def build_params(args, genefinder: str | None = None, root: str | Path | None = 
         elif genefinder == "vipsania" and not cfg.get("model"):
             raise SystemExit("Vipsania needs a model: --model, or vipsania.model in the params file.")
 
+    return genefinder, params
+
+
+def build_params(args, genefinder: str | None = None, root: str | Path | None = None) -> Tuple[str, Path]:
+    """
+    Merge the params of a run (see ``merge_run_params``) and write them to
+    ``<outdir>/params.yaml``. Returns the gene finder and the written path.
+    """
+    genefinder, params = merge_run_params(args, genefinder, root)
     return genefinder, write_params_yaml(params)
 
 
@@ -604,6 +620,15 @@ def validate_input_data(params: Dict, params_path: Path) -> List[str]:
     for key, label in optional_fields.items():
         if params.get(key):
             check_entries(params[key], label, key)
+
+    varus_fields = {
+        "rnaseq_varus": "pyVARUS directory (rnaseq_varus)",
+        "isoseq_varus": "pyVARUS directory (isoseq_varus)",
+        "mixed_varus": "pyVARUS directory (mixed_varus)",
+    }
+    for key, label in varus_fields.items():
+        if params.get(key):
+            check_entries(params[key], label, key, directory=True)
 
     for name in GENEFINDER_CLI:
         cfg = params.get(name)
@@ -776,7 +801,12 @@ def run_nextflow(
     return completed.returncode
 
 
-def run_nextflow_pipeline(args, genefinder: str = "tiberius", pipeline_root: str | Path | None = None) -> None:
+def run_nextflow_pipeline(
+    args,
+    genefinder: str = "tiberius",
+    pipeline_root: str | Path | None = None,
+    params: Dict | None = None,
+) -> None:
     """
     Validate and launch the pipeline.
 
@@ -785,34 +815,44 @@ def run_nextflow_pipeline(args, genefinder: str = "tiberius", pipeline_root: str
     ``nextflow_args``, ``work_dir``, ``profile``, ``nextflow_bin``, ``resume``,
     ``check_tools``, ``skip_singularity_check``, ``dry_run``. ``genefinder`` is
     the gene finder of the run; the pipeline itself selects it from the params.
+
+    ``params`` are merged params (see ``merge_run_params``) instead of
+    ``args.params_yaml``: they are validated first and written to
+    ``<outdir>/params.yaml`` only when the validation passes, so a failed
+    run leaves no params file behind. ``args.params_yaml`` is set to it.
     """
     if genefinder not in GENEFINDER_CLI:
         raise SystemExit(f"Unknown gene finder '{genefinder}'. Supported: {', '.join(GENEFINDER_CLI)}.")
 
     params_yaml = getattr(args, "params_yaml", None)
     config = getattr(args, "nf_config", None)
-    if not params_yaml or not config:
+    if (params is None and not params_yaml) or not config:
         raise SystemExit("Launching Nextflow requires --params_yaml and --nf_config.")
 
     extra_args = list(getattr(args, "nextflow_args", None) or [])
     if extra_args and extra_args[0] == "--":
         extra_args = extra_args[1:]
 
-    params_path = Path(params_yaml).expanduser().resolve()
+    if params is None:
+        params_path = Path(params_yaml).expanduser().resolve()
+    else:
+        params_path = resolve_outdir(params) / "params.yaml"
     repo_root, pipeline_main, base_config = pipeline_paths(pipeline_root)
     config_path = resolve_nf_config(config, repo_root)
     work_dir: Path | None = None
     if getattr(args, "work_dir", None):
         work_dir = Path(args.work_dir).expanduser().resolve()
 
-    if not params_path.exists():
+    if params is None and not params_path.exists():
         raise SystemExit(f"Params YAML not found: {params_path}")
     if not pipeline_main.exists():
         raise SystemExit(f"Pipeline entry point missing: {pipeline_main}")
     if not base_config.exists():
         raise SystemExit(f"Base config not found: {base_config}")
 
-    params = load_params(params_path)
+    from_file = params is None
+    if from_file:
+        params = load_params(params_path)
     nextflow_bin = getattr(args, "nextflow_bin", None) or "nextflow"
 
     print("[INFO] Validating input files...")
@@ -840,6 +880,11 @@ def run_nextflow_pipeline(args, genefinder: str = "tiberius", pipeline_root: str
 
     for warning in version_mismatches(repo_root):
         print(f"[WARN] {warning}")
+
+    if not from_file:
+        params_path = write_params_yaml(params)
+        args.params_yaml = str(params_path)
+        print(f"[INFO] Params written to {params_path}")
 
     if getattr(args, "dry_run", False):
         print("[INFO] Dry run requested; skipping Nextflow execution.")

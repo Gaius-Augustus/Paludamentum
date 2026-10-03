@@ -263,6 +263,32 @@ def test_validate_gene_finder_files(tmp_path: Path):
     assert ok == []
 
 
+def test_validate_varus_directories(tmp_path: Path):
+    genome = str(DATA / "tiny.fa")
+    (tmp_path / "short").mkdir()
+    (tmp_path / "long").mkdir()
+    errors = launcher.validate_input_data(
+        {"genome": genome, "rnaseq_varus": [str(tmp_path / "short"), str(tmp_path / "nodir")],
+         "isoseq_varus": str(tmp_path / "long"), "mixed_varus": genome},
+        tmp_path / "params.yaml")
+    assert errors == [
+        f"pyVARUS directory (rnaseq_varus) missing: {tmp_path / 'nodir'}",
+        f"pyVARUS directory (mixed_varus) is not a directory: {genome}",
+    ]
+
+
+def test_varus_directories_from_the_command_line(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _, path = launcher.build_params(cli_args(
+        "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--rnaseq_varus", "a", "b",
+        "--isoseq_varus", "c", "--mixed_varus", "m",
+    ))
+    params = yaml.safe_load(path.read_text())
+    assert params["rnaseq_varus"] == [str(tmp_path / "a"), str(tmp_path / "b")]
+    assert params["isoseq_varus"] == [str(tmp_path / "c")]
+    assert params["mixed_varus"] == str(tmp_path / "m")
+
+
 def test_paths_with_whitespace_are_rejected(tmp_path: Path):
     genome = tmp_path / "my genome.fa"
     genome.write_text(">s\nACGT\n")
@@ -609,6 +635,14 @@ def test_cli_dry_run_writes_params_and_validates(tmp_path: Path, fake_path: Path
     out = capsys.readouterr().out
     assert "Gene finder: tiberius" in out and "Dry run requested" in out
     assert (tmp_path / "tiberius_results" / "params.yaml").is_file()
+
+
+def test_cli_failed_validation_writes_no_params(tmp_path: Path, fake_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="Input validation failed"):
+        cli.main(["--genefinder", "vipsania", "--genome", str(DATA / "tiny.fa"), "--model", "Fungi",
+                  "--proteins", "missing.faa", "--dry_run", "--skip_singularity_check"])
+    assert not (tmp_path / "vipsania_results").exists()
 
 
 def test_cli_forwards_nextflow_args(tmp_path: Path, fake_path: Path, monkeypatch):
