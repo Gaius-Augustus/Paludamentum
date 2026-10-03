@@ -4,12 +4,8 @@ Audited 2026-09-29 (`main` at `18110c1`, `drusilla` at `ea68c20`). Updated
 2026-09-30 after the overnight fixes and again 2026-10-01: fixed items are
 removed; what remains is open. The fixed items are summarised at the end.
 
-State 2026-10-01: the `main` fixes are committed and pushed (`29a00c4`). The
-`drusilla` worktree `../Paludamentum_drusilla` is at `3513075` (pushed) with
-the script fixes of 2026-09-30 and the model loader of 2026-10-01 (D1, D5)
-still **uncommitted** (six `bin/` scripts, `lib_nf/functions.nf`,
-`docs/hint_rescue_comparison.md`, `tests/test_stub_run.py`, new
-`tests/test_drusilla_scripts.py`).
+State 2026-10-03: the `drusilla` branch is merged into `main` through PR #2
+(`4f0df0f`, version 0.4.0). Everything below refers to `main`.
 
 Scope: launcher and packaging, Nextflow code and configs, `bin/` scripts, the
 Drusilla branch diff, CI, docs and licences. The submodules were only checked
@@ -33,10 +29,8 @@ What works (checked 2026-09-30 on the working trees):
 - No secrets are in the repo.
 - No shell injection: `subprocess` is always called with argument lists and
   YAML is read with `safe_load`.
-- CI passed on `29a00c4` (`main`) in all four jobs: Python 3.9 and 3.12,
-  stub runs on Nextflow 25.04.0 and latest-stable. CI has not run on
-  `drusilla`: its own workflow file triggers only on `main` and PRs, so it
-  runs with the merge PR.
+- CI passed on `4f0df0f` (`main`, after the merge) in all four jobs: Python
+  3.9 and 3.12, stub runs on Nextflow 25.04.0 and latest-stable.
 
 ---
 
@@ -47,7 +41,7 @@ What works (checked 2026-09-30 on the working trees):
    (48 training species, script names, labels, hyperparameters; no paths) and
    published at
    `https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz`
-   (sha256 `d5bf3a97…2f1da`, checked after the upload). The drusilla worktree
+   (sha256 `d5bf3a97…2f1da`, checked after the upload). The Drusilla flow
    downloads it by default and loads it without the pickle (D1, D5), in the
    image `gaiusaugustus/drusilla:0.1.0` with lightgbm 4.7.0 (L7, D2).
 2. **HC gene logic.** RESOLVED 2026-09-29: the intrinsic stage never changed
@@ -75,30 +69,26 @@ What works (checked 2026-09-30 on the working trees):
 | L1 | The GitHub repo is still **private**. Make it public last. | GitHub |
 | L2 | `MIGRATION_PLAN.md` (see decision 3). Everything else with internal names (test docstring, `docs/orf_finder_comparison.md`, `docs/hint_rescue_comparison.md`) was rewritten. | `MIGRATION_PLAN.md:81`, README Roadmap |
 | L6 | Submodules are not pinned to releases, although README "Submodule pinning" says they are. Checked 2026-09-30: Tiberius' newest tag is still `v2.0.7` (submodule at `v2.0.7-11-g9734138`, image 2.0.8); Vipsania and Drusilla have no tags. Ask for tags upstream, then point the submodules at them. | `.gitmodules`, README "For maintainers" |
-| L10 | `CITATION.cff` and `pyproject.toml` `authors` name Katharina J. Hoff only. **Confirm the author list** (Lars Gabriel wrote the Tiberius pipeline the scripts come from). The drusilla README does not cite Drusilla, LightGBM or the hint rescue. | `CITATION.cff`, `pyproject.toml`, README (drusilla) |
+| L10 | `CITATION.cff` and `pyproject.toml` `authors` name Katharina J. Hoff only. **Confirm the author list** (Lars Gabriel wrote the Tiberius pipeline the scripts come from). The README does not cite Drusilla, LightGBM or the hint rescue. | `CITATION.cff`, `pyproject.toml`, README |
 
 ---
 
-## 2. Drusilla flow (branch `drusilla`)
+## 2. Drusilla flow
 
-The `hint_rescue` image wiring in `README.md`, `conf/base.config`,
-`modules/drusilla.nf` and `subworkflows/drusilla.nf` is committed (`3513075`)
-and the image `gaiusaugustus/paludamentum-hint-rescue:0.1.0` is on Docker
-Hub, so these files are no longer held. The items below in them are still
-open.
+On `main` since PR #2 (`4f0df0f`). Line numbers refer to `main`.
 
 ### BLOCKER
 
 | # | Item | Where |
 |---|------|-------|
-| D3 | **The README claim about the GCB 2026 poster is wrong.** The poster used `epoch_74`, no stop/start fix, no rescue, a `cat` merge, and `cds_length_nt` filled with zeros. The released `vertebrates` model is run009. Say "derived from" and give the benchmark numbers of this flow (T. rubripes 80.26, Bos 79.46; to be re-measured, decision 4). | README:236-238 |
+| D3 | **The README claim about the GCB 2026 poster is wrong.** The poster used `epoch_74`, no stop/start fix, no rescue, a `cat` merge, and `cds_length_nt` filled with zeros. The released `vertebrates` model is run009. Say "derived from" and give the benchmark numbers of this flow (T. rubripes 80.26, Bos 79.46; to be re-measured, decision 4). | README:254-255 |
 
 ### SHOULD
 
 | # | Item | Where |
 |---|------|-------|
 | D4 | Done: a corrected CDS is now written only if it has no in-frame stop codon (`has_internal_stop`, tested). Still open: the splice sites of extension exons are not checked. | `bin/fix_stop_by_miniprot.py` |
-| D6 | The ORF-agreement filter of the hint rescue is switched off (benchmarked that way). The script docstrings and `docs/hint_rescue_comparison.md` now say so. Still wrong: the module comments ("each with the hints of its best protein chain", "the predictions that agree with the hints") and the README sentence "hints of the best protein chain". Loci without a chain run ab initio without hints. | `modules/drusilla.nf:202`, `:254`, README:265, `conf/base.config:99` |
+| D6 | The ORF-agreement filter of the hint rescue is switched off (benchmarked that way). The script docstrings and `docs/hint_rescue_comparison.md` now say so. Still wrong: the module comments ("each with the hints of its best protein chain", "the predictions that agree with the hints") and the README sentence "hints of the best protein chain". Loci without a chain run ab initio without hints. | `modules/drusilla.nf:202`, `:254`, README:282, `conf/base.config:103` |
 | D8 | `DRUSILLA_ANNOTATE` and `HINT_RESCUE_TIBERIUS` have no memory label, so they get the 30 GB default (now growing with the attempt). Measured: 40 GB for Bos, more than 90 GB for the rescue at seq_len 400k. Give them `bigmem`, or their own label. | `modules/drusilla.nf:40`, `:258`, `conf/base.config` |
 | D9 | With `shards > 1` and `cache_dir: null`, all shards download and extract into the same `drusilla_cache` at once; the Drusilla registry `rmtree`s before it extracts, so the shards race. Download the model once before the fork. The weights URL has no sha256 in the manifest; which run the weights are (run009) is recorded nowhere. Nodes without internet fail. | `modules/drusilla.nf:56`, `drusilla/model_cfg/vertebrates.yaml` |
 | D10 | Remaining gaps in `hcMethod()` after tonight (`run: "on"` is now true; `tiberius.result` without `model_cfg` now warns and uses TransDecoder): <br>• Forcing `run: true` with `tiberius.result` and no model sets the rescue model to the string `"null"`. <br>• A custom model path counts as a vertebrate model by its file name (`/my/vertebrates.yaml`); read `target_species` from the YAML instead, or document it. | `subworkflows/drusilla.nf:43-44`, `lib_nf/functions.nf` drusillaModelEligible |
@@ -108,25 +98,8 @@ open.
 
 | # | Item |
 |---|------|
-| D13 | The `drusilla:` config snippet in the README leaves out `batch_size` and `min_coding_length` (README:275-303). |
+| D13 | The `drusilla:` config snippet in the README leaves out `batch_size` and `min_coding_length` (README:292-320). |
 | D14 | `--proteins-fasta` is never passed, so `best_protein_coverage` is always 0. Check with Lars whether the model was trained with this feature (`modules/drusilla.nf`). |
-
-### Merge notes
-
-Merging `main` into `drusilla` (2026-10-03, state `d3027cf` into `d89a27d`)
-conflicts in `main.nf`, `conf/base.config`, `README.md`,
-`tests/test_stub_run.py` and the `drusilla` submodule. Resolution: the
-include lines of both sides without `MERGE_GENEFINDER_TRAIN_PRIO` (removed on
-`main`); `HC_GENES` with three inputs (its `scored_gff` input was removed on
-`main`); the `drusilla` params block before the `mode` comment of `main`; both
-test blocks; "Known issues" with the Drusilla items only (`main` fixed the
-others); the submodule at `e3c5cf5`, the commit of the image. `hcMethod()`
-gets the normalised mode. The `drusilla` params block is now in
-`conf/parameters.yaml` and `docs/parameters.md`.
-
-The headers of Lars Gabriel's scripts in `bin/` of the drusilla branch say
-"Artistic License 1.0, see LICENSE", but the branch still has the MIT
-`LICENSE` and the README says MIT: both come right with the merge of `main`.
 
 ---
 
@@ -279,6 +252,17 @@ stop check added to the stop/start fix after the benchmark (D4).
 2026-10-03 (L8): version 0.4.0 on the drusilla branch
 (`paludamentum/__init__.py`, `nextflow.config`, README status line and
 Roadmap, `CITATION.cff` with date-released 2026-10-03).
+
+2026-10-03: `main` merged into `drusilla` (`684b1bc`), then `drusilla` into
+`main` through PR #2 (`4f0df0f`). Conflicts were resolved as follows: the
+include lines of both sides without `MERGE_GENEFINDER_TRAIN_PRIO` (removed on
+`main`); `HC_GENES` with three inputs; the `drusilla` params block before the
+`mode` comment of `main`, and documented in `conf/parameters.yaml` and
+`docs/parameters.md`; both test blocks; "Known issues" with the Drusilla items
+only; the submodule at `e3c5cf5`, the commit of the image. `hcMethod()` gets
+the normalised mode. The Drusilla script tests skip without pandas, as CI does
+not install it (`2cf43f0`). With the merge, `LICENSE` and the README say
+Artistic License 1.0, matching the headers of the scripts in `bin/`.
 
 ---
 
