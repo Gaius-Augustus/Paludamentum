@@ -13,7 +13,8 @@ The submodules were only checked where Paludamentum depends on them.
    (exon-overlap clustering, CDS deduplication) and the in-frame stop check
    of the stop/start fix change the output. Gene-level F1 should move little,
    but it must be measured. T. rubripes with the v0.4.0 images: 80.36
-   (80.26 before).
+   (80.26 before). Update the numbers in README "Drusilla flow"
+   (80.36 / 79.46) with the results.
 
 ---
 
@@ -29,12 +30,6 @@ The submodules were only checked where Paludamentum depends on them.
 ---
 
 ## 2. Drusilla flow
-
-### BLOCKER
-
-| # | Item | Where |
-|---|------|-------|
-| D3 | **The README claim about the GCB 2026 poster is wrong.** The poster used `epoch_74`, no stop/start fix, no rescue, a `cat` merge, and `cds_length_nt` filled with zeros. The released `vertebrates` model is run009. Say "derived from" and give the benchmark numbers of this flow (T. rubripes 80.36, Bos 79.46; to be re-measured, see "Before the release"). | README:254-255 |
 
 ### SHOULD
 
@@ -94,7 +89,7 @@ The submodules were only checked where Paludamentum depends on them.
 
 ## Suggested order
 
-1. Fix D3, D6, D8, D9, D10, D13 on `main`. Run CI through a PR.
+1. Fix D6, D8, D9, D10, D13 on `main`. Run CI through a PR.
 2. Run T. rubripes and Bos taurus again ("Before the release"); test `tiberius.model_dir`
    on a GPU node (N10).
 3. Get tags upstream and pin the submodules (L6), confirm the authors (L10).

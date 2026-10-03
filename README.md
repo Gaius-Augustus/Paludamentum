@@ -251,8 +251,13 @@ parameters, the model download and offline use are described in
 
 For vertebrate gene finder models, Paludamentum replaces the TransDecoder
 high-confidence genes with Drusilla ORFs and filters the ab initio
-predictions. This is the flow behind the Tiberius evidence results on the
-GCB 2026 poster. It runs when all of these hold:
+predictions. The flow is derived from the one behind the Tiberius evidence
+results on the GCB 2026 poster
+([doi:10.13140/RG.2.2.24444.91521](https://doi.org/10.13140/RG.2.2.24444.91521)),
+which used an earlier Drusilla model and had no stop/start codon fix, no hint
+rescue and no merge of overlapping genes. With this flow and the Tiberius
+`vertebrates` model, the gene-level F1 is 80.36 on *Takifugu rubripes* and
+79.46 on *Bos taurus*. It runs when all of these hold:
 
 - the run has transcripts (mode `rnaseq`, `isoseq` or `mixed`),
 - the gene finder model is Tiberius `vertebrates` or `mammalia*`, or Vipsania
