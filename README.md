@@ -238,7 +238,10 @@ vipsania:
 Without `model_dir` every Tiberius task downloads the weights of the model
 configuration (`weights_url` in the YAML). For nodes without internet,
 download and extract the archive once and set `model_dir` to the directory
-that holds the extracted `<model>_weights` directory.
+that holds the extracted weights directory: the archive name without
+`.tar.gz`, for example `vertebrates_weights` or `fungi`. Tiberius then runs
+with `--model` on these weights and never downloads; a task fails if the
+directory is missing or empty.
 
 Vipsania finetuning is **off by default**. With `finetune: true` (or
 `--finetune`) Vipsania first trains on the target genome and then annotates
@@ -260,8 +263,10 @@ rescue and no merge of overlapping genes. With this flow and the Tiberius
 79.46 on *Bos taurus*. It runs when all of these hold:
 
 - the run has transcripts (mode `rnaseq`, `isoseq` or `mixed`),
-- the gene finder model is Tiberius `vertebrates` or `mammalia*`, or Vipsania
-  `Vertebrata` (`etb1go6q`),
+- the gene finder model is a Tiberius model whose `target_species` is
+  `Vertebrata` or `Mammalia` (`vertebrates`, `mammalia*`), or Vipsania
+  `Vertebrata` (`etb1go6q`); `drusilla.run: true` forces the flow for other
+  vertebrate models,
 - `drusilla.lgb_model` is not `null` (the default is the released model).
 
 Steps:
@@ -285,9 +290,13 @@ Steps:
    sha256, so the compute nodes need no internet for it.
 6. Hint rescue: loci of `partial` transcripts without a kept transcript are
    predicted again by Tiberius with the hints of the best protein chain of the
-   locus. This needs a Tiberius with `--hints` (branch `hint_integration`,
-   with bricks2marble from its branch `intron_hints`). The step therefore
-   runs in its own image (see [Containers](#containers)). `rescue_tiberius`
+   locus; loci without a protein chain are predicted ab initio, without hints.
+   With `rescue_orf_filter: true`, loci where a Drusilla ORF already has all
+   introns of the chain are skipped; the filter is off by default, and the
+   F1 values above were measured without it. This needs a Tiberius with
+   `--hints` (branch `hint_integration`, with bricks2marble from its branch
+   `intron_hints`). The step therefore runs in its own image (see
+   [Containers](#containers)). `rescue_tiberius`
    is another `tiberius.py` to use instead. If the Tiberius has no `--hints`,
    the step is skipped with a warning in the Nextflow log, and no GPU task is
    started.
@@ -315,9 +324,10 @@ drusilla:
   fix_start: true        # start codon fix of the ORFs (needs fix_stop)
   rescue: true           # hint rescue of partial ab initio genes
   rescue_tiberius: null  # tiberius.py with --hints; null = the one of the hint rescue image
-  rescue_model_cfg: null # null = the Tiberius model of the run, vertebrates for Vipsania
+  rescue_model_cfg: null # model file or name; null = the Tiberius model of the run, vertebrates for Vipsania
   rescue_flank: 25000
   rescue_hint_weight: 2.5
+  rescue_orf_filter: false # skip loci where a Drusilla ORF has all introns of the chain
   rescue_seq_len: 99990   # Tiberius seq_len of the rescue loci
   min_length: 300        # StringTie pre-filter
   min_cov: 3

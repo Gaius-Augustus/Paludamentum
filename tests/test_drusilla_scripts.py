@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
 import subprocess
 import tarfile
 import sys
@@ -260,3 +261,45 @@ def test_filter_scores_and_marks_the_gtf(tmp_path: Path):
     assert 'lgb_class "correct"' in out[0][8]
     scores = (tmp_path / "out.scores.tsv").read_text().splitlines()
     assert len(scores) == 3 and scores[0].startswith("transcript_id\tprob_wrong")
+
+
+# ---------------------------------------------------------------- prepare_hint_rescue_loci.py
+
+def gtf_line(feature: str, start: int, end: int, tx: str) -> str:
+    return f'chr1\tt\t{feature}\t{start}\t{end}\t.\t+\t0\tgene_id "{tx}.g"; transcript_id "{tx}";\n'
+
+
+def rescue_loci(tmp_path: Path, orf_cds: list[tuple[int, int]], *extra: str) -> list[str]:
+    """Locus ids of one partial transcript with a two-intron chain and one ORF."""
+    (tmp_path / "genome.fa").write_text(">chr1\n" + "ACGT" * 500 + "\n")
+    subprocess.run(["samtools", "faidx", "genome.fa"], cwd=tmp_path, check=True)
+    (tmp_path / "partial.gtf").write_text(gtf_line("transcript", 500, 1500, "p1"))
+    (tmp_path / "correct.gtf").write_text("")
+    (tmp_path / "chained.gff").write_text("".join(
+        f"chr1\tc\tintron\t{s}\t{e}\t.\t+\t.\tchain_id=c1;al_score=10\n"
+        for s, e in [(700, 800), (1000, 1100)]))
+    (tmp_path / "orfs.gtf").write_text("".join(gtf_line("CDS", s, e, "o1") for s, e in orf_cds))
+    res = run("prepare_hint_rescue_loci.py", "--partial_gtf", "partial.gtf", "--correct_gtf", "correct.gtf",
+              "--chained_hints", "chained.gff", "--orfs_gtf", "orfs.gtf", "--genome", "genome.fa",
+              "--outdir", "rescue", "--flank", "100", *extra, cwd=tmp_path)
+    assert res.returncode == 0, res.stderr
+    manifest = (tmp_path / "rescue" / "loci_manifest.tsv").read_text().splitlines()[1:]
+    return [line.split("\t")[0] for line in manifest]
+
+
+AGREEING_ORF = [(500, 699), (801, 999), (1101, 1400)]   # has both chain introns
+
+
+@pytest.mark.skipif(shutil.which("samtools") is None, reason="needs samtools")
+def test_orf_filter_is_off_by_default(tmp_path: Path):
+    assert rescue_loci(tmp_path, AGREEING_ORF) == ["locus_0000000"]
+
+
+@pytest.mark.skipif(shutil.which("samtools") is None, reason="needs samtools")
+def test_orf_filter_skips_loci_whose_chain_introns_an_orf_has(tmp_path: Path):
+    assert rescue_loci(tmp_path, AGREEING_ORF, "--orf_filter") == []
+
+
+@pytest.mark.skipif(shutil.which("samtools") is None, reason="needs samtools")
+def test_orf_filter_keeps_loci_with_a_chain_intron_the_orfs_lack(tmp_path: Path):
+    assert rescue_loci(tmp_path, [(500, 699), (801, 1400)], "--orf_filter") == ["locus_0000000"]

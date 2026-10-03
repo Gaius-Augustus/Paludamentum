@@ -201,6 +201,7 @@ predictions. The steps are described in the
 | `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue; `vertebrates` for Vipsania runs. |
 | `drusilla.rescue_flank` | `25000` | Flank in bp around each rescue locus. |
 | `drusilla.rescue_hint_weight` | `2.5` | `tiberius.py --hint_weight` of the rescue. |
+| `drusilla.rescue_orf_filter` | `false` | ORF-agreement filter: skip rescue loci where a Drusilla ORF already has all introns of the best protein chain. Off by default, as benchmarked. |
 | `drusilla.rescue_seq_len` | `99990` | `tiberius.py --seq_len` of the rescue (divisible by 18). |
 
 ## Mode
