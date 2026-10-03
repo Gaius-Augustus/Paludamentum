@@ -37,7 +37,7 @@ process FILTER_STRINGTIE {
 // All ORF predictions (the subsequence collapse follows in FIX_ORFS), with LORF
 // classes, and the 3' and 5' truncated ORFs that the stop and start fix can recover.
 process DRUSILLA_ANNOTATE {
-  label 'gpu', 'drusilla'
+  label 'gpu', 'drusilla', 'bigmem'
   input:
     path gtf
     path genome
@@ -199,8 +199,10 @@ process GENEFINDER_LGB_FILTER {
 }
 
 // Hint rescue, part 1: loci of partial gene finder transcripts without a kept
-// transcript on the same strand, each with the hints of its best protein chain.
-// Loci where a Drusilla ORF already has all introns of the chain are skipped.
+// transcript on the same strand, each with the hints of its best protein chain;
+// loci without a chain get no hints (Tiberius predicts them ab initio). With
+// drusilla.rescue_orf_filter (off by default, as benchmarked), loci where a
+// Drusilla ORF already has all introns of the chain are skipped.
 // Also checks on CPU that the rescue Tiberius has --hints (branch
 // hint_integration); HINTS_OK=false leaves the loci empty.
 // Both rescue processes carry the label 'hint_rescue' (image with a --hints
@@ -221,6 +223,7 @@ process HINT_RESCUE_LOCI {
 
   script:
   def tiberius = params.drusilla.rescue_tiberius ?: '\$(command -v tiberius.py)'
+  def orfFilter = truthy(params.drusilla.rescue_orf_filter) ? ' \\\n          --orf_filter' : ''
   """
   mkdir -p rescue
   if python3 ${tiberius} --help 2>&1 | grep -q -- '--hints'; then
@@ -234,7 +237,7 @@ process HINT_RESCUE_LOCI {
           --orfs_gtf ${orfs_gtf} \\
           --genome ${genome} \\
           --outdir rescue \\
-          --flank ${params.drusilla.rescue_flank}
+          --flank ${params.drusilla.rescue_flank}${orfFilter}
   else
       HINTS_OK=false
   fi
@@ -250,12 +253,14 @@ process HINT_RESCUE_LOCI {
   """
 }
 
-// Hint rescue, part 2: Tiberius predicts the loci with the chain hints; the
-// predictions that agree with the hints are mapped back to the genome.
+// Hint rescue, part 2: Tiberius predicts the loci with the chain hints (loci
+// without a chain ab initio). Predictions on the strand of the locus that
+// overlap its hint region (any prediction for a locus without hints) are
+// mapped back to the genome, and identical CDS structures are collapsed.
 // DRUSILLA_HC runs it only if HINT_RESCUE_LOCI found --hints and loci, so no
 // GPU task is booked for a rescue that cannot run.
 process HINT_RESCUE_TIBERIUS {
-  label 'gpu', 'hint_rescue'
+  label 'gpu', 'hint_rescue', 'bigmem'
   publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy'
   input:
     tuple path(fasta), path(hints), path(manifest)
