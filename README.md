@@ -484,6 +484,23 @@ tools that the pipeline runs on your data: miniprot, miniprot-boundary-scorer,
 miniprothint, HISAT2, minimap2, StringTie, TransDecoder, DIAMOND, SAMtools,
 BEDTools, gffread, and AUGUSTUS (bam2hints).
 
+If the [Drusilla flow](#drusilla-flow) ran, please also cite:
+
+- the poster the flow and its LightGBM filter are derived from. The hint
+  rescue is not on the poster and is not published yet; it is Lars Gabriel's
+  work (tiberius_orf_finder scripts, Tiberius branch `hint_integration`).
+  Gabriel L, Hoff KJ. Annotating Eukaryotic Genomes by Combining Deep Learning
+  with extrinsic evidence. Poster, GCB 2026.
+  [doi:10.13140/RG.2.2.24444.91521](https://doi.org/10.13140/RG.2.2.24444.91521)
+- [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (repository; there is
+  no publication yet)
+- LightGBM: Ke G, Meng Q, Finley T, Wang T, Chen W, Ma W, Ye Q, Liu T-Y.
+  LightGBM: A Highly Efficient Gradient Boosting Decision Tree. Advances in
+  Neural Information Processing Systems 30 (NIPS 2017).
+  [proceedings](https://proceedings.neurips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html)
+- Tiberius, also when Vipsania is the gene finder, because the hint rescue
+  runs Tiberius
+
 ## Funding
 
 Funded by the Deutsche Forschungsgemeinschaft (DFG, German Research

@@ -1,10 +1,15 @@
 cff-version: 1.2.0
 message: >-
   If you use Paludamentum, please cite the gene finder you ran (Tiberius or
-  Vipsania, see their repositories) and this repository.
+  Vipsania, see their repositories) and this repository. If the Drusilla flow
+  ran, please also cite the poster, Drusilla and LightGBM listed under
+  references.
 title: "Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders"
 type: software
 authors:
+  - family-names: Gabriel
+    given-names: Lars
+    affiliation: University of Greifswald
   - family-names: Hoff
     given-names: Katharina J.
     affiliation: University of Greifswald
@@ -21,10 +26,63 @@ keywords:
 references:
   - type: software
     title: Tiberius
+    authors:
+      - family-names: Gabriel
+        given-names: Lars
+      - family-names: Becker
+        given-names: Felix
+      - family-names: Hoff
+        given-names: Katharina J.
+      - family-names: Stanke
+        given-names: Mario
     repository-code: https://github.com/Gaius-Augustus/Tiberius
   - type: software
     title: Vipsania
+    authors:
+      - family-names: Krieg
+        given-names: Richard
+      - family-names: Stanke
+        given-names: Mario
     repository-code: https://github.com/Gaius-Augustus/Vipsania
   - type: software
     title: Drusilla
+    authors:
+      - family-names: Gabriel
+        given-names: Lars
     repository-code: https://github.com/Gaius-Augustus/Drusilla
+  - type: generic
+    medium: poster
+    title: "Annotating Eukaryotic Genomes by Combining Deep Learning with extrinsic evidence"
+    authors:
+      - family-names: Gabriel
+        given-names: Lars
+      - family-names: Hoff
+        given-names: Katharina J.
+    year: 2026
+    doi: 10.13140/RG.2.2.24444.91521
+    conference:
+      name: GCB 2026
+  - type: conference-paper
+    title: "LightGBM: A Highly Efficient Gradient Boosting Decision Tree"
+    authors:
+      - family-names: Ke
+        given-names: Guolin
+      - family-names: Meng
+        given-names: Qi
+      - family-names: Finley
+        given-names: Thomas
+      - family-names: Wang
+        given-names: Taifeng
+      - family-names: Chen
+        given-names: Wei
+      - family-names: Ma
+        given-names: Weidong
+      - family-names: Ye
+        given-names: Qiwei
+      - family-names: Liu
+        given-names: Tie-Yan
+    year: 2017
+    collection-title: "Advances in Neural Information Processing Systems 30"
+    publisher:
+      name: Curran Associates, Inc.
+    url: https://proceedings.neurips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html

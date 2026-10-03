@@ -8,7 +8,7 @@ name = "paludamentum"
 # nextflow.config manifest.version and the README status line in step
 # (tests/test_launcher.py checks it).
 dynamic = ["version"]
-authors = [{ name = "Katharina J. Hoff" }]
+authors = [{ name = "Lars Gabriel" }, { name = "Katharina J. Hoff" }]
 description = "Launcher of the Paludamentum evidence integration pipeline (Nextflow) for the Gaius-Augustus gene finders."
 readme = "README.md"
 requires-python = ">=3.9"
