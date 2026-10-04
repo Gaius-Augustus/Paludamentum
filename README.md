@@ -12,11 +12,7 @@ repository is the cloak around the emperors of the
 [Gaius-Augustus](https://github.com/Gaius-Augustus) gene finder family: a
 Nextflow pipeline that prepares extrinsic evidence (proteins, RNA-Seq,
 Iso-Seq), derives high-confidence genes from it, and integrates them with the
-*ab initio* predictions of a deep learning gene finder.
-
-The gene finder is [Tiberius](https://github.com/Gaius-Augustus/Tiberius) or
-[Vipsania](https://github.com/Gaius-Augustus/Vipsania), see
-[Gene finders](#gene-finders).
+*ab initio* predictions of the deep learning gene finder [Tiberius](https://github.com/Gaius-Augustus/Tiberius) or [Vipsania](https://github.com/Gaius-Augustus/Vipsania).
 
 ## Table of contents
 
@@ -271,9 +267,6 @@ gene finder and of the tools that this run used, selected from its inputs and
 parameters. Please cite them in a publication that uses the results.
 
 ## References
-
-All references that a run can list. The DOIs were checked against the
-metadata registered at doi.org.
 
 **Pipeline and gene finders**
 
