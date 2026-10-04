@@ -97,8 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
                                "submodule (e.g. diatoms).")
     tiberius.add_argument("--seq_len", type=int, help="Forwarded to tiberius.py --seq_len.")
     finder.add_argument("--model_dir",
-                        help="Directory with downloaded models, for nodes without internet: the extracted "
-                             "weights of the Tiberius model configuration, or 'vipsania download -d DIR'.")
+                        help="Directory with downloaded models, instead of the download at the start of the run: the "
+                             "extracted weights of the Tiberius model configuration, or 'vipsania download -d DIR'.")
 
     vipsania = parser.add_argument_group("Vipsania")
     vipsania.add_argument("--model", help="Clade name (e.g. Fungi) or model id.")

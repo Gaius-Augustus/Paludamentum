@@ -105,7 +105,7 @@ tiberius:
   # min_split_size: 20000000     # minimal genome chunk in bp
   # max_files: 20                # maximal number of chunks (parallel GPU tasks)
   # max_parallel: null           # cap of concurrent GPU tasks, e.g. 1 on a workstation
-  # model_dir: null              # extracted weights for nodes without internet
+  # model_dir: null              # extracted weights instead of the download at the start of the run
 
 # Vipsania instead of Tiberius (see docs/vipsania.md):
 # tiberius:
@@ -124,5 +124,5 @@ tiberius:
 #   lgb_model: <released model>  # LightGBM filter model; null switches the flow off
 #   lgb_model_sha256: <of it>    # null for another model
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
-#   cache_dir: null              # Drusilla model cache; null = download in the task
+#   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
 #   rescue: true                 # hint rescue of partial ab initio genes

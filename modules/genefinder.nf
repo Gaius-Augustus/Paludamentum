@@ -11,9 +11,11 @@ process RUN_TIBERIUS {
     input:
         path genome
         path model_cfg
-        // contents of params.tiberius.model_dir, staged under their own names;
+        // use_weights: weights holds the extracted weights of model_cfg (the
+        // contents of params.tiberius.model_dir, or of DOWNLOAD_TIBERIUS_WEIGHTS);
         // the weights directory is passed with --model, so Tiberius does not
-        // download. Empty list = Tiberius downloads the weights of model_cfg.
+        // download. false: Tiberius downloads the weights of model_cfg itself.
+        val use_weights
         path weights
 
     output:
@@ -28,11 +30,11 @@ process RUN_TIBERIUS {
     def cap = params.tiberius?.batch_size ? '' :
         "BATCH_ARG=\$(tiberius_batch_size.py --model_cfg ${model_cfg}" +
         (params.tiberius?.seq_len ? " --seq_len ${params.tiberius.seq_len}" : '') + ")"
-    // With model_dir, run the same model with --model: with --model_cfg Tiberius
+    // With staged weights, run the same model with --model: with --model_cfg Tiberius
     // ignores the staged weights where its own model_weights directory is
     // writable (Docker) and downloads them. See bin/tiberius_model_args.py.
     // The script prints one argument per line, read into an array.
-    def model = params.tiberius?.model_dir ?
+    def model = use_weights ?
         "MODEL_OUT=\$(tiberius_model_args.py --model_cfg ${model_cfg}" +
         (params.tiberius?.seq_len ? " --seq_len ${params.tiberius.seq_len}" : '') + "); " +
         "mapfile -t MODEL_ARGS <<< \"\$MODEL_OUT\"" :
@@ -49,6 +51,44 @@ process RUN_TIBERIUS {
     stub:
     """
     touch "tiberius.${genome.name}.gtf"
+    """
+}
+
+// Download and extract the weights archive of a Tiberius model configuration
+// (its weights_url) once per run, on the submitting host like the other
+// downloads (label 'download'). The GPU tasks get the extracted weights staged,
+// so they need no internet and do not each download the archive.
+process DOWNLOAD_TIBERIUS_WEIGHTS {
+    tag "${url.tokenize('/')[-1]}"
+    label 'download'
+
+    input:
+        val url
+
+    output:
+        path "weights/*"
+
+    script:
+    // the directory the archive extracts to, as Tiberius and
+    // bin/tiberius_model_args.py name it
+    def name = url.tokenize('/')[-1].tokenize('.')[0]
+    """
+    set -euo pipefail
+    mkdir -p weights
+    curl -fsSL -o weights.archive "${url}"
+    tar -xf weights.archive -C weights
+    rm weights.archive
+    if [ ! -d "weights/${name}" ]; then
+        echo "The weights archive ${url} has no directory ${name}, found: \$(ls weights)" >&2
+        exit 1
+    fi
+    """
+
+    stub:
+    def name = url.tokenize('/')[-1].tokenize('.')[0]
+    """
+    mkdir -p "weights/${name}"
+    touch "weights/${name}/weights.h5"
     """
 }
 

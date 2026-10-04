@@ -68,15 +68,20 @@ def normalizeMode(value) {
   return mode
 }
 
-// target_species of a Tiberius model configuration (YAML), null if the file
-// cannot be read or has no target_species.
-def tiberiusTargetSpecies(cfg) {
+// Value of key in a Tiberius model configuration or a Drusilla model manifest
+// (YAML), null if the file cannot be read or has no such key.
+def tiberiusModelValue(cfg, String key) {
     try {
         def data = new org.yaml.snakeyaml.Yaml().load(file(cfg.toString()).text)
-        return (data instanceof Map) ? data.target_species?.toString()?.trim() ?: null : null
+        return (data instanceof Map) ? data[key]?.toString()?.trim() ?: null : null
     } catch( Exception e ) {
         return null
     }
+}
+
+// target_species of a Tiberius model configuration, null if it has none.
+def tiberiusTargetSpecies(cfg) {
+    return tiberiusModelValue(cfg, 'target_species')
 }
 
 // True if the selected gene finder model is one that the Drusilla flow serves:

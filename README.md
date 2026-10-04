@@ -235,13 +235,16 @@ vipsania:
   max_parallel: null
 ```
 
-Without `model_dir` every Tiberius task downloads the weights of the model
-configuration (`weights_url` in the YAML). For nodes without internet,
-download and extract the archive once and set `model_dir` to the directory
-that holds the extracted weights directory: the archive name without
-`.tar.gz`, for example `vertebrates_weights` or `fungi`. Tiberius then runs
-with `--model` on these weights and never downloads; a task fails if the
-directory is missing or empty.
+The pipeline downloads the weights of the model configuration
+(`weights_url` in the YAML) once at the start of the run, on the submitting
+host like the other downloads, and stages them into every Tiberius task, so
+the GPU nodes need no internet. The same holds for the Tiberius model of the
+hint rescue. To skip the download, for example when the submitting host has
+no internet either, download and extract the archive once and set
+`model_dir` to the directory that holds the extracted weights directory: the
+archive name without `.tar.gz`, for example `vertebrates_weights` or `fungi`.
+Tiberius runs with `--model` on these weights and never downloads; a task
+fails if the directory is missing or empty.
 
 Vipsania finetuning is **off by default**. With `finetune: true` (or
 `--finetune`) Vipsania first trains on the target genome and then annotates
@@ -276,7 +279,13 @@ Steps:
 2. Transcripts are kept if length >= 300, coverage >= 3 and TPM >= 1 (TPM >= 0.5
    for transcripts of 3000 nt or longer).
 3. `drusilla annotate` predicts the ORFs of the kept transcripts, including
-   ORFs truncated at the 3' or 5' end of a transcript.
+   ORFs truncated at the 3' or 5' end of a transcript. The released model
+   (`vertebrates`: weights of the training run `cnn_lstm_vertebrates_run009`)
+   is downloaded once on the submitting host and checked against the
+   `weights_sha256` of its manifest in `drusilla/model_cfg/`, so the GPU nodes
+   need no internet for it. With `cache_dir`, Drusilla takes the model from
+   that cache instead (`drusilla models download vertebrates` with
+   `DRUSILLA_CACHE_DIR` set to it fills it once).
 4. Stop codon fix: ORFs with an early stop and truncated ORFs are extended to
    a stop codon supported by a miniprot alignment. Start codon fix: ORFs
    without an upstream in-frame stop are extended to a start codon hint of
@@ -309,7 +318,7 @@ drusilla:
   model: vertebrates     # released Drusilla model
   weights: null          # a local .weights.h5 instead (needs config)
   config: null
-  cache_dir: null        # model cache; null = download in the task, which needs internet
+  cache_dir: null        # model cache (DRUSILLA_CACHE_DIR); null = downloaded once on the submitting host
   batch_size: null       # null = Drusilla sizes the batch from the GPU memory
   shards: 1              # parallel Drusilla processes; e.g. 24 on a 48-core CPU node
   min_coding_length: 200 # minimal CDS length of a Drusilla ORF
@@ -391,7 +400,7 @@ queues, GPU options and scratch paths, and pass it with `--nf_config`.
 GPU processes carry the label `gpu`. Give them your GPU queue and
 `containerOptions = '--nv'`. On SLURM keep
 `singularity.envWhitelist = 'CUDA_VISIBLE_DEVICES'`. Downloads (SRA reads,
-OrthoDB partitions, Vipsania models) carry the label `download` or
+OrthoDB partitions, Tiberius weights, Vipsania models) carry the label `download` or
 `local_only` and run on the submitting host, which needs internet access.
 Tasks that the scheduler kills for memory or time are retried twice with more
 memory; any other error stops the run.

@@ -302,6 +302,21 @@ def test_tiberius_model_dir_is_staged(tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
     assert "tiberius_ab_initio.gff3" in published
+    assert "DOWNLOAD_TIBERIUS_WEIGHTS" not in proc.stdout
+
+
+@pytest.mark.parametrize("model_dir", [False, True], ids=["download", "model-dir"])
+def test_tiberius_weights_are_downloaded_once_without_model_dir(model_dir: bool, tmp_path: Path) -> None:
+    cfg = tmp_path / "tiny.yaml"
+    cfg.write_text('weights_url: "https://example.org/models/tiny_weights.tar.gz"\n')
+    params = {"tiberius": {"run": True, "model_cfg": str(cfg)}}
+    if model_dir:
+        (tmp_path / "weights" / "tiny_weights").mkdir(parents=True)
+        params["tiberius"]["model_dir"] = str(tmp_path / "weights")
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "tiberius_ab_initio.gff3" in published
+    assert ("DOWNLOAD_TIBERIUS_WEIGHTS" in proc.stdout) != model_dir
 
 
 @pytest.mark.parametrize("params,message", [
@@ -437,6 +452,22 @@ def test_drusilla_flow_reads_target_species(name: str, species: str, flow: str, 
         assert rescue_model(tmp_path) == f"# model: {name}, staged weights: false"
 
 
+@pytest.mark.parametrize("drusilla,download", [
+    ({}, True),
+    ({"cache_dir": "/no/such/cache"}, False),
+    ({"weights": "/no/such/model.weights.h5", "config": "/no/such/arch.yaml"}, False),
+    ({"model": "no_such_model"}, False),
+], ids=["released-model", "cache-dir", "local-weights", "name-not-in-submodule"])
+def test_drusilla_model_is_downloaded_once(drusilla: dict, download: bool, tmp_path: Path) -> None:
+    """A model of the submodule's model_cfg/ is downloaded once by Nextflow, not by the shards."""
+    params = drusilla_params(tmp_path, "tiberius")
+    params["drusilla"].update(drusilla, shards=4)
+    proc, _ = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HC genes    : drusilla" in proc.stdout
+    assert ("DOWNLOAD_DRUSILLA_MODEL" in proc.stdout) == download
+
+
 def test_drusilla_flow_needs_target_species(tmp_path: Path) -> None:
     params = drusilla_params(tmp_path, "tiberius")
     (tmp_path / "vertebrates.yaml").write_text("default_seq_len: 400050\n")
@@ -458,14 +489,17 @@ def test_drusilla_flow_forced_with_result_and_no_model(tmp_path: Path) -> None:
     assert_ok(proc)
     assert "HC genes    : drusilla" in proc.stdout
     assert "the hint rescue uses the Tiberius model vertebrates" in proc.stdout
-    assert rescue_model(tmp_path) == "# model: vertebrates, staged weights: false"
+    # the weights of vertebrates (weights_url in the submodule's model_cfg/) are downloaded once
+    assert "DOWNLOAD_RESCUE_WEIGHTS" in proc.stdout
+    assert rescue_model(tmp_path) == "# model: vertebrates, staged weights: true"
 
 
-@pytest.mark.parametrize("rescue_cfg,expected", [
-    ("mammalia_softmasking_v2", "mammalia_softmasking_v2"),
-    ("rescue.yaml", "rescue.yaml"),
-], ids=["image-model-name", "model-file"])
-def test_drusilla_rescue_model_cfg(rescue_cfg: str, expected: str, tmp_path: Path) -> None:
+@pytest.mark.parametrize("rescue_cfg,expected,weights", [
+    ("mammalia_softmasking_v2", "mammalia_softmasking_v2", "true"),
+    ("rescue.yaml", "rescue.yaml", "false"),
+    ("no_such_model", "no_such_model", "false"),
+], ids=["image-model-name", "model-file-without-weights-url", "name-not-in-submodule"])
+def test_drusilla_rescue_model_cfg(rescue_cfg: str, expected: str, weights: str, tmp_path: Path) -> None:
     params = drusilla_params(tmp_path, "tiberius")
     if rescue_cfg.endswith(".yaml"):
         (tmp_path / rescue_cfg).write_text('target_species: "Vertebrata"\n')
@@ -473,7 +507,19 @@ def test_drusilla_rescue_model_cfg(rescue_cfg: str, expected: str, tmp_path: Pat
     params["drusilla"]["rescue_model_cfg"] = rescue_cfg
     proc, _ = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
     assert_ok(proc)
-    assert rescue_model(tmp_path) == f"# model: {expected}, staged weights: false"
+    assert rescue_model(tmp_path) == f"# model: {expected}, staged weights: {weights}"
+    assert ("DOWNLOAD_RESCUE_WEIGHTS" in proc.stdout) == (weights == "true")
+
+
+def test_drusilla_rescue_downloads_the_weights_of_its_model_file(tmp_path: Path) -> None:
+    params = drusilla_params(tmp_path, "tiberius")
+    Path(params["tiberius"]["model_cfg"]).write_text(
+        'target_species: "Vertebrata"\nweights_url: "https://example.org/models/tiny_weights.tar.gz"\n')
+    proc, _ = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    # one download for the gene finder, one for the rescue
+    assert "DOWNLOAD_TIBERIUS_WEIGHTS" in proc.stdout and "DOWNLOAD_RESCUE_WEIGHTS" in proc.stdout
+    assert rescue_model(tmp_path) == "# model: vertebrates.yaml, staged weights: true"
 
 
 def test_drusilla_rescue_stages_the_tiberius_weights(tmp_path: Path) -> None:
@@ -490,7 +536,7 @@ def test_drusilla_rescue_stages_the_tiberius_weights(tmp_path: Path) -> None:
 def test_drusilla_rescue_of_vipsania_runs_uses_vertebrates(tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, {**drusilla_params(tmp_path, "vipsania"), **EVIDENCE["rnaseq"]})
     assert_ok(proc)
-    assert rescue_model(tmp_path) == "# model: vertebrates, staged weights: false"
+    assert rescue_model(tmp_path) == "# model: vertebrates, staged weights: true"
 
 
 # ---- pyVARUS output directories ------------------------------------------------

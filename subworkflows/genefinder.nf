@@ -4,8 +4,9 @@ nextflow.enable.dsl=2
 // annotation. The gene finder is chosen by resolveGenefinder(): 'tiberius' or
 // 'vipsania'. Each has its own params block (params.tiberius, params.vipsania).
 
-include { truthy; resolveGenefinder } from '../lib_nf/functions.nf'
-include { RUN_TIBERIUS; SPLIT_GENOME; MERGE_GENEFINDER; MERGE_GENEFINDER_EVI } from '../modules/genefinder.nf'
+include { truthy; resolveGenefinder; tiberiusModelValue } from '../lib_nf/functions.nf'
+include { RUN_TIBERIUS; DOWNLOAD_TIBERIUS_WEIGHTS; SPLIT_GENOME; MERGE_GENEFINDER;
+          MERGE_GENEFINDER_EVI } from '../modules/genefinder.nf'
 include { DOWNLOAD_VIPSANIA_MODEL; RUN_VIPSANIA } from '../modules/vipsania.nf'
 
 workflow GENEFINDER {
@@ -55,14 +56,21 @@ workflow GENEFINDER {
         } else {
             if( !cfg.model_cfg ) error "params.tiberius.model_cfg is required."
             if( !file(cfg.model_cfg).exists() ) error "params.tiberius.model_cfg is not a file: ${cfg.model_cfg}"
-            // Pre-downloaded weights (params.tiberius.model_dir) are staged into
-            // every task; without them each task downloads the weights.
+            // The extracted weights are staged into every task: those of
+            // params.tiberius.model_dir, else the archive of weights_url,
+            // downloaded once. Only a model configuration without weights_url
+            // leaves the download to Tiberius in each task.
             def weights = channel.value([])
+            def useWeights = true
             if( cfg.model_dir ) {
                 if( !file(cfg.model_dir).isDirectory() ) error "params.tiberius.model_dir is not a directory: ${cfg.model_dir}"
                 weights = channel.fromPath("${cfg.model_dir}/*", type: 'any').collect()
+            } else {
+                def url = tiberiusModelValue(cfg.model_cfg, 'weights_url')
+                if( url ) weights = DOWNLOAD_TIBERIUS_WEIGHTS(url).collect()
+                else      useWeights = false
             }
-            predictions = RUN_TIBERIUS(chunks, cfg.model_cfg, weights).toList()
+            predictions = RUN_TIBERIUS(chunks, cfg.model_cfg, useWeights, weights).toList()
         }
     }
 

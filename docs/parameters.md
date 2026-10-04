@@ -199,7 +199,7 @@ The launcher resolves a name such as `diatoms` to that file.
 | --- | --- | --- |
 | `tiberius.run` | `false` (the launcher sets `true` for the selected gene finder) | Run Tiberius and merge its predictions with the HC genes. |
 | `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. |
-| `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` in the model configuration without `.tar.gz`, e.g. `vertebrates_weights`), for nodes without internet. Tiberius then runs with `--model` and never downloads; the task fails if the directory is missing or empty. Without `model_dir` every task downloads the weights. |
+| `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` in the model configuration without `.tar.gz`, e.g. `vertebrates_weights`), instead of the download at the start of the run. Tiberius then runs with `--model` and never downloads; the task fails if the directory is missing or empty. Without `model_dir` the archive of `weights_url` is downloaded once on the submitting host (label `download`) and staged into the tasks, so the GPU nodes need no internet. |
 | `tiberius.result` | none | Existing Tiberius prediction (GTF/GFF3). It is used instead of running Tiberius; a missing file is an error. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
 | `tiberius.max_files` | `20` | Maximal number of genome chunks, which is the upper limit of parallel Tiberius tasks. |
@@ -228,7 +228,7 @@ predictions. The steps are described in the
 | `drusilla.run` | `auto` | `auto`: on for Tiberius models whose `target_species` is `Vertebrata` or `Mammalia` (`vertebrates`, `mammalia*`) and Vipsania `Vertebrata`, if the run has transcripts; `true`: always (an error without transcripts), e.g. for a custom vertebrate model of another clade; `false`: never. |
 | `drusilla.model` | `vertebrates` | Released Drusilla model (`drusilla models list`). |
 | `drusilla.weights`, `drusilla.config` | none | A local `.weights.h5` file and its architecture YAML instead of a released model. |
-| `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`). Without it the model is downloaded in the task, which needs internet. |
+| `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`), e.g. filled by `drusilla models download vertebrates`, for a submitting host without internet. Without it the archive of the model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task, so the GPU nodes need no internet. A model name that is not in `drusilla/model_cfg/` is downloaded by Drusilla in the task. |
 | `drusilla.batch_size` | automatic | Drusilla batch size; without it Drusilla sizes the batch from the GPU memory. |
 | `drusilla.shards` | `1` | Parallel Drusilla processes, each on a part of the transcripts. For CPU nodes, where one process uses only one to two cores (e.g. 24 with 48 CPUs). |
 | `drusilla.min_coding_length` | `200` | Minimal CDS length of a Drusilla ORF. |
@@ -241,7 +241,7 @@ predictions. The steps are described in the
 | `drusilla.lgb_keep` | `correct` | Classes kept among the candidates, e.g. `correct,partial`. |
 | `drusilla.rescue` | `true` | Hint rescue: loci of partial ab initio genes are predicted again by Tiberius with hints. |
 | `drusilla.rescue_tiberius` | the one of the hint rescue image | Another `tiberius.py` with `--hints`. Without `--hints` the rescue is skipped with a warning. |
-| `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue: a model configuration file, or the name of a model in `model_cfg/` of the hint rescue image. `vertebrates` for Vipsania runs and for `tiberius.result` without `tiberius.model_cfg`. The weights in `tiberius.model_dir` are used only for the model of the run. |
+| `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue: a model configuration file, or the name of a model in `model_cfg/` of the hint rescue image. `vertebrates` for Vipsania runs and for `tiberius.result` without `tiberius.model_cfg`. The weights in `tiberius.model_dir` are used only for the model of the run; otherwise the weights of the rescue model are downloaded once on the submitting host (for a name, `weights_url` is read from `model_cfg/` of the Tiberius submodule; a name that is not there is downloaded by Tiberius in the task). |
 | `drusilla.rescue_flank` | `25000` | Flank in bp around each rescue locus. |
 | `drusilla.rescue_hint_weight` | `2.5` | `tiberius.py --hint_weight` of the rescue. |
 | `drusilla.rescue_orf_filter` | `false` | ORF-agreement filter: skip rescue loci where a Drusilla ORF already has all introns of the best protein chain. Off by default, as benchmarked. |

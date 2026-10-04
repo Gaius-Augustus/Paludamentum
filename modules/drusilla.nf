@@ -34,6 +34,57 @@ process FILTER_STRINGTIE {
   """
 }
 
+// Weights and architecture of a released Drusilla model, downloaded once on the
+// submitting host (label 'download'), so the GPU nodes need no internet and the
+// shards of DRUSILLA_ANNOTATE do not download into one cache at the same time.
+// The archive is checked against the weights_sha256 of the model's manifest.
+// Output: drusilla_model/ with model.weights.h5 (Keras 3 loads *.weights.h5 with
+// the loader the weights were saved with) and arch.yaml.
+process DOWNLOAD_DRUSILLA_MODEL {
+  tag "${url.tokenize('/')[-1]}"
+  label 'download'
+  input:
+    val url
+    val sha256
+
+  output:
+    path "drusilla_model", emit: model
+
+  script:
+  def check = sha256 ?
+      "echo \"${sha256}  model.archive\" | sha256sum -c --quiet - || { echo \"The sha256 of ${url} is not ${sha256}\" >&2; exit 1; }" :
+      "echo \"The manifest of ${url} has no weights_sha256, the archive is not checked\" >&2"
+  """
+  set -euo pipefail
+  curl -fsSL -o model.archive "${url}"
+  ${check}
+  mkdir -p archive drusilla_model
+  tar -xf model.archive -C archive
+  rm model.archive
+  arch=\$(find archive -name arch.yaml | sort | head -n 1)
+  if [ -z "\$arch" ]; then
+      echo "The model archive ${url} has no arch.yaml" >&2
+      exit 1
+  fi
+  dir=\$(dirname "\$arch")
+  weights=\$(find "\$dir" -maxdepth 1 -name '*.weights.h5' | sort | head -n 1)
+  [ -n "\$weights" ] || weights="\$dir/weights.h5"
+  if [ ! -f "\$weights" ]; then
+      echo "The model archive ${url} has no weights next to arch.yaml" >&2
+      exit 1
+  fi
+  mv "\$arch" drusilla_model/arch.yaml
+  mv "\$weights" drusilla_model/model.weights.h5
+  rm -rf archive
+  """
+
+  stub:
+  """
+  mkdir -p drusilla_model
+  touch drusilla_model/arch.yaml drusilla_model/model.weights.h5
+  """
+}
+
 // All ORF predictions (the subsequence collapse follows in FIX_ORFS), with LORF
 // classes, and the 3' and 5' truncated ORFs that the stop and start fix can recover.
 process DRUSILLA_ANNOTATE {
@@ -41,6 +92,11 @@ process DRUSILLA_ANNOTATE {
   input:
     path gtf
     path genome
+    // use_model: model holds drusilla_model/ of DOWNLOAD_DRUSILLA_MODEL. false:
+    // params.drusilla.weights, or the Drusilla registry resolves the model name
+    // (in params.drusilla.cache_dir, else downloaded in the task)
+    val use_model
+    path model
 
   output:
     path "drusilla/orfs.gtf", emit: gtf
@@ -48,24 +104,31 @@ process DRUSILLA_ANNOTATE {
     path "drusilla/orfs.partial5.gtf", emit: partial5
 
   script:
-  def model = params.drusilla.weights ? "--weights \"${params.drusilla.weights}\"" + (params.drusilla.config ? " --config \"${params.drusilla.config}\"" : '') \
-                        : "--model ${params.drusilla.model ?: 'vertebrates'}"
+  def name = params.drusilla.model ?: 'vertebrates'
+  def model_args = params.drusilla.weights ?
+      "--weights \"${params.drusilla.weights}\"" + (params.drusilla.config ? " --config \"${params.drusilla.config}\"" : '') :
+      use_model ? "--weights drusilla_model/model.weights.h5 --config drusilla_model/arch.yaml" :
+      "--model ${name}"
+  // The registry resolves the model once before the shards start: it deletes
+  // the model directory before it extracts, so shards must not extract at once.
+  def registry = (params.drusilla.weights || use_model) ? '' :
+      "export DRUSILLA_CACHE_DIR=\"${params.drusilla.cache_dir ?: '\$PWD/drusilla_cache'}\"\n" +
+      "  drusilla models download ${name} >&2"
   def extra = ''
   if( params.drusilla.batch_size )                extra += " --batch-size ${params.drusilla.batch_size}"
   if( params.drusilla.min_coding_length != null ) extra += " --min-coding-length ${params.drusilla.min_coding_length}"
-  def cache = params.drusilla.cache_dir ?: '\$PWD/drusilla_cache'
   // shards > 1: the transcripts are split by gene into this many parts, each
   // annotated by its own process. On CPUs one process uses only 1-2 cores.
   def shards = (params.drusilla.shards ?: 1) as Integer
   def threads = Math.max(1, (task.cpus as Integer).intdiv(shards))
   """
-  export DRUSILLA_CACHE_DIR="${cache}"
+  ${registry}
   mkdir -p drusilla
   annotate() {
       drusilla annotate \\
           --stringtie-gtf "\$1" \\
           --genome ${genome} \\
-          ${model} \\
+          ${model_args} \\
           --out-dir "\$2" \\
           --threads ${threads} \\
           --no-subseq-collapse \\
@@ -266,7 +329,7 @@ process HINT_RESCUE_TIBERIUS {
   input:
     tuple path(fasta), path(hints), path(manifest)
     // the model: a name in model_cfg/ of the image, or '' and a configuration
-    // file; weights: contents of params.tiberius.model_dir if use_weights
+    // file; use_weights: weights holds the extracted weights of the model
     val model_name
     path model_file
     val use_weights
