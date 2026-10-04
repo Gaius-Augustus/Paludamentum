@@ -84,11 +84,11 @@ On a cluster put it on a shared file system that the compute nodes can read.
 
 | Label | Meaning |
 | --- | --- |
-| `container` | runs in the tools image pinned in `base.config` |
-| `vipsania` | runs in the Vipsania image; never combined with `container` |
+| `container` | runs in the evidence tools image pinned in `base.config` |
+| `tiberius`, `vipsania`, `drusilla`, `hint_rescue` | runs in that image instead (see [containers.md](containers.md)); never combined with `container` |
 | `gpu` | needs a GPU; gets `containerOptions = '--nv'` |
 | `bigmem` | high memory task, 100 GB by default |
-| `download` | SRA and OrthoDB downloads; runs on the submitting host (4 CPUs, 8 GB) |
+| `download` | downloads of SRA reads, OrthoDB partitions and model weights; runs on the submitting host, which needs internet access (4 CPUs, 8 GB) |
 | `local_only` | tiny task that runs on the submitting host |
 
 Override resources per label (`withLabel:`) or per process (`withName:`) in

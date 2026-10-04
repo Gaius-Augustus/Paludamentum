@@ -1,0 +1,72 @@
+# Development
+
+## Repository layout
+
+```text
+main.nf                entry workflow
+nextflow.config        manifest, includes conf/base.config
+lib_nf/                shared Groovy functions
+modules/               Nextflow processes
+subworkflows/          inputs, protein, RNA-Seq, Iso-Seq, HC genes, gene finder
+bin/                   scripts called by processes
+conf/                  base config, site configs, parameters.yaml, blosum62.csv
+paludamentum/          Python launcher (paludamentum, python -m paludamentum)
+tiberius/              submodule: Tiberius (gene finder)
+vipsania/              submodule: Vipsania (gene finder)
+drusilla/              submodule: Drusilla (ORF annotator for transcripts)
+docs/                  parameters, Vipsania, Drusilla flow, containers, HPC, comparisons, development
+tests/                 launcher tests and Nextflow stub runs
+```
+
+## For maintainers
+
+- **Submodule pinning.** Each submodule is pinned to the release whose
+  container image `conf/base.config` runs. A new gene finder release means:
+  bump the submodule (`git -C tiberius checkout <tag>`, `git add tiberius`)
+  and the image tag in `conf/base.config` in one commit.
+  `tests/test_launcher.py` checks that the two agree.
+- **Stable interfaces.** Users rely on the published file names, on the
+  `tiberius.*` and `vipsania.*` parameter blocks, and on `conf/<name>.config`.
+  Do not change them without a deprecation path.
+- **Adding a gene finder.** Add the repository as a submodule, a module with
+  the run process, a label with its container in `conf/base.config`, a
+  parameter block, a branch in `subworkflows/genefinder.nf`, and entries in
+  the launcher's `GENEFINDER_CLI`, `SUBMODULES` and `GENEFINDER_CLI_KEYS`
+  tables. The process takes a genome FASTA and emits GTF or GFF3.
+  `bin/merge_annotations.py` renumbers gene IDs during merging, writes
+  transcripts with a CDS as `mRNA` and marks their genes
+  `gene_biotype=protein_coding`, as in NCBI/Ensembl GFF3, so that
+  [Annotrieve](https://genome.crg.es/annotrieve/) reports them the same way.
+- Renaming a process invalidates `-resume` for runs in progress. Mention it in
+  the release notes.
+
+## Testing
+
+```bash
+pip install -e .[test]
+pytest tests --ignore=tests/test_stub_run.py   # launcher and scripts, no Nextflow needed
+pytest tests/test_stub_run.py                  # needs nextflow, or NEXTFLOW_BIN=/path/to/nextflow
+nextflow lint main.nf modules subworkflows lib_nf
+```
+
+CI runs the same on Python 3.9 and 3.12, and the stub runs on the oldest
+supported Nextflow (25.04.0) and the latest stable release.
+
+The stub runs execute `nextflow run main.nf -stub-run -c tests/stub.config` for
+every mode on the tiny inputs in `tests/data`. They check the wiring and the
+published file names without tools, containers or a GPU. Every process has a
+`stub:` block for this purpose; keep it in sync when you change outputs. Tests
+that need the Tiberius submodule are skipped when it is not checked out. Real
+smoke tests use `tiberius/test_data/Panthera_pardus` and
+`vipsania/docs/example/aspergillus_fumigatus_chr7.fa`.
+
+## Roadmap
+
+- [x] v0.1.0: copy of the pipeline from Tiberius, launcher, stub blocks, tests, CI
+- [x] v0.2.0: gene finder abstraction and Vipsania processes
+- [x] v0.3.0: Paludamentum imports the gene finders (submodules `tiberius/`,
+      `vipsania/`, `drusilla/`) and is launched by `paludamentum`; Tiberius
+      no longer runs the pipeline
+- [x] v0.4.0: Drusilla flow for vertebrate models (Drusilla ORFs as HC genes,
+      LightGBM filter of the ab initio predictions)
+- [ ] `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation

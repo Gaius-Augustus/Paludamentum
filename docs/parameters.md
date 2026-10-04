@@ -210,6 +210,17 @@ The launcher resolves a name such as `diatoms` to that file.
 For the prediction the genome is split into smaller FASTA files, so that
 Tiberius can run on several GPUs in parallel.
 
+The pipeline downloads the weights of the model configuration
+(`weights_url` in the YAML) once at the start of the run, on the submitting
+host like the other downloads, and stages them into every Tiberius task, so
+the GPU nodes need no internet. The same holds for the Tiberius model of the
+hint rescue. To skip the download, for example when the submitting host has
+no internet either, download and extract the archive once and set
+`model_dir` to the directory that holds the extracted weights directory: the
+archive name without `.tar.gz`, for example `vertebrates_weights` or `fungi`.
+Tiberius runs with `--model` on these weights and never downloads; a task
+fails if the directory is missing or empty.
+
 ## Gene finder: Vipsania
 
 Set `vipsania.run: true` and `vipsania.model`. All parameters are described in
@@ -220,8 +231,8 @@ selects one explicitly; without it the block with `run: true` is used.
 
 For runs with transcripts and a vertebrate gene finder model, Drusilla ORFs
 replace the TransDecoder HC genes and a LightGBM model filters the ab initio
-predictions. The steps are described in the
-[README](../README.md#drusilla-flow).
+predictions. The steps are described in
+[drusilla_flow.md](drusilla_flow.md).
 
 | Parameter | Default | Description |
 | --- | --- | --- |
