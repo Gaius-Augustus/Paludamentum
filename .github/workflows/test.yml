@@ -20,8 +20,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e .[test] biopython
-      - run: python -m pytest tests --ignore=tests/test_stub_run.py
+      # samtools, pyfaidx, pandas and lightgbm for the Drusilla flow scripts
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends samtools
+      - run: python -m pip install -e .[test] biopython pyfaidx pandas lightgbm
+      - run: python -m pytest tests -m "not nextflow" -rs
 
   # Nextflow stub runs: the oldest supported Nextflow (manifest.nextflowVersion)
   # and the latest stable release.
@@ -47,4 +49,5 @@ jobs:
           version: ${{ matrix.nextflow-version }}
       - run: python -m pip install -e .[test]
       - run: nextflow lint main.nf modules subworkflows lib_nf
-      - run: python -m pytest tests/test_stub_run.py
+      # every test marked nextflow: stub runs, and processes with fake tools
+      - run: python -m pytest tests -m nextflow -rs
