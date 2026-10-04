@@ -34,7 +34,9 @@ them; they do not depend on Paludamentum.
 - [Drusilla flow](#drusilla-flow)
 - [Containers and HPC](#containers-and-hpc)
 - [Documentation](#documentation)
-- [License and citation](#license-and-citation)
+- [License](#license)
+- [Citation](#citation)
+- [References](#references)
 - [Funding](#funding)
 
 ## What the pipeline does
@@ -198,6 +200,7 @@ is `tiberius` or `vipsania`.
 | `hintsfile.gff` | protein, RNA-Seq and Iso-Seq hints |
 | `sra_downloads/` | reads downloaded from SRA |
 | `params.yaml` | the merged parameters of this run, written by the launcher |
+| `citations.md` | references of the gene finder and the tools that this run used, see [Citation](#citation) |
 
 Nextflow's timeline, trace and report files are written as well.
 
@@ -261,36 +264,55 @@ submitting host, which needs internet access.
 | [docs/hint_rescue_comparison.md](docs/hint_rescue_comparison.md) | hint rescue compared with the original scripts |
 | [docs/development.md](docs/development.md) | repository layout, notes for maintainers, testing, roadmap |
 
-## License and citation
+## License
 
 Artistic License 1.0, see [LICENSE](LICENSE). Scripts in `bin/` copied from
 Tiberius say so in their header and stay under its MIT License, see
 [LICENSE-Tiberius](LICENSE-Tiberius).
 
-If you use the pipeline, cite the gene finder you ran and this repository
-([CITATION.cff](CITATION.cff)). The references are in
-the READMEs of [Tiberius](https://github.com/Gaius-Augustus/Tiberius) and
-[Vipsania](https://github.com/Gaius-Augustus/Vipsania). Please also cite the
-tools that the pipeline runs on your data: miniprot, miniprot-boundary-scorer,
-miniprothint, HISAT2, minimap2, StringTie, TransDecoder, DIAMOND, SAMtools,
-BEDTools, gffread, and AUGUSTUS (bam2hints).
+## Citation
 
-If the [Drusilla flow](#drusilla-flow) ran, please also cite:
+Every run writes `citations.md` to `outdir`. It lists the references of the
+gene finder and of the tools that this run used, selected from its inputs and
+parameters. Please cite them in a publication that uses the results.
 
-- the poster the flow and its LightGBM filter are derived from. The hint
-  rescue is not on the poster and is not published yet; it is Lars Gabriel's
-  work (tiberius_orf_finder scripts, Tiberius branch `hint_integration`).
-  Gabriel L, Hoff KJ. Annotating Eukaryotic Genomes by Combining Deep Learning
-  with extrinsic evidence. Poster, GCB 2026.
-  [doi:10.13140/RG.2.2.24444.91521](https://doi.org/10.13140/RG.2.2.24444.91521)
-- [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (repository; there is
-  no publication yet)
-- LightGBM: Ke G, Meng Q, Finley T, Wang T, Chen W, Ma W, Ye Q, Liu T-Y.
-  LightGBM: A Highly Efficient Gradient Boosting Decision Tree. Advances in
-  Neural Information Processing Systems 30 (NIPS 2017).
-  [proceedings](https://proceedings.neurips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html)
-- Tiberius, also when Vipsania is the gene finder, because the hint rescue
-  runs Tiberius
+## References
+
+All references that a run can list. The DOIs were checked against the
+metadata registered at doi.org.
+
+**Pipeline and gene finders**
+
+- **Paludamentum** (the pipeline). Gabriel L, Hoff KJ. Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders. <https://github.com/Gaius-Augustus/Paludamentum>
+- **Nextflow** (workflow engine). Di Tommaso P, Chatzou M, Floden EW, Barja PP, Palumbo E, Notredame C. Nextflow enables reproducible computational workflows. Nature Biotechnology. 2017;35(4):316-319. [doi:10.1038/nbt.3820](https://doi.org/10.1038/nbt.3820)
+- **Tiberius** (gene prediction). Gabriel L, Becker F, Hoff KJ, Stanke M. Tiberius: end-to-end deep learning with an HMM for gene prediction. Bioinformatics. 2024;40(12):btae685. [doi:10.1093/bioinformatics/btae685](https://doi.org/10.1093/bioinformatics/btae685)
+- **Tiberius** (models of the non-mammalian clades). Gabriel L, Brůna T, Kaur A, Krishnan A, Ortmann F, Salamov A, Talbot S, Becker F, Krieg R, Wheat CW, Grigoriev IV, Stanke M, Hoff KJ. Accurate *ab initio* gene prediction in eukaryotes with Tiberius in multiple clades. bioRxiv. 2026. [doi:10.64898/2026.04.24.720536](https://doi.org/10.64898/2026.04.24.720536)
+- **Vipsania** (gene prediction). Krieg R, Becker F, Saenko S, Diehl J, Stanke M. Vipsania: Unsupervised Deep Gene Finding. bioRxiv. 2026. [doi:10.64898/2026.08.26.747235](https://doi.org/10.64898/2026.08.26.747235)
+
+**Protein evidence**
+
+- **OrthoDB v12** (protein database). Tegenfeldt F, Kuznetsov D, Manni M, Berkeley M, Zdobnov EM, Kriventseva EV. OrthoDB and BUSCO update: annotation of orthologs with wider sampling of genomes. Nucleic Acids Research. 2025;53(D1):D516-D522. [doi:10.1093/nar/gkae987](https://doi.org/10.1093/nar/gkae987)
+- **miniprot** (protein to genome alignment). Li H. Protein-to-genome alignment with miniprot. Bioinformatics. 2023;39(1):btad014. [doi:10.1093/bioinformatics/btad014](https://doi.org/10.1093/bioinformatics/btad014)
+- **miniprot-boundary-scorer and miniprothint** (scoring of the protein alignments, protein hints). Brůna T, Li H, Guhlin J, Honsel D, Herbold S, Stanke M, Nenasheva N, Ebel M, Gabriel L, Hoff KJ. Galba: genome annotation with miniprot and AUGUSTUS. BMC Bioinformatics. 2023;24(1):327. [doi:10.1186/s12859-023-05449-z](https://doi.org/10.1186/s12859-023-05449-z)
+- **DIAMOND** (protein homology of the ORFs, selection of source species in large protein databases). Buchfink B, Reuter K, Drost HG. Sensitive protein alignments at tree-of-life scale using DIAMOND. Nature Methods. 2021;18(4):366-368. [doi:10.1038/s41592-021-01101-x](https://doi.org/10.1038/s41592-021-01101-x)
+
+**Transcript evidence**
+
+- **HISAT2** (alignment of short reads). Kim D, Paggi JM, Park C, Bennett C, Salzberg SL. Graph-based genome alignment and genotyping with HISAT2 and HISAT-genotype. Nature Biotechnology. 2019;37(8):907-915. [doi:10.1038/s41587-019-0201-4](https://doi.org/10.1038/s41587-019-0201-4)
+- **minimap2** (alignment of Iso-Seq reads). Li H. Minimap2: pairwise alignment for nucleotide sequences. Bioinformatics. 2018;34(18):3094-3100. [doi:10.1093/bioinformatics/bty191](https://doi.org/10.1093/bioinformatics/bty191)
+- **SAMtools** (processing of alignments). Danecek P, Bonfield JK, Liddle J, Marshall J, Ohan V, Pollard MO, Whitwham A, Keane T, McCarthy SA, Davies RM, Li H. Twelve years of SAMtools and BCFtools. GigaScience. 2021;10(2):giab008. [doi:10.1093/gigascience/giab008](https://doi.org/10.1093/gigascience/giab008)
+- **AUGUSTUS (bam2hints)** (intron hints from read alignments). Stanke M, Diekhans M, Baertsch R, Haussler D. Using native and syntenically mapped cDNA alignments to improve *de novo* gene finding. Bioinformatics. 2008;24(5):637-644. [doi:10.1093/bioinformatics/btn013](https://doi.org/10.1093/bioinformatics/btn013)
+- **VARUS** (sampled and aligned reads of the pyVARUS input). Stanke M, Bruhn W, Becker F, Hoff KJ. VARUS: sampling complementary RNA reads from the sequence read archive. BMC Bioinformatics. 2019;20(1):558. [doi:10.1186/s12859-019-3182-x](https://doi.org/10.1186/s12859-019-3182-x)
+- **StringTie** (transcript assembly). Kovaka S, Zimin AV, Pertea GM, Razaghi R, Salzberg SL, Pertea M. Transcriptome assembly from long-read RNA-seq alignments with StringTie2. Genome Biology. 2019;20(1):278. [doi:10.1186/s13059-019-1910-1](https://doi.org/10.1186/s13059-019-1910-1)
+- **GffRead** (format conversion, protein sequences). Pertea G, Pertea M. GFF Utilities: GffRead and GffCompare. F1000Research. 2020;9:304. [doi:10.12688/f1000research.23297.2](https://doi.org/10.12688/f1000research.23297.2)
+
+**High-confidence genes**
+
+- **TransDecoder** (ORFs of the assembled transcripts). Haas BJ, Papanicolaou A, Yassour M, et al. De novo transcript sequence reconstruction from RNA-seq using the Trinity platform for reference generation and analysis. Nature Protocols. 2013;8(8):1494-1512. [doi:10.1038/nprot.2013.084](https://doi.org/10.1038/nprot.2013.084)
+- **TD2** (ORFs of the assembled transcripts). Mao A, Ji HJ, Haas BJ, Salzberg SL, Sommer MJ. TD2: finding protein coding regions in transcripts. bioRxiv. 2025. [doi:10.1101/2025.04.13.648579](https://doi.org/10.1101/2025.04.13.648579)
+- **PSAURON** (ORF scores of TD2). Sommer MJ, Zimin AV, Salzberg SL. PSAURON: a tool for assessing protein annotation across a broad range of species. NAR Genomics and Bioinformatics. 2025;7(1):lqae189. [doi:10.1093/nargab/lqae189](https://doi.org/10.1093/nargab/lqae189)
+- **Drusilla** (ORFs of the assembled transcripts as high-confidence genes, filter of the gene predictions). Gabriel L, Hoff KJ. Annotating Eukaryotic Genomes by Combining Deep Learning with extrinsic evidence. Poster, German Conference on Bioinformatics (GCB). 2026. [doi:10.13140/RG.2.2.24444.91521](https://doi.org/10.13140/RG.2.2.24444.91521)
+- **LightGBM** (filter of the gene predictions). Ke G, Meng Q, Finley T, Wang T, Chen W, Ma W, Ye Q, Liu TY. LightGBM: A Highly Efficient Gradient Boosting Decision Tree. Advances in Neural Information Processing Systems 30 (NIPS 2017). 2017. <https://proceedings.neurips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html>
 
 ## Funding
 

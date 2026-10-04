@@ -2,7 +2,8 @@ nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { MERGE_GENEFINDER_TRAIN; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; varusInputs } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; varusInputs } from './lib_nf/functions.nf'
+include { citationsText } from './lib_nf/citations.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
@@ -60,6 +61,15 @@ workflow {
     if( hc.note ) log.warn hc.note
     def useDrusilla = hc.method == 'drusilla'
     if( MODE != 'abinitio' && MODE != 'proteins' ) log.info "HC genes    : ${hc.method}"
+
+    // References of the tools that this run uses
+    file("${outdir}/citations.md").text = citationsText([
+        mode: MODE, genefinder: genefinderRun ? genefinder : null, tiberiusModel: params.tiberius?.model_cfg,
+        hc: hc.method, orfFinder: params.transdecoder?.toString()?.toLowerCase() ?: 'td1',
+        rescue: rescueEnabled(params), odb12: odb12List.size() > 0,
+        shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
+        isoFastq: hasIso, isoVarus: nIsoVarus > 0,
+    ], workflow.manifest.version ?: 'unknown')
 
     // Mixed mode with Drusilla: one stringtie --mix assembly of both BAMs.
     // pyVARUS directories have no BAM; varus assemble makes that assembly.
