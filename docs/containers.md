@@ -37,5 +37,9 @@ Images are pulled once into `~/.cache/paludamentum/singularity` and shared by
 all runs. Set `NXF_SINGULARITY_CACHEDIR`, or `singularity.cacheDir` in your
 config, to use another directory (the Tiberius image is about 11 GB).
 
-Vipsania requires `tensorflow<2.20` and therefore does not support Blackwell
-GPUs. See the Vipsania container documentation.
+The Tiberius, Vipsania and Drusilla images are built on NVIDIA's NGC
+TensorFlow image 25.02 (TensorFlow 2.17, CUDA 12.8) and run on NVIDIA GPUs up
+to and including the Blackwell generation; Tiberius and Vipsania were run on
+RTX PRO 6000 Blackwell cards. A `pip install` of Vipsania outside the
+container does not support Blackwell GPUs. See the Vipsania container
+documentation.

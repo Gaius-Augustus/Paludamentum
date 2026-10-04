@@ -98,7 +98,8 @@ On the machine that launches the pipeline:
 - Java 17 or newer (required by Nextflow)
 - Singularity or Apptainer (all tools run in containers, see [docs/containers.md](docs/containers.md))
 - Python 3.9 or newer with `pyyaml`
-- an NVIDIA GPU on the nodes that run the gene finder step
+- an NVIDIA GPU on the nodes that run the gene finder step, up to and
+  including the Blackwell generation (for example RTX PRO 6000)
 
 You do not need to install HISAT2, miniprot, StringTie and the other tools
 when you use the containers. To run without containers, all tools must be in
