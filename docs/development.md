@@ -1,5 +1,22 @@
 # Development
 
+## Submodules and status
+
+The gene finders are git submodules of this repository. Paludamentum runs
+them; they do not depend on Paludamentum.
+
+| Submodule | Role | Status |
+| --- | --- | --- |
+| [Tiberius](https://github.com/Gaius-Augustus/Tiberius) (`tiberius/`) | gene finder | supported |
+| [Vipsania](https://github.com/Gaius-Augustus/Vipsania) (`vipsania/`) | gene finder | supported, see [vipsania.md](vipsania.md) |
+| [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (`drusilla/`) | ORF annotator for assembled transcripts | high-confidence genes for vertebrate models, see [Drusilla flow](drusilla_flow.md) |
+
+> **Status (v0.4.0).** Paludamentum is the entry point: `paludamentum`
+> launches the pipeline with Tiberius or Vipsania. Earlier versions were a
+> submodule of Tiberius and were launched by `tiberius.py`; that direction is
+> reversed since v0.3.0. v0.4.0 adds the [Drusilla flow](drusilla_flow.md) for
+> vertebrate models.
+
 ## Repository layout
 
 ```text

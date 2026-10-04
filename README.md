@@ -1,5 +1,7 @@
 # Paludamentum
 
+Authors: Lars Gabriel & Katharina J. Hoff
+
 The paludamentum was the cloak worn by Roman emperors and commanders. This
 repository is the cloak around the emperors of the
 [Gaius-Augustus](https://github.com/Gaius-Augustus) gene finder family: a
@@ -7,20 +9,9 @@ Nextflow pipeline that prepares extrinsic evidence (proteins, RNA-Seq,
 Iso-Seq), derives high-confidence genes from it, and integrates them with the
 *ab initio* predictions of a deep learning gene finder.
 
-The gene finders are git submodules of this repository. Paludamentum runs
-them; they do not depend on Paludamentum.
-
-| Submodule | Role | Status |
-| --- | --- | --- |
-| [Tiberius](https://github.com/Gaius-Augustus/Tiberius) (`tiberius/`) | gene finder | supported |
-| [Vipsania](https://github.com/Gaius-Augustus/Vipsania) (`vipsania/`) | gene finder | supported, see [docs/vipsania.md](docs/vipsania.md) |
-| [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (`drusilla/`) | ORF annotator for assembled transcripts | high-confidence genes for vertebrate models, see [Drusilla flow](#drusilla-flow) |
-
-> **Status (v0.4.0).** Paludamentum is the entry point: `paludamentum`
-> launches the pipeline with Tiberius or Vipsania. Earlier versions were a
-> submodule of Tiberius and were launched by `tiberius.py`; that direction is
-> reversed since v0.3.0. v0.4.0 adds the [Drusilla flow](#drusilla-flow) for
-> vertebrate models.
+The gene finder is [Tiberius](https://github.com/Gaius-Augustus/Tiberius) or
+[Vipsania](https://github.com/Gaius-Augustus/Vipsania), see
+[Gene finders](#gene-finders).
 
 ## Table of contents
 
@@ -262,7 +253,7 @@ submitting host, which needs internet access.
 | [docs/hpc.md](docs/hpc.md) | Nextflow config for your cluster, process labels |
 | [docs/orf_finder_comparison.md](docs/orf_finder_comparison.md) | TransDecoder, TD2 and Drusilla as ORF finder of the HC gene step |
 | [docs/hint_rescue_comparison.md](docs/hint_rescue_comparison.md) | hint rescue compared with the original scripts |
-| [docs/development.md](docs/development.md) | repository layout, notes for maintainers, testing, roadmap |
+| [docs/development.md](docs/development.md) | submodules and status, repository layout, notes for maintainers, testing, roadmap |
 
 ## License
 

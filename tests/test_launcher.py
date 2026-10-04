@@ -694,7 +694,7 @@ def test_version_is_the_same_everywhere():
     version = launcher.__name__ and __import__("paludamentum").__version__
     manifest = re.search(r"version\s*=\s*'([^']+)'", (ROOT / "nextflow.config").read_text()).group(1)
     assert manifest == version
-    assert f"**Status (v{version}).**" in (ROOT / "README.md").read_text()
+    assert f"**Status (v{version}).**" in (ROOT / "docs" / "development.md").read_text()
     assert f"\nversion: {version}\n" in (ROOT / "CITATION.cff").read_text()
 
 
