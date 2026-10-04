@@ -171,7 +171,7 @@ def run_process(tmp_path: Path, process: str, body: str, drusilla: dict,
 
 
 ANNOTATE = """
-    DRUSILLA_ANNOTATE(file(params.gtf), file(params.genome))
+    DRUSILLA_ANNOTATE(file(params.gtf), file(params.genome), false, [])
     DRUSILLA_ANNOTATE.out.gtf.mix(DRUSILLA_ANNOTATE.out.partial, DRUSILLA_ANNOTATE.out.partial5)
         .subscribe { f -> f.copyTo("${params.outdir}/${f.name}") }
 """
@@ -216,9 +216,9 @@ def test_a_failing_shard_fails_the_task(tmp_path: Path) -> None:
 
 
 FIX_ORFS = """
-    def f = { name -> file("${projectDir}/${name}") }
-    FIX_ORFS(f('orfs.gtf'), f('orfs.partial.gtf'), f('orfs.partial5.gtf'), f('miniprot.gff'),
-             f('hc.gff'), file(params.genome))
+    FIX_ORFS(file("${projectDir}/orfs.gtf"), file("${projectDir}/orfs.partial.gtf"),
+             file("${projectDir}/orfs.partial5.gtf"), file("${projectDir}/miniprot.gff"),
+             file("${projectDir}/hc.gff"), file(params.genome))
 """
 
 RAW_ORFS = 'c1\tDrusilla\tCDS\t1\t300\t.\t+\t0\ttranscript_id "o1"; gene_id "o1.g";\n'
@@ -247,9 +247,8 @@ def test_fix_stop_and_fix_start(options: dict, fix: bool, fix_starts: bool, tmp_
 
 
 LGB_FILTER = """
-    def input = { name -> file("${projectDir}/${name}") }
-    GENEFINDER_LGB_FILTER('tiberius', input('ab_initio.gff3'), input('miniprot.gff'), input('hc.gff'),
-                          file(params.genome), input('lgb.tar.gz'))
+    GENEFINDER_LGB_FILTER('tiberius', file("${projectDir}/ab_initio.gff3"), file("${projectDir}/miniprot.gff"),
+                          file("${projectDir}/hc.gff"), file(params.genome), file("${projectDir}/lgb.tar.gz"))
     GENEFINDER_LGB_FILTER.out.partial.subscribe { f -> f.copyTo("${params.outdir}/${f.name}") }
 """
 
