@@ -11,9 +11,9 @@ process RUN_TIBERIUS {
     input:
         path genome
         path model_cfg
-        // extracted weights from params.tiberius.model_dir, staged under their own
-        // names: Tiberius finds <model>_weights in the working directory and
-        // skips the download. Empty list = download.
+        // contents of params.tiberius.model_dir, staged under their own names;
+        // the weights directory is passed with --model, so Tiberius does not
+        // download. Empty list = Tiberius downloads the weights of model_cfg.
         path weights
 
     output:
@@ -28,17 +28,27 @@ process RUN_TIBERIUS {
     def cap = params.tiberius?.batch_size ? '' :
         "BATCH_ARG=\$(tiberius_batch_size.py --model_cfg ${model_cfg}" +
         (params.tiberius?.seq_len ? " --seq_len ${params.tiberius.seq_len}" : '') + ")"
+    // With model_dir, run the same model with --model: with --model_cfg Tiberius
+    // ignores the staged weights where its own model_weights directory is
+    // writable (Docker) and downloads them. See bin/tiberius_model_args.py.
+    // The script prints one argument per line, read into an array.
+    def model = params.tiberius?.model_dir ?
+        "MODEL_OUT=\$(tiberius_model_args.py --model_cfg ${model_cfg}" +
+        (params.tiberius?.seq_len ? " --seq_len ${params.tiberius.seq_len}" : '') + "); " +
+        "mapfile -t MODEL_ARGS <<< \"\$MODEL_OUT\"" :
+        "MODEL_ARGS=(--model_cfg ${model_cfg})"
     """
     ${cap}
+    ${model}
     tiberius.py \\
         --genome ${genome} \\
-        --model_cfg ${model_cfg} \\
-        --out tiberius.${genome.name}.gtf${extra} \${BATCH_ARG:-}
+        "\${MODEL_ARGS[@]}" \\
+        --out "tiberius.${genome.name}.gtf"${extra} \${BATCH_ARG:-}
     """
 
     stub:
     """
-    touch tiberius.${genome.name}.gtf
+    touch "tiberius.${genome.name}.gtf"
     """
 }
 

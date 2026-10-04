@@ -33,10 +33,7 @@ The submodules were only checked where Paludamentum depends on them.
 
 | # | Item | Where |
 |---|------|-------|
-| D4 | The splice sites of the extension exons of the stop/start fix are not checked. | `bin/fix_stop_by_miniprot.py` |
 | D9 | With `shards > 1` and `cache_dir: null`, all shards download and extract into the same `drusilla_cache` at once; the Drusilla registry `rmtree`s before it extracts, so the shards race. Download the model once before the fork. The weights URL has no sha256 in the manifest; which run the weights are (run009) is recorded nowhere. Nodes without internet fail. | `modules/drusilla.nf:56`, `drusilla/model_cfg/vertebrates.yaml` |
-| D10 | Gaps in `hcMethod()`: <br>• Forcing `run: true` with `tiberius.result` and no model sets the rescue model to the string `"null"`. <br>• A custom model path counts as a vertebrate model by its file name (`/my/vertebrates.yaml`); read `target_species` from the YAML instead, or document it. | `subworkflows/drusilla.nf:43-44`, `lib_nf/functions.nf` drusillaModelEligible |
-| D12 | Without tests: `compute_orf_features.py` (only its columns are tested), `filter_stringtie_gtf.py`, `prepare_hint_rescue_loci.py`, `filter_and_merge_rescue_gtf.py`, and stub runs of `mammalia*`, `Vertebrata`, `shards > 1`, `fix_stop: false`, `lgb_keep`, `tiberius.result` with Drusilla. The script tests need lightgbm and pandas, which CI does not install, so CI skips them. | `tests/test_drusilla_scripts.py`, `tests/test_stub_run.py` |
 
 ---
 
@@ -51,16 +48,7 @@ The submodules were only checked where Paludamentum depends on them.
 
 ## 4. Nextflow workflow and configs
 
-### SHOULD
-
-| # | Item | Where |
-|---|------|-------|
-| N10 | `tiberius.model_dir` stages the extracted weights into the task directory, where Tiberius' `download_weights()` finds `<model>_weights` and skips the download. Checked against the Tiberius code and in a stub run only: **run it once on a GPU node without internet** before documenting it as supported. | `modules/genefinder.nf`, `subworkflows/genefinder.nf`, `tiberius/tiberius/main.py:357-395` |
-
-### NIT
-
-- N19: the shell blocks do not quote file variables, so a path with
-  whitespace in a params file run without the launcher breaks the run.
+No open items.
 
 ---
 
@@ -78,7 +66,6 @@ The submodules were only checked where Paludamentum depends on them.
 
 ## Suggested order
 
-1. Fix D9, D10 on `main`. Run CI through a PR.
-2. Run T. rubripes and Bos taurus again ("Before the release"); test `tiberius.model_dir`
-   on a GPU node (N10).
+1. Fix D9 on `main`. Run CI through a PR.
+2. Run T. rubripes and Bos taurus again ("Before the release").
 3. Move this file out (L11). Tag, then make the repo public (L1).
