@@ -103,7 +103,41 @@ def test_tiberius_file_names_are_unchanged(tmp_path: Path) -> None:
         "intermediate/tiberius_ab_initio.gff3",
         "intermediate/hc.gff3",
         "hintsfile.gff",
+        "citations.md",
     }
+
+
+def citations(tmp_path: Path) -> str:
+    return (tmp_path / "out" / "citations.md").read_text()
+
+
+def test_citations_follow_the_run(tmp_path: Path) -> None:
+    """citations.md lists the references of the tools of this run only."""
+    proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **EVIDENCE["rnaseq"], "transdecoder": "td1"})
+    assert_ok(proc)
+    text = citations(tmp_path)
+    for tool in ("Tiberius", "miniprot", "HISAT2", "StringTie", "TransDecoder", "DIAMOND"):
+        assert f"**{tool}**" in text, text
+    for tool in ("Vipsania", "minimap2", "TD2", "Drusilla", "LightGBM", "OrthoDB v12"):
+        assert f"**{tool}**" not in text, text
+
+
+def test_citations_ab_initio_vipsania(tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, GENEFINDER["vipsania"])
+    assert_ok(proc)
+    text = citations(tmp_path)
+    assert "**Vipsania**" in text and "**Nextflow**" in text
+    assert "**Tiberius**" not in text and "**miniprot**" not in text
+
+
+def test_citations_td2_and_isoseq(tmp_path: Path) -> None:
+    """TD2 is the ORF finder of hc_table for clades without Drusilla."""
+    proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **EVIDENCE["isoseq"]})
+    assert_ok(proc)
+    text = citations(tmp_path)
+    for tool in ("minimap2", "TD2", "PSAURON"):
+        assert f"**{tool}**" in text, text
+    assert "**TransDecoder**" not in text and "**HISAT2**" not in text
 
 
 def test_legacy_mode_name_tiberius(tmp_path: Path) -> None:
@@ -153,6 +187,22 @@ def test_existing_result_is_reused(tmp_path: Path) -> None:
     assert_ok(proc)
     assert "RUN_VIPSANIA" not in proc.stdout and "SPLIT_GENOME" not in proc.stdout
     assert "vipsania_evidence.gff3" in published
+
+
+@pytest.mark.parametrize("tool", ["tiberius", "vipsania"])
+def test_existing_gff3_result_without_model(tool: str, tmp_path: Path) -> None:
+    """A GFF3 of the gene finder is enough: no model, no gene finder task, in every mode."""
+    result = tmp_path / "previous.gff3"
+    result.write_text("##gff-version 3\n")
+    finder = {tool: {"run": True, "result": str(result)}}
+    proc, published = run_pipeline(tmp_path, finder)
+    assert_ok(proc)
+    assert f"RUN_{tool.upper()}" not in proc.stdout and "SPLIT_GENOME" not in proc.stdout
+    assert expected_outputs(tool, "abinitio") <= published
+    proc, published = run_pipeline(tmp_path, {**finder, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert f"RUN_{tool.upper()}" not in proc.stdout and "DOWNLOAD_" not in proc.stdout
+    assert expected_outputs(tool, "rnaseq") <= published
 
 
 def test_evidence_without_gene_finder(tmp_path: Path) -> None:
@@ -373,6 +423,7 @@ def test_drusilla_flow_for_vertebrate_models(tool: str, mode: str, tmp_path: Pat
         "intermediate/drusilla_orfs.gtf",
         "intermediate/hint_rescue.gtf",
         "hintsfile.gff",
+        "citations.md",
     }
     # one StringTie assembly of all reads
     assert proc.stdout.count("STRINGTIE_ASSEMBLE") == 1, proc.stdout

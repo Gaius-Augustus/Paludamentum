@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "paludamentum"
 # The version lives in paludamentum/__init__.py (single source); keep
-# nextflow.config manifest.version and the README status line in step
+# nextflow.config manifest.version and the status line in docs/development.md in step
 # (tests/test_launcher.py checks it).
 dynamic = ["version"]
 authors = [{ name = "Lars Gabriel" }, { name = "Katharina J. Hoff" }]

@@ -201,7 +201,7 @@ The launcher resolves a name such as `diatoms` to that file.
 | `tiberius.run` | `false` (the launcher sets `true` for the selected gene finder) | Run Tiberius and merge its predictions with the HC genes. |
 | `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. |
 | `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` in the model configuration without `.tar.gz`, e.g. `vertebrates_weights`), instead of the download at the start of the run. Tiberius then runs with `--model` and never downloads; the task fails if the directory is missing or empty. Without `model_dir` the archive of `weights_url` is downloaded once on the submitting host (label `download`) and staged into the tasks, so the GPU nodes need no internet. |
-| `tiberius.result` | none | Existing Tiberius prediction (GTF/GFF3). It is used instead of running Tiberius; a missing file is an error. |
+| `tiberius.result` | none | Existing Tiberius prediction (`--result`): the GFF3 or GTF of `tiberius.py`, or the `tiberius_ab_initio.gff3` of an earlier run. It is used instead of running Tiberius, in every mode; a missing file is an error. `tiberius.model_cfg` is then optional: it is not run, but the model of a vertebrate prediction selects the [Drusilla flow](drusilla_flow.md) and is the model of its hint rescue. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
 | `tiberius.max_files` | `20` | Maximal number of genome chunks, which is the upper limit of parallel Tiberius tasks. |
 | `tiberius.max_parallel` | unlimited | Cap of concurrently running Tiberius tasks, for example `1` on a single-GPU workstation. |
@@ -210,6 +210,17 @@ The launcher resolves a name such as `diatoms` to that file.
 
 For the prediction the genome is split into smaller FASTA files, so that
 Tiberius can run on several GPUs in parallel.
+
+The pipeline downloads the weights of the model configuration
+(`weights_url` in the YAML) once at the start of the run, on the submitting
+host like the other downloads, and stages them into every Tiberius task, so
+the GPU nodes need no internet. The same holds for the Tiberius model of the
+hint rescue. To skip the download, for example when the submitting host has
+no internet either, download and extract the archive once and set
+`model_dir` to the directory that holds the extracted weights directory: the
+archive name without `.tar.gz`, for example `vertebrates_weights` or `fungi`.
+Tiberius runs with `--model` on these weights and never downloads; a task
+fails if the directory is missing or empty.
 
 ## Gene finder: Vipsania
 
@@ -222,8 +233,8 @@ selects one explicitly; without it the block with `run: true` is used.
 For runs with transcripts and a gene finder model of a clade with
 `hc: drusilla` in `hc_table` (`conf/hc_genes.yaml`: `Vertebrata`, `Mammalia`),
 Drusilla ORFs replace the TransDecoder HC genes and a LightGBM model filters
-the ab initio predictions. The steps are described in the
-[README](../README.md#drusilla-flow).
+the *ab initio* predictions. The steps are described in
+[drusilla_flow.md](drusilla_flow.md).
 
 | Parameter | Default | Description |
 | --- | --- | --- |
@@ -237,11 +248,11 @@ the ab initio predictions. The steps are described in the
 | `drusilla.fix_stop`, `drusilla.fix_start` | `true` | Stop codon fix of the ORFs with miniprot alignments; start codon fix with miniprothint start hints (needs `fix_stop`). |
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
-| `drusilla.lgb_model` | `lgb_model` of the clade in `hc_table` (released `drusilla_lgb_3class_v1`) | LightGBM model of the ab initio filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. |
+| `drusilla.lgb_model` | `lgb_model` of the clade in `hc_table` (released `drusilla_lgb_3class_v1`) | LightGBM model of the *ab initio* filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. |
 | `drusilla.lgb_model_sha256` | none (with `lgb_model` of `hc_table`: its `lgb_model_sha256`) | sha256 of the archive given as `drusilla.lgb_model`, checked after the download; `null`: not checked. |
 | `drusilla.lgb_threshold` | `0.5` | Transcripts with P(partial) + P(correct) at or above it are candidates. |
 | `drusilla.lgb_keep` | `correct` | Classes kept among the candidates, e.g. `correct,partial`. |
-| `drusilla.rescue` | `true` | Hint rescue: loci of partial ab initio genes are predicted again by Tiberius with hints. |
+| `drusilla.rescue` | `true` | Hint rescue: loci of partial *ab initio* genes are predicted again by Tiberius with hints. |
 | `drusilla.rescue_tiberius` | the one of the hint rescue image | Another `tiberius.py` with `--hints`. Without `--hints` the rescue is skipped with a warning. |
 | `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue: a model configuration file, or the name of a model in `model_cfg/` of the hint rescue image. `vertebrates` for Vipsania runs and for `tiberius.result` without `tiberius.model_cfg`. The weights in `tiberius.model_dir` are used only for the model of the run; otherwise the weights of the rescue model are downloaded once on the submitting host (for a name, `weights_url` is read from `model_cfg/` of the Tiberius submodule; a name that is not there is downloaded by Tiberius in the task). |
 | `drusilla.rescue_flank` | `25000` | Flank in bp around each rescue locus. |

@@ -23,7 +23,7 @@ Final gene set, accuracy in %:
 | TD2 1.1.0 | 70.3 | 64.0 | 67.00 | 43.4 | 41.8 | 88.3 | 88.4 | 41 489 |
 | Drusilla | 74.9 | 81.2 | 77.92 | 48.6 | 57.7 | 86.4 | 92.3 | 33 613 |
 
-The Vipsania ab initio prediction is the same in all three runs: gene Sn 46.7,
+The Vipsania *ab initio* prediction is the same in all three runs: gene Sn 46.7,
 Pr 43.7, F1 45.15 (23 788 transcripts).
 
 ORF set alone, before the merge with the Vipsania genes:

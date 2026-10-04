@@ -548,6 +548,19 @@ def test_build_params_explicit_genefinder_and_result(tmp_path: Path, monkeypatch
     assert params["tiberius"] == {"run": True, "result": str(tmp_path / "old.gtf")}   # no model_cfg needed
 
 
+@needs_tiberius
+def test_build_params_result_with_model_name(tmp_path: Path, monkeypatch):
+    """The model of an existing prediction selects the Drusilla flow, so its name is resolved to the file."""
+    monkeypatch.chdir(tmp_path)
+    _, path = launcher.build_params(cli_args(
+        "--genome", str(DATA / "tiny.fa"), "--result", "old.gff3", "--model_cfg", "vertebrates",
+    ))
+    cfg = yaml.safe_load(path.read_text())["tiberius"]
+    assert cfg["result"] == str(tmp_path / "old.gff3")
+    assert cfg["model_cfg"] == str(launcher.resolve_model_cfg("vertebrates"))
+    assert Path(cfg["model_cfg"]).is_file()
+
+
 def test_genefinder_option_overrides_the_params_file(tmp_path: Path, monkeypatch):
     """--genefinder vipsania with a Tiberius params file runs Vipsania, and only Vipsania."""
     monkeypatch.chdir(tmp_path)
@@ -694,5 +707,20 @@ def test_version_is_the_same_everywhere():
     version = launcher.__name__ and __import__("paludamentum").__version__
     manifest = re.search(r"version\s*=\s*'([^']+)'", (ROOT / "nextflow.config").read_text()).group(1)
     assert manifest == version
-    assert f"**Status (v{version}).**" in (ROOT / "README.md").read_text()
+    assert f"**Status (v{version}).**" in (ROOT / "docs" / "development.md").read_text()
     assert f"\nversion: {version}\n" in (ROOT / "CITATION.cff").read_text()
+
+
+def test_readme_lists_the_references_of_the_citation_file():
+    """Every reference of lib_nf/citations.nf is in the README, with its DOI or URL."""
+    import re
+    src = (ROOT / "lib_nf" / "citations.nf").read_text()
+    readme = (ROOT / "README.md").read_text()
+    refs = re.findall(r"ref: '([^']*)',\s*(doi|url): '([^']*)'", src)
+    assert len(refs) >= 20
+    for ref, _kind, target in refs:
+        assert ref in readme, ref
+        assert target in readme, target
+    section = readme.split("## References", 1)[1].split("\n## ", 1)[0]
+    assert set(re.findall(r"https://doi\.org/([^)\s]+)", section)) == {t for _r, kind, t in refs if kind == "doi"}
+

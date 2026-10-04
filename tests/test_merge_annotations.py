@@ -54,3 +54,33 @@ def test_merged_output_can_be_merged_again(tmp_path):
     again = features(merge(tmp_path, first.read_text()), "chr1")
     assert again["gene"] == "ID=gene_000001;gene_biotype=protein_coding"
     assert "mRNA" in again and "CDS" in again
+
+
+# A transcript as Tiberius and Vipsania write it themselves (bricks2marble):
+# GTF with gene, transcript, codon and intron lines, GFF3 without a gene line.
+NATIVE_GTF = (
+    'chr1\tTiberius\tgene\t100\t900\t.\t+\t.\tgene_id "g1";\n'
+    'chr1\tTiberius\ttranscript\t100\t900\t.\t+\t.\tgene_id "g1"; transcript_id "tx1";\n'
+    'chr1\tTiberius\tstart_codon\t100\t102\t.\t+\t0\tgene_id "g1"; transcript_id "tx1";\n'
+    'chr1\tTiberius\tstop_codon\t898\t900\t.\t+\t0\tgene_id "g1"; transcript_id "tx1";\n'
+    'chr1\tTiberius\tCDS\t100\t300\t.\t+\t0\tgene_id "g1"; transcript_id "tx1";\n'
+    'chr1\tTiberius\texon\t100\t300\t.\t+\t0\tgene_id "g1"; transcript_id "tx1";\n'
+    'chr1\tTiberius\tintron\t301\t499\t.\t+\t0\tgene_id "g1"; transcript_id "tx1";\n'
+    'chr1\tTiberius\tCDS\t500\t900\t.\t+\t0\tgene_id "g1"; transcript_id "tx1";\n'
+    'chr1\tTiberius\texon\t500\t900\t.\t+\t0\tgene_id "g1"; transcript_id "tx1";\n'
+)
+NATIVE_GFF3 = (
+    '##gff-version 3\n'
+    'chr1\tTiberius\tmRNA\t100\t900\t.\t+\t.\tID=tx1;Name=tx1\n'
+    'chr1\tTiberius\tCDS\t100\t300\t.\t+\t0\tID=tx1.CDS.1;Parent=tx1\n'
+    'chr1\tTiberius\texon\t100\t300\t.\t+\t0\tID=tx1.exon.1;Parent=tx1\n'
+    'chr1\tTiberius\tCDS\t500\t900\t.\t+\t0\tID=tx1.CDS.2;Parent=tx1\n'
+    'chr1\tTiberius\texon\t500\t900\t.\t+\t0\tID=tx1.exon.2;Parent=tx1\n'
+)
+
+
+def test_gene_finder_gff3_gives_the_same_annotation_as_its_gtf(tmp_path):
+    """An existing prediction (tiberius.result, vipsania.result) may be the GFF3 of the gene finder."""
+    from_gff3 = merge(tmp_path, NATIVE_GFF3)
+    assert from_gff3 == merge(tmp_path, NATIVE_GTF)
+    assert [row[2] for row in from_gff3] == ["gene", "mRNA", "exon", "exon", "CDS", "CDS"]

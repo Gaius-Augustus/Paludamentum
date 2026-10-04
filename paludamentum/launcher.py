@@ -474,17 +474,22 @@ def merge_run_params(args, genefinder: str | None = None, root: str | Path | Non
     for key in PATH_KEYS:
         if params.get(key):
             params[key] = absolute_paths(params[key], key)
+    # A Tiberius model name (e.g. vertebrates) is resolved to its file before
+    # the paths are made absolute. Also next to a result: the model of an
+    # existing prediction selects the Drusilla flow and its hint rescue model.
+    if genefinder == "tiberius" and cfg.get("run") and cfg.get("model_cfg"):
+        cfg["model_cfg"] = str(resolve_model_cfg(cfg["model_cfg"], root))
     for key in GENEFINDER_PATH_KEYS:
         if cfg.get(key):
             cfg[key] = absolute_paths(cfg[key], f"{genefinder}.{key}")
 
     if cfg.get("run") and not cfg.get("result"):
-        if genefinder == "tiberius":
-            if not cfg.get("model_cfg"):
-                raise SystemExit("Tiberius needs a model configuration: --model_cfg, or tiberius.model_cfg in the params file.")
-            cfg["model_cfg"] = str(resolve_model_cfg(cfg["model_cfg"], root))
+        if genefinder == "tiberius" and not cfg.get("model_cfg"):
+            raise SystemExit("Tiberius needs a model configuration: --model_cfg, or tiberius.model_cfg in the params file, "
+                             "or an existing prediction: --result.")
         elif genefinder == "vipsania" and not cfg.get("model"):
-            raise SystemExit("Vipsania needs a model: --model, or vipsania.model in the params file.")
+            raise SystemExit("Vipsania needs a model: --model, or vipsania.model in the params file, "
+                             "or an existing prediction: --result.")
 
     return genefinder, params
 
@@ -640,7 +645,7 @@ def validate_input_data(params: Dict, params_path: Path) -> List[str]:
             check_entries(cfg["result"], f"{name.capitalize()} result", f"{name}.result")
         if cfg.get("model_dir"):
             check_entries(cfg["model_dir"], f"{name.capitalize()} model_dir", f"{name}.model_dir", directory=True)
-        if name == "tiberius" and cfg.get("run") and cfg.get("model_cfg") and not cfg.get("result"):
+        if name == "tiberius" and cfg.get("run") and cfg.get("model_cfg"):
             check_entries(cfg["model_cfg"], "Tiberius model_cfg", "tiberius.model_cfg")
 
     if params.get("threads") is not None and (not isinstance(params["threads"], int) or params["threads"] < 1):

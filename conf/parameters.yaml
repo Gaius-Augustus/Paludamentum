@@ -107,6 +107,8 @@ tiberius:
   # max_files: 20                # maximal number of chunks (parallel GPU tasks)
   # max_parallel: null           # cap of concurrent GPU tasks, e.g. 1 on a workstation
   # model_dir: null              # extracted weights instead of the download at the start of the run
+  # result: /abs/path/tiberius.gff3   # existing Tiberius prediction (GFF3/GTF): Tiberius does not run,
+  #                                   # model_cfg is then optional (it selects the Drusilla flow)
 
 # Vipsania instead of Tiberius (see docs/vipsania.md):
 # tiberius:
@@ -116,10 +118,12 @@ tiberius:
 #   model: Fungi                 # clade name or model id
 #   model_dir: null              # directory with downloaded models (offline nodes)
 #   finetune: false              # true: finetune on the genome first (one task, no chunks)
+#   result: /abs/path/vipsania.gff    # existing Vipsania prediction (GFF3/GTF): Vipsania does not run,
+#                                     # model is then optional (Vertebrata selects the Drusilla flow)
 
 # ------------------------------------------------------------
 # Drusilla flow (clades with hc: drusilla in conf/hc_genes.yaml, runs with
-# transcripts; see README "Drusilla flow")
+# transcripts; see docs/drusilla_flow.md)
 # ------------------------------------------------------------
 # drusilla:
 #   run: auto                    # auto: per conf/hc_genes.yaml; true: always; false: never
