@@ -79,7 +79,7 @@ and set `vipsania.model_dir: /abs/path/vipsania_models`.
 
 ## Container
 
-Vipsania is not part of the Tiberius image that runs the evidence tools. The
+Vipsania is not part of the Tiberius or the evidence image. The
 Vipsania processes carry the label `vipsania`, to which `conf/base.config`
 assigns `docker://gaiusaugustus/vipsania:1.0.1`. They must never carry the
 label `container`, because a config selector overrides a `container` directive

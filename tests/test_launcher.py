@@ -108,8 +108,29 @@ def test_submodules_are_declared():
 
 def test_container_tags_of_base_config():
     tags = launcher.container_tags(ROOT / "conf" / "base.config")
-    assert set(tags) >= {"tiberius", "vipsania", "drusilla"}
-    assert tags["drusilla"] != "latest"
+    assert set(tags) >= {"tiberius", "vipsania", "drusilla", "paludamentum-evidence"}
+    assert "latest" not in tags.values()
+
+
+IMAGE_LABELS = {"container", "tiberius", "vipsania", "drusilla", "hint_rescue"}
+
+
+def test_every_process_has_at_most_one_image_label():
+    """A config selector of one image label would override the image of another."""
+    import re
+
+    for module in sorted((ROOT / "modules").glob("*.nf")):
+        for name, body in re.findall(r"^process\s+(\w+)\s*\{(.*?)^\}", module.read_text(), re.S | re.M):
+            labels = set()
+            for line in re.findall(r"^\s*label\s+(.+)$", body, re.M):
+                labels |= set(re.findall(r"""['"]([\w-]+)['"]""", line))
+            assert len(labels & IMAGE_LABELS) <= 1, f"{module.name}:{name} {sorted(labels)}"
+
+
+def test_tiberius_runs_in_the_tiberius_image():
+    text = (ROOT / "modules" / "genefinder.nf").read_text()
+    body = text.split("process RUN_TIBERIUS {", 1)[1].split("\n}", 1)[0]
+    assert "'tiberius'" in body and "'container'" not in body
 
 
 @pytest.mark.skipif(
