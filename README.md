@@ -212,9 +212,10 @@ Vipsania finetuning on the target genome is off by default (`--finetune`).
 For vertebrate gene finder models, runs with transcripts take another route
 through steps 4 and 5: Drusilla ORFs replace the TransDecoder HC genes, a
 LightGBM model filters the *ab initio* predictions, and Tiberius predicts
-partial genes again with protein hints. With the Tiberius `vertebrates`
-model, the gene-level F1 is 80.36 on *Takifugu rubripes* and 79.46 on
-*Bos taurus*. The flow is switched on automatically (`drusilla.run: auto`).
+partial genes again with protein hints. The gene-level F1 is 80.46 on
+*Takifugu rubripes* with the Tiberius `vertebrates` model and 79.71 on
+*Bos taurus* with `mammalia_softmasking_v2`. The flow is switched on
+automatically (`drusilla.run: auto`).
 Conditions, steps, parameters and known issues are in
 [docs/drusilla_flow.md](docs/drusilla_flow.md).
 

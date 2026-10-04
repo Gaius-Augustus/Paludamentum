@@ -6,9 +6,10 @@ predictions. The flow is derived from the one behind the Tiberius evidence
 results on the GCB 2026 poster
 ([doi:10.13140/RG.2.2.24444.91521](https://doi.org/10.13140/RG.2.2.24444.91521)),
 which used an earlier Drusilla model and had no stop/start codon fix, no hint
-rescue and no merge of overlapping genes. With this flow and the Tiberius
-`vertebrates` model, the gene-level F1 is 80.36 on *Takifugu rubripes* and
-79.46 on *Bos taurus*. It runs when all of these hold:
+rescue and no merge of overlapping genes. With this flow, the gene-level F1
+is 80.46 on *Takifugu rubripes* with the Tiberius `vertebrates` model and
+79.71 on *Bos taurus* with `mammalia_softmasking_v2` (Paludamentum 0.4.0).
+It runs when all of these hold:
 
 - the run has transcripts (mode `rnaseq`, `isoseq` or `mixed`),
 - the gene finder model is a Tiberius model whose `target_species` is
