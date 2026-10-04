@@ -3,7 +3,8 @@
 // `prefix` is the name of the gene finder; it names the published files.
 
 process RUN_TIBERIUS {
-    label 'gpu', 'container', 'bigmem'
+    // Runs in the Tiberius image (label 'tiberius'), not the evidence image
+    label 'gpu', 'tiberius', 'bigmem'
     // Cap concurrent GPU tasks; set params.tiberius.max_parallel to e.g. 1
     // on single-GPU workstations to avoid GPU OOM from parallel chunks.
     maxForks params.tiberius?.max_parallel ? (params.tiberius.max_parallel as Integer) : Integer.MAX_VALUE

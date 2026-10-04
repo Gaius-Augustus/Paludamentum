@@ -10,6 +10,10 @@
 # older than those of the Tiberius image. It is obsolete as soon as both
 # branches are released.
 #
+# Keep the base at larsgabriel23/tiberius:2.0.8, the image of the benchmark:
+# HINT_RESCUE_LOCI needs its samtools, and this file needs its git. Both are
+# gone from the Tiberius image from 2.0.9 on.
+#
 # Build (no build context is needed):
 #   docker build -t <repository>/paludamentum-hint-rescue:<tag> - < docker/hint_rescue/Dockerfile
 
