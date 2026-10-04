@@ -117,7 +117,7 @@ tiberius:
 #   finetune: false              # true: finetune on the genome first (one task, no chunks)
 
 # ------------------------------------------------------------
-# Drusilla flow (vertebrate models with transcripts; see README "Drusilla flow")
+# Drusilla flow (vertebrate models with transcripts; see docs/drusilla_flow.md)
 # ------------------------------------------------------------
 # drusilla:
 #   run: auto                    # auto: vertebrate models only; true: always; false: never

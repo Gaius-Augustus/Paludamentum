@@ -10,14 +10,16 @@
 # older than those of the Tiberius image. It is obsolete as soon as both
 # branches are released.
 #
-# Keep the base at larsgabriel23/tiberius:2.0.8, the image of the benchmark:
-# HINT_RESCUE_LOCI needs its samtools, and this file needs its git. Both are
-# gone from the Tiberius image from 2.0.9 on.
+# The base is the Tiberius image of the submodule version: same NGC
+# TensorFlow, keras, hidten and Python packages as the image of the benchmark
+# (larsgabriel23/tiberius:2.0.8, base of paludamentum-hint-rescue:0.1.0). The
+# Tiberius image holds no other tools, so samtools (HINT_RESCUE_LOCI) is added
+# here, at the version of the benchmark image.
 #
 # Build (no build context is needed):
-#   docker build -t <repository>/paludamentum-hint-rescue:<tag> - < docker/hint_rescue/Dockerfile
+#   docker build -t gaiusaugustus/paludamentum-hint-rescue:0.2.0 - < docker/hint_rescue/Dockerfile
 
-ARG TIBERIUS_IMAGE=larsgabriel23/tiberius:2.0.8
+ARG TIBERIUS_IMAGE=gaiusaugustus/tiberius:2.0.9
 FROM ${TIBERIUS_IMAGE}
 
 # Tiberius branch hint_integration and bricks2marble branch intron_hints
@@ -30,6 +32,15 @@ LABEL org.opencontainers.image.title="paludamentum-hint-rescue" \
       bricks2marble.commit="${BRICKS2MARBLE_COMMIT}"
 
 USER root
+
+# samtools for HINT_RESCUE_LOCI (Ubuntu 24.04, the base of the NGC image), git
+# to fetch the branches below
+RUN apt-get update --yes && \
+    apt-get install --yes --no-install-recommends \
+        samtools=1.19.2-1build2 \
+        git \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 # Record the Python packages of the Tiberius image. The check at the end of
 # this file fails the build if anything but Tiberius and bricks2marble changed,
@@ -52,7 +63,8 @@ RUN python3 -m pip install --no-deps --force-reinstall \
 
 # Fail the build if Tiberius has no --hints, if bricks2marble has no hint code,
 # or if another package changed (see above)
-RUN python3 /opt/Tiberius/tiberius.py --help 2>&1 | grep -q -- '--hints' && \
+RUN samtools --version | head -1 | grep -qx 'samtools 1.19.2' && \
+    python3 /opt/Tiberius/tiberius.py --help 2>&1 | grep -q -- '--hints' && \
     python3 -c "from bricks2marble.tf.hmm.tools import get_introns_emission_distribution, get_codon_emission_distribution" && \
     python3 -c "import importlib.metadata as m, sys; \
 base = set(open('/opt/tiberius-image-packages.txt').read().split()); \

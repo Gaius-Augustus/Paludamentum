@@ -1,7 +1,7 @@
 # Vipsania as gene finder
 
 [Vipsania](https://github.com/Gaius-Augustus/Vipsania) is an unsupervised
-ab initio gene finder. It takes no extrinsic evidence itself. In Paludamentum
+*ab initio* gene finder. It takes no extrinsic evidence itself. In Paludamentum
 its predictions play the same role as those of Tiberius: they are merged with
 the high-confidence genes that the pipeline derives from proteins and
 transcripts.
@@ -90,7 +90,10 @@ TensorFlow to its bundled CUDA libraries. The processes set `LD_LIBRARY_PATH`
 themselves. If Vipsania reports that no GPU was found, check that the process
 has `containerOptions = '--nv'` (label `gpu`).
 
-Vipsania requires `tensorflow<2.20` and does not support Blackwell GPUs.
+The image is built on NVIDIA's NGC TensorFlow image and supports GPUs up to
+and including the Blackwell generation (for example RTX PRO 6000). A
+`pip install` of Vipsania outside the container does not support Blackwell
+GPUs.
 
 ## Notes
 

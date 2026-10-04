@@ -61,6 +61,15 @@ def test_models_of_the_drusilla_flow(tool: str, model: str, method: str, tmp_pat
     else:
         assert not drusilla_files & published
         assert {f"{tool}_evidence.gff3", "intermediate/hc.gff3"} <= published
+    # citations.md: Drusilla and LightGBM for the flow, TransDecoder else; the
+    # hint rescue runs Tiberius, also for Vipsania; the mammalian Tiberius
+    # models have no reference to the clade models
+    text = (tmp_path / "out" / "citations.md").read_text()
+    for name in ("Drusilla", "LightGBM"):
+        assert (f"**{name}**" in text) == (method == "drusilla"), text
+    assert ("**TransDecoder**" in text) == (method == "transdecoder"), text
+    assert ("**Tiberius**" in text) == (tool == "tiberius" or method == "drusilla"), text
+    assert ("multiple clades" in text) == (tool == "tiberius" and not model.startswith("mammalia")), text
 
 
 def test_tiberius_result_with_drusilla(tmp_path: Path) -> None:

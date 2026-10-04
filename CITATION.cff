@@ -1,9 +1,9 @@
 cff-version: 1.2.0
 message: >-
-  If you use Paludamentum, please cite the gene finder you ran (Tiberius or
-  Vipsania, see their repositories) and this repository. If the Drusilla flow
-  ran, please also cite the poster, Drusilla and LightGBM listed under
-  references.
+  If you use Paludamentum, please cite this repository and the references in
+  the file citations.md that every run writes to its output directory: the
+  gene finder and the tools that the run used. All references are listed in
+  the README.
 title: "Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders"
 type: software
 authors:
