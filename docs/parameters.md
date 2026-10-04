@@ -188,6 +188,25 @@ Then pass no other short reads or Iso-Seq. `mixed_varus` is used only by the
 Drusilla flow in mixed mode. `varus replay` rebuilds a BAM deleted by
 `--drop-bam`.
 
+### StringTie assemblies
+
+A StringTie assembly made outside the pipeline goes to `stringtie`
+(`--stringtie`): one GTF, a list, or a glob. It replaces mapping and
+assembly, and it can be combined with reads and BAM files.
+
+```yaml
+stringtie: /path/to/stringtie.gtf
+```
+
+`stringtie` counts as short reads when the mode is inferred, so proteins and
+an assembly give the mode `rnaseq`; a forced `isoseq` or `mixed` accepts it
+as well. In the TransDecoder flow all given assemblies are merged with those
+of the reads (`stringtie --merge`). The Drusilla flow takes exactly one
+assembly and no other RNA-Seq or Iso-Seq input, and needs the `cov` and
+`TPM` attributes that StringTie writes when it assembles reads; an assembly
+without them (the output of `stringtie --merge`) stops the run. A missing
+file is an error. No intron hints are made for a given assembly.
+
 ## Gene finder: Tiberius
 
 To run Tiberius set `tiberius.run: true` and choose the model configuration
@@ -266,4 +285,4 @@ The pipeline infers its mode from the inputs, see the table in the
 [README](../README.md#inputs-and-modes). Set `mode` to force one of
 `abinitio`, `proteins`, `rnaseq`, `isoseq`, `mixed`. `tiberius` is accepted as
 the historic name of `abinitio`; any other value is an error, as is a forced
-mode whose inputs are missing (for example `rnaseq` without reads).
+mode whose inputs are missing (for example `rnaseq` without reads or a StringTie assembly).

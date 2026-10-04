@@ -36,7 +36,9 @@ at another table.
 Steps (numbered as in the figure):
 
 1. One StringTie assembly of all reads (short reads, Iso-Seq with `-L`, or
-   both with `--mix`).
+   both with `--mix`). An assembly made outside the pipeline can be given
+   with `stringtie`; it must be that one assembly, with the `cov` and `TPM`
+   attributes of StringTie (not the output of `stringtie --merge`).
 2. Transcripts are kept if length >= 300, coverage >= 3 and TPM >= 1 (TPM >= 0.5
    for transcripts of 3000 nt or longer).
 3. `drusilla annotate` predicts the ORFs of the kept transcripts, including

@@ -298,6 +298,19 @@ def test_validate_varus_directories(tmp_path: Path):
     ]
 
 
+def test_stringtie_assembly_from_the_command_line(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _, path = launcher.build_params(cli_args(
+        "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--stringtie", "assembly.gtf",
+    ))
+    params = yaml.safe_load(path.read_text())
+    assert params["stringtie"] == [str(tmp_path / "assembly.gtf")]
+    errors = launcher.validate_input_data(params, path)
+    assert errors == [f"StringTie assembly missing: {tmp_path / 'assembly.gtf'}"]
+    (tmp_path / "assembly.gtf").write_text("")
+    assert launcher.validate_input_data(params, path) == []
+
+
 def test_varus_directories_from_the_command_line(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _, path = launcher.build_params(cli_args(

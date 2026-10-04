@@ -164,6 +164,14 @@ def main(argv: list[str] | None = None) -> int:
     out_tsv.parent.mkdir(parents=True, exist_ok=True)
 
     info = _collect_transcripts(args.in_gtf)
+    if info and all(e["cov"] is None and e["tpm"] is None for e in info.values()):
+        print(
+            f"ERROR: no transcript of {args.in_gtf} has the cov and TPM attributes that StringTie "
+            "writes when it assembles reads; the output of `stringtie --merge` has none. The "
+            "Drusilla flow needs them: pass the assembly of the reads, or set drusilla.run = false.",
+            file=sys.stderr,
+        )
+        return 1
 
     keep: dict[str, str] = {}
     reasons: Counter[str] = Counter()

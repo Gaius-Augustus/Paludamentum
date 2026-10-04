@@ -28,6 +28,10 @@ genome: /path/to/genome.fa
 # rnaseq_varus:
 #   - /path/to/varus_short
 
+# StringTie assembly (GTF) made outside the pipeline, from short reads, Iso-Seq
+# or both: instead of reads, or in addition to them (one file, a list or a glob).
+# stringtie: /path/to/stringtie.gtf
+
 # Single-end reads (list of FASTQ files, or one glob string)
 # rnaseq_single:
 #   - /path/to/sample1.fastq.gz

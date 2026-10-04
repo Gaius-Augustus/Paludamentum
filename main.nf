@@ -30,6 +30,14 @@ workflow {
     def nVarus      = asList(params.rnaseq_varus).size()
     def nIsoVarus   = asList(params.isoseq_varus).size()
     def hasMixVarus = asList(params.mixed_varus).size() > 0
+    // StringTie assemblies of the user (GTF files or globs), used as they are
+    def stringtieFiles = asList(params.stringtie).findAll { p -> p }.collectMany { p ->
+      def f = file(p.toString())
+      def found = (f instanceof List) ? f : [f]
+      if( !found || found.any { g -> !g.exists() } ) error "stringtie: no such file: ${p}"
+      return found
+    }
+    def hasStringtie = stringtieFiles.size() > 0
 
     def proteinsList = []
     if( params.proteins ) {
@@ -47,12 +55,15 @@ workflow {
     def genefinderRun = genefinderEnabled(params)
 
     def MODE = params.mode ? normalizeMode(params.mode) \
-      : inferMode(hasPaired, hasSingle, hasIso || nIsoVarus > 0, hasBAM || nVarus > 0, hasProteins)
+      : inferMode(hasPaired, hasSingle, hasIso || nIsoVarus > 0, hasBAM || nVarus > 0 || hasStringtie, hasProteins)
     // A forced mode without its inputs would end without the main outputs.
-    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM || nVarus > 0) )
-      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_varus or rnaseq_sra_*)."
-    if( MODE in ['isoseq', 'mixed'] && !(hasIso || nIsoVarus > 0) )
-      error "params.mode '${MODE}' needs Iso-Seq reads (isoseq, isoseq_sra or isoseq_varus)."
+    // A StringTie assembly (stringtie) stands for the reads of any transcript mode.
+    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM || nVarus > 0 || hasStringtie) )
+      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_varus or rnaseq_sra_*) or a StringTie assembly (stringtie)."
+    if( MODE in ['isoseq', 'mixed'] && !(hasIso || nIsoVarus > 0 || hasStringtie) )
+      error "params.mode '${MODE}' needs Iso-Seq reads (isoseq, isoseq_sra or isoseq_varus) or a StringTie assembly (stringtie)."
+    if( hasStringtie && MODE in ['abinitio', 'proteins'] )
+      log.warn "stringtie is not used in mode '${MODE}'."
     if( MODE != 'abinitio' && !hasProteins )
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions)."
     log.info "Running mode: ${MODE}"
@@ -66,6 +77,14 @@ workflow {
       log.info "HC genes    : ${hc.method} (" + clade +
                (useDrusilla ? "Drusilla model ${drusillaSetting(params, 'model') ?: params.drusilla.weights}" : "ORF finder ${orfFinder(params)}") + ")"
     }
+    // The Drusilla flow filters one assembly of all reads by its coverage and
+    // TPM, so a given assembly must be that one assembly.
+    def stringtieOnly = hasStringtie && useDrusilla
+    if( stringtieOnly && (stringtieFiles.size() > 1 || hasPaired || hasSingle || hasBAM || hasIso
+                          || nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
+      error "stringtie: the Drusilla flow (clades with hc: drusilla in hc_table) needs one StringTie assembly of all reads, " +
+            "with the coverage and TPM that StringTie writes. Pass a single StringTie GTF and no other RNA-Seq or " +
+            "Iso-Seq input, or set drusilla.run = false to merge several assemblies in the TransDecoder flow."
 
     // References of the tools that this run uses
     file("${outdir}/citations.md").text = citationsText([
@@ -124,8 +143,11 @@ workflow {
         : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
 
       def asm_gtf  = nextflow.Channel.empty()
+      def stringtie_gtf = nextflow.Channel.fromList(stringtieFiles)
 
-      if( MODE == 'mixed' ) {
+      if( stringtieOnly ) {
+        asm_gtf  = stringtie_gtf
+      } else if( MODE == 'mixed' ) {
         if( !useDrusilla )  asm_gtf = re.asm_gtf.mix(ie.asm_gtf)
         else if( mixVarus ) asm_gtf = VARUS_INPUT_MIX(nextflow.Channel.fromList(mixVarus), nextflow.Channel.value(file(params.genome))).gtf
         else                asm_gtf = STRINGTIE_ASSEMBLE_MIX(re.bam, ie.bam).gtf
@@ -134,6 +156,8 @@ workflow {
       } else if( MODE == 'isoseq' ) {
         asm_gtf  = ie.asm_gtf
       }
+      // TransDecoder flow: the given assemblies are merged with those of the reads
+      if( hasStringtie && !stringtieOnly ) asm_gtf = asm_gtf.mix(stringtie_gtf)
 
       def all_hints = CONCAT_HINTS(pe.prot_hints, re.hints, ie.hints)
 
