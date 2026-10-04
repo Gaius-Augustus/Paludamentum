@@ -43,6 +43,12 @@ them; they do not depend on Paludamentum.
 
 ## What the pipeline does
 
+<p align="center">
+  <img src="figures/overview.svg" alt="Paludamentum overview: the inputs genome, proteins, short reads and Iso-Seq reads; the processing steps ab initio prediction, protein evidence, transcript evidence, high-confidence genes and integration; the output files" width="100%">
+</p>
+
+The numbers in the figure are the steps below.
+
 1. **Ab initio prediction.** The genome is split into chunks, the gene finder
    runs on each chunk on a GPU, and the chunk predictions are merged.
 2. **Protein evidence.** Proteins (your FASTA files and/or OrthoDB v12
@@ -272,7 +278,11 @@ rescue and no merge of overlapping genes. With this flow and the Tiberius
   vertebrate models,
 - `drusilla.lgb_model` is not `null` (the default is the released model).
 
-Steps:
+<p align="center">
+  <img src="figures/drusilla_flow.svg" alt="Drusilla flow: StringTie assembly, transcript filter, Drusilla ORFs and codon fix give the high-confidence genes; LightGBM filter and hint rescue treat the ab initio genes; both are merged into the final annotation" width="100%">
+</p>
+
+Steps (numbered as in the figure):
 
 1. One StringTie assembly of all reads (short reads, Iso-Seq with `-L`, or
    both with `--mix`).

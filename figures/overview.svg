@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 606" width="1160" height="606" role="img" aria-labelledby="t d">
+<title id="t">Paludamentum overview</title>
+<desc id="d">Inputs (genome, proteins, short reads, Iso-Seq reads), the five processing steps (ab initio prediction, protein evidence, transcript evidence, high-confidence genes, integration) and the output files of Paludamentum.</desc>
+<defs><marker id="a-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#4f9440"/></marker><marker id="a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#4577ba"/></marker><marker id="a-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#c0504d"/></marker><marker id="a-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#b8921a"/></marker><marker id="a-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#cf7f1f"/></marker><marker id="a-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#8a63a8"/></marker><marker id="a-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#5b6675"/></marker></defs>
+<rect x="1" y="1" width="1158" height="604" rx="14" fill="#ffffff" stroke="#d9dee4"/>
+<text x="30" y="52" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#52606d" text-anchor="start" letter-spacing="1.5">INPUTS</text>
+<path d="M30,62 h210" stroke="#d9dee4" stroke-width="1.5"/>
+<text x="300" y="52" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#52606d" text-anchor="start" letter-spacing="1.5">PROCESSING</text>
+<path d="M300,62 h560" stroke="#d9dee4" stroke-width="1.5"/>
+<text x="920" y="52" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#52606d" text-anchor="start" letter-spacing="1.5">OUTPUTS</text>
+<path d="M920,62 h210" stroke="#d9dee4" stroke-width="1.5"/>
+<path d="M30,86 q0,-6 6,-6 h198 q6,0 6,6 V161 q-52.5,-15 -105.0,0 t-105.0,0 Z" fill="#e3f1e0" stroke="#4f9440" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="135.0" y="111" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Genome</text>
+<text x="135.0" y="132" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="middle">FASTA</text>
+<text x="135.0" y="149" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#4f9440" text-anchor="middle">required</text>
+<path d="M30,204 q0,-6 6,-6 h198 q6,0 6,6 V279 q-52.5,-15 -105.0,0 t-105.0,0 Z" fill="#dfeaf8" stroke="#4577ba" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="135.0" y="229" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Proteins</text>
+<text x="135.0" y="250" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="middle">FASTA and/or OrthoDB v12</text>
+<text x="135.0" y="267" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#4577ba" text-anchor="middle">optional</text>
+<path d="M30,322 q0,-6 6,-6 h198 q6,0 6,6 V397 q-52.5,-15 -105.0,0 t-105.0,0 Z" fill="#f9dedc" stroke="#c0504d" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="135.0" y="347" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Short reads</text>
+<text x="135.0" y="368" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="middle">FASTQ, BAM, SRA or VARUS</text>
+<text x="135.0" y="385" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#c0504d" text-anchor="middle">optional</text>
+<path d="M30,440 q0,-6 6,-6 h198 q6,0 6,6 V515 q-52.5,-15 -105.0,0 t-105.0,0 Z" fill="#fdf1cc" stroke="#b8921a" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="135.0" y="465" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Iso-Seq reads</text>
+<text x="135.0" y="486" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="middle">FASTQ, SRA or VARUS</text>
+<text x="135.0" y="503" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" fill="#b8921a" text-anchor="middle">optional</text>
+<rect x="300" y="80" width="260" height="88" rx="10" fill="#e3f1e0" stroke="#4f9440" stroke-width="1.6"/>
+<circle cx="324" cy="105" r="11" fill="#4f9440"/>
+<text x="324" y="109.5" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">1</text>
+<text x="343" y="110" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="start">Ab initio prediction</text>
+<text x="314" y="133" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Tiberius or Vipsania,</text>
+<text x="314" y="150" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">genome chunks in parallel on GPUs</text>
+<rect x="300" y="198" width="260" height="88" rx="10" fill="#dfeaf8" stroke="#4577ba" stroke-width="1.6"/>
+<circle cx="324" cy="223" r="11" fill="#4577ba"/>
+<text x="324" y="227.5" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">2</text>
+<text x="343" y="228" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="start">Protein evidence</text>
+<text x="314" y="251" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">miniprot, miniprot-boundary-scorer,</text>
+<text x="314" y="268" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">miniprothint</text>
+<rect x="300" y="316" width="260" height="206" rx="10" fill="#fde6cf" stroke="#cf7f1f" stroke-width="1.6"/>
+<circle cx="324" cy="341" r="11" fill="#cf7f1f"/>
+<text x="324" y="345.5" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">3</text>
+<text x="343" y="346" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="start">Transcript evidence</text>
+<text x="314" y="369" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">HISAT2 for short reads,</text>
+<text x="314" y="386" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">minimap2 for Iso-Seq reads</text>
+<text x="314" y="403" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"></text>
+<text x="314" y="420" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Libraries with a low alignment</text>
+<text x="314" y="437" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">rate are dropped.</text>
+<text x="314" y="454" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"></text>
+<text x="314" y="471" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">StringTie assembles transcripts.</text>
+<rect x="620" y="80" width="240" height="88" rx="10" fill="#eceff3" stroke="#5b6675" stroke-width="1.6"/>
+<circle cx="644" cy="105" r="11" fill="#5b6675"/>
+<text x="644" y="109.5" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">5</text>
+<text x="663" y="110" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="start">Integration</text>
+<text x="634" y="133" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">HC genes are merged with the</text>
+<text x="634" y="150" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">ab initio predictions</text>
+<rect x="620" y="198" width="240" height="324" rx="10" fill="#ebe1f2" stroke="#8a63a8" stroke-width="1.6"/>
+<circle cx="644" cy="223" r="11" fill="#8a63a8"/>
+<text x="644" y="227.5" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">4</text>
+<text x="663" y="228" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="start">High-confidence genes</text>
+<text x="634" y="251" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">HC genes: ORFs of the assembled</text>
+<text x="634" y="268" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">transcripts that the protein</text>
+<text x="634" y="285" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">evidence supports</text>
+<text x="634" y="302" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"></text>
+<text x="634" y="319" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">TransDecoder or TD2,</text>
+<text x="634" y="336" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">DIAMOND</text>
+<text x="634" y="353" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"></text>
+<text x="634" y="370" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Vertebrate models:</text>
+<text x="634" y="387" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Drusilla ORFs and a filter for the</text>
+<text x="634" y="404" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">ab initio predictions</text>
+<text x="634" y="421" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"></text>
+<text x="634" y="438" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Without reads: from the protein</text>
+<text x="634" y="455" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">alignments alone</text>
+<path d="M920,86 q0,-6 6,-6 h198 q6,0 6,6 V161 q-52.5,-15 -105.0,0 t-105.0,0 Z" fill="#eceff3" stroke="#5b6675" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="1025.0" y="111" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Final annotation</text>
+<text x="1025.0" y="132" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="middle">&lt;tool&gt;_evidence.gff3</text>
+<path d="M920,204 q0,-6 6,-6 h198 q6,0 6,6 V279 q-52.5,-15 -105.0,0 t-105.0,0 Z" fill="#eceff3" stroke="#5b6675" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="1025.0" y="229" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Protein sequences</text>
+<text x="1025.0" y="250" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="middle">&lt;tool&gt;_evidence_proteins.fa</text>
+<rect x="920" y="316" width="210" height="206" rx="10" fill="#fafbfc" stroke="#b6bec8" stroke-width="1.4" stroke-dasharray="5 4"/>
+<text x="934" y="344" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">Also written</text>
+<text x="934" y="374" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="start">&lt;tool&gt;_ab_initio.gff3</text>
+<text x="934" y="391" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">ab initio predictions</text>
+<text x="934" y="422" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="start">intermediate/hc.gff3</text>
+<text x="934" y="439" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">HC genes</text>
+<text x="934" y="470" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="start">hintsfile.gff</text>
+<text x="934" y="487" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">protein and transcript hints</text>
+<path d="M240,124.0 L300,124.0" fill="none" stroke="#4f9440" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-green)"/>
+<path d="M240,242.0 L300,242.0" fill="none" stroke="#4577ba" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-blue)"/>
+<path d="M240,360.0 L300,360.0" fill="none" stroke="#c0504d" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-red)"/>
+<path d="M240,478.0 L300,478.0" fill="none" stroke="#b8921a" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-yellow)"/>
+<path d="M560,124.0 L620,124.0" fill="none" stroke="#4f9440" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-green)"/>
+<path d="M560,242.0 L620,242.0" fill="none" stroke="#4577ba" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-blue)"/>
+<path d="M560,419.0 L620,419.0" fill="none" stroke="#cf7f1f" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-orange)"/>
+<path d="M740.0,198 L740.0,168" fill="none" stroke="#8a63a8" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-purple)"/>
+<path d="M860,124.0 L920,124.0" fill="none" stroke="#5b6675" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-grey)"/>
+<path d="M1025.0,164 L1025.0,198" fill="none" stroke="#5b6675" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-grey)"/>
+<text x="30" y="556" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Genome only: step 1 runs alone, for example to parallelize a gene finder over several GPUs.</text>
+<text x="30" y="577" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Reads need proteins: HC genes are built from transcript and protein evidence together. &lt;tool&gt; is tiberius or vipsania.</text>
+</svg>
