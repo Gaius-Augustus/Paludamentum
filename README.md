@@ -16,8 +16,8 @@ The gene finder is [Tiberius](https://github.com/Gaius-Augustus/Tiberius) or
 ## Table of contents
 
 - [What the pipeline does](#what-the-pipeline-does)
-- [Installation](#installation)
 - [Requirements](#requirements)
+- [Installation](#installation)
 - [Quick start](#quick-start)
 - [Inputs and modes](#inputs-and-modes)
 - [Outputs](#outputs)
@@ -62,6 +62,22 @@ For vertebrate gene finder models, runs with transcripts use the
 Without any evidence input the pipeline runs step 1 only. That is useful to
 parallelize a gene finder over several GPUs.
 
+## Requirements
+
+The pipeline runs with Singularity (or Apptainer): the gene finders and all
+tools run in container images that the pipeline pulls itself. You do not
+install HISAT2, miniprot, StringTie, Tiberius, Vipsania or any other tool.
+
+You need:
+
+- Singularity or Apptainer, on the machine that launches the pipeline and on
+  the nodes that run its tasks
+- Nextflow 25.04 or newer
+- Java 17 or newer (required by Nextflow)
+- Python 3.9 or newer
+- an NVIDIA GPU on the nodes that run the gene finder step, up to and
+  including the Blackwell generation (for example A100 or RTX PRO 6000)
+
 ## Installation
 
 ```bash
@@ -70,35 +86,15 @@ cd Paludamentum
 pip install -e .
 ```
 
-`--recursive` checks out the submodules `tiberius/`, `vipsania/` and
-`drusilla/`. In an existing clone run `git submodule update --init` after
-`git pull`. `pip install -e .` installs the launcher (`paludamentum`, also
-`python -m paludamentum`) linked to the checkout; the pipeline (`main.nf`,
-`conf/`, `bin/`) runs from the checkout. If you install without `-e`, or
-move the checkout, point the launcher at it with
-`export PALUDAMENTUM_ROOT=/path/to/Paludamentum`.
+This installs the launcher `paludamentum`. `--recursive` checks out the
+submodules `tiberius/`, `vipsania/` and `drusilla/`; in an existing clone run
+`git submodule update --init` after `git pull`.
 
-The pipeline runs the gene finders and all tools in containers, so the
-submodules do not have to be installed. The Tiberius checkout is used to
-resolve model configuration names (`--model_cfg diatoms`) and, for runs
-without containers, to find `tiberius.py`.
-
-## Requirements
-
-On the machine that launches the pipeline:
-
-- Nextflow 25.04 or newer
-- Java 17 or newer (required by Nextflow)
-- Singularity or Apptainer (all tools run in containers, see [docs/containers.md](docs/containers.md))
-- Python 3.9 or newer with `pyyaml`
-- an NVIDIA GPU on the nodes that run the gene finder step, up to and
-  including the Blackwell generation (for example A100 or RTX PRO 6000)
-
-You do not need to install HISAT2, miniprot, StringTie and the other tools
-when you use the containers. To run without containers, all tools must be in
-your `PATH`, or be configured under `tools:` in the params file, and the gene
-finder must be installed (`pip install ./vipsania`; Tiberius runs from the
-checkout). The launcher option `--check_tools` verifies this.
+The first run pulls the images into `~/.cache/paludamentum/singularity`,
+later runs reuse them. Each gene finder image is about 9.4 GB, the image of
+the evidence tools 0.25 GB. On a cluster this directory must be on a file
+system that the compute nodes can read; set `NXF_SINGULARITY_CACHEDIR` to
+use another directory.
 
 ## Quick start
 
@@ -228,10 +224,7 @@ Conditions, steps, parameters and known issues are in
 
 ## Containers and HPC
 
-All tools and gene finders run in Singularity/Apptainer images that are
-pinned in [conf/base.config](conf/base.config) and pulled once into
-`~/.cache/paludamentum/singularity` (each gene finder image is about 9.4 GB,
-the evidence image 0.25 GB). The images are listed in
+The images are pinned in [conf/base.config](conf/base.config) and listed in
 [docs/containers.md](docs/containers.md).
 
 `--nf_config` takes a path or the name of a config in `conf/`:
@@ -242,6 +235,9 @@ queues, GPU options and scratch paths, see [docs/hpc.md](docs/hpc.md).
 Downloads (SRA reads, OrthoDB partitions, model weights) run on the
 submitting host, which needs internet access.
 
+Running without containers, and other setups for experts, are described in
+[docs/advanced_setup.md](docs/advanced_setup.md).
+
 ## Documentation
 
 | Page | Content |
@@ -251,6 +247,7 @@ submitting host, which needs internet access.
 | [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla flow for vertebrate models: conditions, steps, known issues |
 | [docs/containers.md](docs/containers.md) | container images and how they are pinned |
 | [docs/hpc.md](docs/hpc.md) | Nextflow config for your cluster, process labels |
+| [docs/advanced_setup.md](docs/advanced_setup.md) | for experts: running without containers, location of the checkout |
 | [docs/orf_finder_comparison.md](docs/orf_finder_comparison.md) | TransDecoder, TD2 and Drusilla as ORF finder of the HC gene step |
 | [docs/hint_rescue_comparison.md](docs/hint_rescue_comparison.md) | hint rescue compared with the original scripts |
 | [docs/development.md](docs/development.md) | submodules and status, repository layout, notes for maintainers, testing, roadmap |
