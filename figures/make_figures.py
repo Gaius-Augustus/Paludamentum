@@ -96,8 +96,8 @@ def overview():
 
     f.doc(A, r[0], wA, h, "green", "Genome", "FASTA", tag="required")
     f.doc(A, r[1], wA, h, "blue", "Proteins", "FASTA and/or OrthoDB v12", tag="optional")
-    f.doc(A, r[2], wA, h, "red", "Short reads", "FASTQ, BAM, SRA or VARUS", tag="optional")
-    f.doc(A, r[3], wA, h, "yellow", "Iso-Seq reads", "FASTQ, SRA or VARUS", tag="optional")
+    f.doc(A, r[2], wA, h, "red", "Short reads", "FASTQ, BAM, SRA or pyVARUS", tag="optional")
+    f.doc(A, r[3], wA, h, "yellow", "Iso-Seq reads", "FASTQ, SRA or pyVARUS", tag="optional")
 
     f.box(B, r[0], wB, h, "green", "Ab initio prediction",
           ["Tiberius or Vipsania,", "genome chunks in parallel on GPUs"], 1)
