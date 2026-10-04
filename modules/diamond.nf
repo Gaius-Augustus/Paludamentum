@@ -24,7 +24,7 @@ process DIAMOND_BLASTP {
   set -euo pipefail
 
   # FASTA is empty if it contains no '>' records
-  if ! grep -q '^>' "${pep}"; then
+  if ! grep -q '^>' ${pep}; then
       echo "[DIAMOND] No sequences in ${pep}, emitting empty TSV" >&2
       : > diamond/diamond.tsv
       exit 0

@@ -31,15 +31,18 @@ process HISAT2_MAP_SINGLE {
   output:
     path "${reads.simpleName}.bam", emit: bam
 
+  // No --dta (here and in HISAT2_MAP_PAIRED): its longer junction anchors cost
+  // 12-21 % of the intron hints and did not improve gene F1 (pyVARUS
+  // benchmark, T. rubripes and B. taurus, 2026-10-03)
   script:
   """
-  ${params.tools.hisat2} -x ${idxdir}/genome -U ${reads} --dta -p ${task.cpus} \
-    | ${params.tools.samtools} sort -@ ${task.cpus} -o ${reads.simpleName}.bam
+  ${params.tools.hisat2} -x ${idxdir}/genome -U ${reads} -p ${task.cpus} \
+    | ${params.tools.samtools} sort -@ ${task.cpus} -o "${reads.simpleName}.bam"
   """
 
   stub:
   """
-  touch ${reads.simpleName}.bam
+  touch "${reads.simpleName}.bam"
   """
 }
 
@@ -54,13 +57,13 @@ process HISAT2_MAP_PAIRED {
   script:
   """
   mkdir -p tmp
-  ${params.tools.hisat2} -x ${idxdir}/genome -1 ${reads[0]} -2 ${reads[1]} --dta -p ${task.cpus} \
-    | ${params.tools.samtools} sort -@ ${task.cpus} -o ${sample}.bam
+  ${params.tools.hisat2} -x ${idxdir}/genome -1 ${reads[0]} -2 ${reads[1]} -p ${task.cpus} \
+    | ${params.tools.samtools} sort -@ ${task.cpus} -o "${sample}.bam"
   """
 
   stub:
   """
-  touch ${sample}.bam
+  touch "${sample}.bam"
   """
 }
 
@@ -91,12 +94,12 @@ process BAM2HINTS {
   output: path "${bam.simpleName}.hints.gff", emit: hints
   script: """
   ${params.tools.samtools} sort -@ ${task.cpus} -o sorted.bam ${bam}
-  ${params.tools.bam2hints} --intronsonly --in=sorted.bam --out=${bam}.temp
-  filterIntronsFindStrand.pl ${genome} ${bam}.temp --score > ${bam.simpleName}.hints.gff
+  ${params.tools.bam2hints} --intronsonly --in=sorted.bam --out=introns.temp
+  filterIntronsFindStrand.pl ${genome} introns.temp --score > "${bam.simpleName}.hints.gff"
   """
 
   stub:
   """
-  touch ${bam.simpleName}.hints.gff
+  touch "${bam.simpleName}.hints.gff"
   """
 }

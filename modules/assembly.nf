@@ -10,13 +10,13 @@ process STRINGTIE_ASSEMBLE_RNA {
   script:
   """
   ${params.tools.samtools} sort -@ ${task.cpus} -o sorted.bam ${rnabam}
-  ${params.tools.stringtie} -p ${task.cpus} -o stringtie_${rnabam.baseName}.gtf sorted.bam
-  ${params.tools.transdecoder_gtf2gff} stringtie_${rnabam.baseName}.gtf > stringtie_${rnabam.baseName}.gff3
+  ${params.tools.stringtie} -p ${task.cpus} -o "stringtie_${rnabam.baseName}.gtf" sorted.bam
+  ${params.tools.transdecoder_gtf2gff} "stringtie_${rnabam.baseName}.gtf" > "stringtie_${rnabam.baseName}.gff3"
   """
 
   stub:
   """
-  touch stringtie_${rnabam.baseName}.gtf stringtie_${rnabam.baseName}.gff3
+  touch "stringtie_${rnabam.baseName}.gtf" "stringtie_${rnabam.baseName}.gff3"
   """
 }
 
@@ -29,13 +29,13 @@ process STRINGTIE_ASSEMBLE_ISO {
     path "stringtie_${isobam.baseName}.gff3", emit: gff3
   script:
   """
-  ${params.tools.stringtie} -p ${task.cpus} -o stringtie_${isobam.baseName}.gtf -L ${isobam}
-  ${params.tools.transdecoder_gtf2gff} stringtie_${isobam.baseName}.gtf > stringtie_${isobam.baseName}.gff3
+  ${params.tools.stringtie} -p ${task.cpus} -o "stringtie_${isobam.baseName}.gtf" -L ${isobam}
+  ${params.tools.transdecoder_gtf2gff} "stringtie_${isobam.baseName}.gtf" > "stringtie_${isobam.baseName}.gff3"
   """
 
   stub:
   """
-  touch stringtie_${isobam.baseName}.gtf stringtie_${isobam.baseName}.gff3
+  touch "stringtie_${isobam.baseName}.gtf" "stringtie_${isobam.baseName}.gff3"
   """
 }
 
@@ -62,7 +62,7 @@ process STRINGTIE_MERGE {
         echo "WARNING: stringtie --merge failed with code \$exitcode, using custom merge." >&2
 
         merge_annotations.py --mode full \\
-            ${gtfs.join(' ')} > merged.gff3
+            ${gtfs} > merged.gff3
 
         # convert to GTF for TD_ALL
         gffread merged.gff3 -T -o stringtie.gtf

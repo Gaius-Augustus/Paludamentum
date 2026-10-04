@@ -30,7 +30,7 @@ process DOWNLOAD_VIPSANIA_MODEL {
     script:
     """
     ${vipsaniaEnv()}
-    vipsania download ${model} -d models
+    vipsania download "${model}" -d models
     """
 
     stub:
@@ -71,13 +71,13 @@ process RUN_VIPSANIA {
     if (v.extra_args) extra += " ${v.extra_args}"
     """
     ${vipsaniaEnv()}
-    vipsania annotate ${model} ${genome} \\
+    vipsania annotate "${model}" ${genome} \\
         --model_dir vip_models \\
-        -o vipsania.${genome.name}.gtf${extra}
+        -o "vipsania.${genome.name}.gtf"${extra}
     """
 
     stub:
     """
-    touch vipsania.${genome.name}.gtf vipsania.${genome.name}.log
+    touch "vipsania.${genome.name}.gtf" "vipsania.${genome.name}.log"
     """
 }

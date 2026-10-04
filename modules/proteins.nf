@@ -97,10 +97,10 @@ process PREPROCESS_PROTEINDB {
   script: """
     # Count protein sequences (FASTA headers start with '>'); grep -c prints 0
     # itself for an empty database, its exit code 1 must not stop the task
-    N_PROT=\$(grep -c '^>' "${proteinDB}" || true)
+    N_PROT=\$(grep -c '^>' ${proteinDB} || true)
     # The species selection below needs OrthoDB-style ids (<taxid>_<n>:<hex>);
     # other databases (UniProt, NCBI) carry no species in the id.
-    N_ODB=\$(grep -c -E '^>[0-9]+_[0-9]+:' "${proteinDB}" || true)
+    N_ODB=\$(grep -c -E '^>[0-9]+_[0-9]+:' ${proteinDB} || true)
 
     echo "[PREPROCESS_PROTEINDB] Number of proteins in input: \$N_PROT (OrthoDB-style ids: \$N_ODB)" >&2
 
@@ -115,7 +115,7 @@ process PREPROCESS_PROTEINDB {
         # sseqid as the literal two characters '\\t', breaking downstream
         # id matching in hc_module.getting_hc_supported_by_proteins.
         awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-            "${proteinDB}" > protein_preprocessed.fa
+            ${proteinDB} > protein_preprocessed.fa
     else
         echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins – running DIAMOND soft filter." >&2
 
@@ -125,7 +125,7 @@ process PREPROCESS_PROTEINDB {
         # gigabytes of log for millions of proteins. The per-sequence warnings
         # are dropped from stderr; everything else DIAMOND reports is kept.
         awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-            "${proteinDB}" \
+            ${proteinDB} \
           | ${params.tools.diamond} makedb --db prot_db --threads ${task.cpus} \
               2> >(grep -v -e 'Tabulator character in sequence title' >&2)
 
@@ -133,7 +133,7 @@ process PREPROCESS_PROTEINDB {
         # DIAMOND rejects them. Replace with '*' (canonical stop) so the query
         # is valid and the species-ranking pass can still run.
         awk '/^>/{print; next} {gsub(/\\./, "*"); print}' \
-            "${tiberius_prot}" > tiberius_proteins.clean.fa
+            ${tiberius_prot} > tiberius_proteins.clean.fa
 
         ${params.tools.diamond} blastp \
           --query tiberius_proteins.clean.fa \
@@ -150,7 +150,7 @@ process PREPROCESS_PROTEINDB {
         if [[ ! -s top_species.txt ]]; then
             echo "[PREPROCESS_PROTEINDB] No species could be ranked (no DIAMOND hits): using the full DB." >&2
             awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-                "${proteinDB}" > protein_preprocessed.fa
+                ${proteinDB} > protein_preprocessed.fa
             exit 0
         fi
 

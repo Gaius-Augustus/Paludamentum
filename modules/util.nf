@@ -11,10 +11,9 @@ process CONCAT_PROTEINS {
   path "proteins_concat.faa"
 
   script:
-  def input_str = proteins instanceof List ? proteins.join(" ") : proteins
   """
     : > proteins_concat.faa
-    for f in ${input_str}; do
+    for f in ${proteins}; do
       if [[ "\$f" == *.gz ]]; then
         gunzip -c "\$f" >> proteins_concat.faa
       else
@@ -44,15 +43,15 @@ process DECOMPRESS_FASTA {
   script:
   """
   if [[ "${infile.name}" == *.gz ]]; then
-    gunzip -c ${infile} > ${outName(infile)}
+    gunzip -c ${infile} > "${outName(infile)}"
   else
-    ln -sf \$(readlink -f ${infile}) ${outName(infile)}
+    ln -sf "\$(readlink -f ${infile})" "${outName(infile)}"
   fi
   """
 
   stub:
   """
-  touch ${outName(infile)}
+  touch "${outName(infile)}"
   """
 }
 

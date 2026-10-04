@@ -7,12 +7,12 @@ process MINIMAP2_MAP {
   script: """
   mkdir -p isoseq
   ${params.tools.minimap2} -ax splice:hq -uf ${genome} ${reads} -t ${task.cpus} \
-    | ${params.tools.samtools} sort -@ ${task.cpus} -o isoseq/${reads.baseName}.bam
+    | ${params.tools.samtools} sort -@ ${task.cpus} -o "isoseq/${reads.baseName}.bam"
   """
 
   stub:
   """
   mkdir -p isoseq
-  touch isoseq/${reads.baseName}.bam
+  touch "isoseq/${reads.baseName}.bam"
   """
 }

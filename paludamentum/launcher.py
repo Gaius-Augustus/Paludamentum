@@ -595,7 +595,8 @@ def validate_input_data(params: Dict, params_path: Path) -> List[str]:
         for file_path in files:
             text = str(file_path)
             if any(ch.isspace() for ch in text):
-                # the shell commands of the processes do not quote file names
+                # the processes handle such names, but the tools they run are not
+                # tested with them
                 errors.append(f"{label} path contains whitespace, which the pipeline does not support: {text}")
             if not file_path.exists():
                 errors.append(f"{label} missing: {file_path}")
