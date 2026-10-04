@@ -5,6 +5,7 @@ environment variable ``NEXTFLOW_BIN``). The tests are skipped without it.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -259,6 +260,27 @@ def test_gzipped_genome_and_proteins(tmp_path: Path) -> None:
     assert "tiberius_evidence.gff3" in published
 
 
+@pytest.mark.parametrize("flow", ["transdecoder", "drusilla"])
+def test_file_names_with_whitespace(flow: str, tmp_path: Path) -> None:
+    """A params file used without the launcher (which rejects such names)."""
+    inputs = tmp_path / "my inputs"
+    inputs.mkdir()
+    names = {"tiny.fa": "tiny genome.fa", "tiny_proteins.faa": "tiny proteins.faa",
+             "reads_1.fastq": "reads 1.fastq", "isoseq.fastq": "iso seq.fastq"}
+    for src, dst in names.items():
+        shutil.copy(DATA / src, inputs / dst)
+    params = {
+        "genome": str(inputs / "tiny genome.fa"),
+        "proteins": str(inputs / "tiny proteins.faa"),
+        "rnaseq_single": [str(inputs / "reads 1.fastq")],
+        "isoseq": [str(inputs / "iso seq.fastq")],
+    }
+    params.update(drusilla_params(tmp_path, "tiberius") if flow == "drusilla" else GENEFINDER["tiberius"])
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert {"tiberius_evidence.gff3", "hintsfile.gff"} <= published
+
+
 def test_two_bams_with_the_same_file_name(tmp_path: Path) -> None:
     """Typical STAR output: <sample>/Aligned.out.bam for every sample."""
     bams = []
@@ -306,7 +328,7 @@ def drusilla_params(tmp_path: Path, tool: str, lgb: bool = True) -> dict:
     """A vertebrate gene finder model, and a LightGBM model file if lgb."""
     if tool == "tiberius":
         cfg = tmp_path / "vertebrates.yaml"
-        cfg.write_text("")
+        cfg.write_text('target_species: "Vertebrata"\n')
         params = {"tiberius": {"run": True, "model_cfg": str(cfg)}}
     else:
         params = {"vipsania": {"run": True, "model": "etb1go6q"}}
@@ -388,3 +410,255 @@ def test_drusilla_flow_without_rescue(tmp_path: Path) -> None:
     assert "HINT_RESCUE" not in proc.stdout
     assert "intermediate/drusilla_orfs.gtf" in published
     assert "intermediate/hint_rescue.gtf" not in published
+
+
+def rescue_model(tmp_path: Path) -> str:
+    """The model line that the HINT_RESCUE_TIBERIUS stub writes."""
+    return (tmp_path / "out" / "intermediate" / "hint_rescue.gtf").read_text().strip()
+
+
+@pytest.mark.parametrize("name,species,flow", [
+    ("my_model.yaml", "Vertebrata", "drusilla"),
+    ("mammals_v3.yaml", "mammalia", "drusilla"),
+    ("vertebrates.yaml", "Insecta", "transdecoder"),
+], ids=["vertebrata-any-name", "mammalia-any-case", "insecta-named-vertebrates"])
+def test_drusilla_flow_reads_target_species(name: str, species: str, flow: str, tmp_path: Path) -> None:
+    """The model's target_species decides, not its file name."""
+    params = drusilla_params(tmp_path, "tiberius")
+    cfg = tmp_path / "models" / name
+    cfg.parent.mkdir()
+    cfg.write_text(f"target_species: {species}\nncbi_tax_id: 1\n")
+    params["tiberius"]["model_cfg"] = str(cfg)
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert f"HC genes    : {flow}" in proc.stdout
+    if flow == "drusilla":
+        # the rescue gets the model file itself, not a model of the image with the same stem
+        assert rescue_model(tmp_path) == f"# model: {name}, staged weights: false"
+
+
+def test_drusilla_flow_needs_target_species(tmp_path: Path) -> None:
+    params = drusilla_params(tmp_path, "tiberius")
+    (tmp_path / "vertebrates.yaml").write_text("default_seq_len: 400050\n")
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "has no target_species" in proc.stdout
+    assert "HC genes    : transdecoder" in proc.stdout
+    assert "intermediate/hc.gff3" in published
+
+
+def test_drusilla_flow_forced_with_result_and_no_model(tmp_path: Path) -> None:
+    """The rescue falls back to vertebrates instead of a model named 'null'."""
+    result = tmp_path / "previous.gtf"
+    result.write_text("")
+    params = drusilla_params(tmp_path, "tiberius")
+    params["tiberius"] = {"run": True, "result": str(result)}
+    params["drusilla"]["run"] = True
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HC genes    : drusilla" in proc.stdout
+    assert "the hint rescue uses the Tiberius model vertebrates" in proc.stdout
+    assert rescue_model(tmp_path) == "# model: vertebrates, staged weights: false"
+
+
+@pytest.mark.parametrize("rescue_cfg,expected", [
+    ("mammalia_softmasking_v2", "mammalia_softmasking_v2"),
+    ("rescue.yaml", "rescue.yaml"),
+], ids=["image-model-name", "model-file"])
+def test_drusilla_rescue_model_cfg(rescue_cfg: str, expected: str, tmp_path: Path) -> None:
+    params = drusilla_params(tmp_path, "tiberius")
+    if rescue_cfg.endswith(".yaml"):
+        (tmp_path / rescue_cfg).write_text('target_species: "Vertebrata"\n')
+        rescue_cfg = str(tmp_path / rescue_cfg)
+    params["drusilla"]["rescue_model_cfg"] = rescue_cfg
+    proc, _ = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert rescue_model(tmp_path) == f"# model: {expected}, staged weights: false"
+
+
+def test_drusilla_rescue_stages_the_tiberius_weights(tmp_path: Path) -> None:
+    model_dir = tmp_path / "weights"
+    (model_dir / "tiny_weights").mkdir(parents=True)
+    (model_dir / "tiny_weights" / "model.h5").write_text("")
+    params = drusilla_params(tmp_path, "tiberius")
+    params["tiberius"]["model_dir"] = str(model_dir)
+    proc, _ = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert rescue_model(tmp_path) == "# model: vertebrates.yaml, staged weights: true"
+
+
+def test_drusilla_rescue_of_vipsania_runs_uses_vertebrates(tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, {**drusilla_params(tmp_path, "vipsania"), **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert rescue_model(tmp_path) == "# model: vertebrates, staged weights: false"
+
+
+# ---- pyVARUS output directories ------------------------------------------------
+
+GENOME_MD5 = hashlib.md5((DATA / "tiny.fa").read_bytes()).hexdigest()
+
+
+def varus_dir(tmp_path: Path, name: str, mode: str, gtf: bool = True, md5: str = GENOME_MD5) -> str:
+    """A pyVARUS output directory: varus run (shortreads, longreads) or varus assemble --short --long (mixed)."""
+    d = tmp_path / name
+    d.mkdir()
+    manifest = "VARUS.assembly.tsv" if mode == "mixed" else "VARUS.manifest.tsv"
+    (d / manifest).write_text(
+        f"#varus_manifest=1\n# a comment line\n#genome_md5={md5}\n#mode={mode}\n#assembly=stringtie.gtf\n"
+        + ("" if mode == "mixed" else "#hints=hints.gff\n") + "batch\taccession\tn\n"
+    )
+    if gtf:
+        (d / "stringtie.gtf").write_text(
+            'seq1\tStringTie\ttranscript\t1\t60\t1000\t+\t.\tgene_id "STRG.1"; transcript_id "STRG.1.1"; '
+            'cov "5.0"; FPKM "1.0"; TPM "2.0";\n'
+        )
+    if mode != "mixed":
+        (d / "hints.gff").write_text("seq1\tb2h\tintron\t11\t50\t3\t+\t.\tmult=3;pri=4;src=E\n")
+    return str(d)
+
+
+def flow_params(tmp_path: Path, flow: str) -> dict:
+    """Tiberius with the TransDecoder or the Drusilla flow."""
+    return drusilla_params(tmp_path, "tiberius") if flow == "drusilla" else GENEFINDER["tiberius"]
+
+
+MAPPING_AND_ASSEMBLY = ("HISAT2", "MINIMAP2", "SAMTOOLS_MERGE", "BAM2HINTS", "STRINGTIE_ASSEMBLE")
+
+
+@pytest.mark.parametrize("flow", ["transdecoder", "drusilla"])
+@pytest.mark.parametrize("mode", ["rnaseq", "isoseq"])
+def test_one_varus_directory_replaces_the_reads(mode: str, flow: str, tmp_path: Path) -> None:
+    key, varus_mode = ("rnaseq_varus", "shortreads") if mode == "rnaseq" else ("isoseq_varus", "longreads")
+    params = {**flow_params(tmp_path, flow), **PROTEINS, key: [varus_dir(tmp_path, "varus", varus_mode)]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert f"Running mode: {mode}" in proc.stdout
+    assert f"HC genes    : {flow}" in proc.stdout
+    assert "VARUS_INPUT" in proc.stdout
+    assert not [p for p in MAPPING_AND_ASSEMBLY if p in proc.stdout], proc.stdout
+    # one hint source: used as it is
+    assert "MERGE_INTRON_HINTS" not in proc.stdout
+    assert {"tiberius_evidence.gff3", "hintsfile.gff"} <= published
+    assert ("intermediate/drusilla_orfs.gtf" in published) == (flow == "drusilla")
+
+
+def test_varus_directories_and_reads_are_combined(tmp_path: Path) -> None:
+    """TransDecoder flow: the assemblies of all sources, the hints summed."""
+    params = {**GENEFINDER["tiberius"], **PROTEINS, **SHORT_READS,
+              "rnaseq_varus": [varus_dir(tmp_path, "a", "shortreads"), varus_dir(tmp_path, "b", "shortreads")]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert proc.stdout.count("VARUS_INPUT_RNA") == 2
+    assert "STRINGTIE_ASSEMBLE_RNA" in proc.stdout and "BAM2HINTS_RNA" in proc.stdout
+    assert "MERGE_INTRON_HINTS_RNA" in proc.stdout
+    assert "tiberius_evidence.gff3" in published
+
+
+@pytest.mark.parametrize("tool", sorted(GENEFINDER))
+def test_mixed_varus_is_the_drusilla_assembly(tool: str, tmp_path: Path) -> None:
+    params = {
+        **drusilla_params(tmp_path, tool), **PROTEINS,
+        "rnaseq_varus": varus_dir(tmp_path, "short", "shortreads"),
+        "isoseq_varus": [varus_dir(tmp_path, "long", "longreads")],
+        "mixed_varus": varus_dir(tmp_path, "mixed", "mixed"),
+    }
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "Running mode: mixed" in proc.stdout and "HC genes    : drusilla" in proc.stdout
+    assert all(p in proc.stdout for p in ("VARUS_INPUT_RNA", "VARUS_INPUT_ISO", "VARUS_INPUT_MIX"))
+    assert not [p for p in MAPPING_AND_ASSEMBLY if p in proc.stdout], proc.stdout
+    assert {f"{tool}_evidence.gff3", "intermediate/drusilla_orfs.gtf", "hintsfile.gff"} <= published
+
+
+def test_mixed_varus_is_not_used_by_transdecoder(tmp_path: Path) -> None:
+    params = {
+        **GENEFINDER["tiberius"], **PROTEINS,
+        "rnaseq_varus": varus_dir(tmp_path, "short", "shortreads"),
+        "isoseq_varus": varus_dir(tmp_path, "long", "longreads"),
+        "mixed_varus": varus_dir(tmp_path, "mixed", "mixed"),
+    }
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "mixed_varus is not used" in proc.stdout + proc.stderr
+    assert "VARUS_INPUT_MIX" not in proc.stdout
+    assert "intermediate/hc.gff3" in published
+
+
+@pytest.mark.parametrize("case,message", [
+    ("drusilla-two-dirs", "needs one StringTie assembly of all short reads"),
+    ("drusilla-dir-and-reads", "needs one StringTie assembly of all Iso-Seq reads"),
+    ("drusilla-mixed-without-mixed-varus", "varus assemble GENOME --short A/VARUS.bam --long B/VARUS.bam"),
+    ("drusilla-mixed-varus-and-reads", "no other short-read or Iso-Seq input"),
+    ("wrong-mode", "is a pyVARUS run in mode 'longreads'"),
+    ("mixed-varus-wrong-mode", "is a pyVARUS run in mode 'shortreads'"),
+    ("no-stringtie-gtf", "varus assemble GENOME --long"),
+    ("not-a-directory", "is not a directory"),
+])
+def test_bad_varus_inputs_stop_the_run_early(case: str, message: str, tmp_path: Path) -> None:
+    drusilla = {**drusilla_params(tmp_path, "tiberius"), **PROTEINS}
+    transdecoder = {**GENEFINDER["tiberius"], **PROTEINS}
+    short = lambda name="short": varus_dir(tmp_path, name, "shortreads")
+    long = lambda name="long": varus_dir(tmp_path, name, "longreads")
+    params = {
+        "drusilla-two-dirs": lambda: {**drusilla, "rnaseq_varus": [short("a"), short("b")]},
+        "drusilla-dir-and-reads": lambda: {**drusilla, **ISOSEQ, "isoseq_varus": long()},
+        "drusilla-mixed-without-mixed-varus": lambda: {**drusilla, "rnaseq_varus": short(), "isoseq_varus": long()},
+        "drusilla-mixed-varus-and-reads": lambda: {**drusilla, **SHORT_READS, "rnaseq_varus": short(),
+                                                   "isoseq_varus": long(),
+                                                   "mixed_varus": varus_dir(tmp_path, "m", "mixed")},
+        "wrong-mode": lambda: {**transdecoder, "rnaseq_varus": long()},
+        "mixed-varus-wrong-mode": lambda: {**drusilla, "rnaseq_varus": short(), "isoseq_varus": long(),
+                                           "mixed_varus": short("m")},
+        "no-stringtie-gtf": lambda: {**transdecoder, "isoseq_varus": varus_dir(tmp_path, "old", "longreads", gtf=False)},
+        "not-a-directory": lambda: {**transdecoder, "rnaseq_varus": str(DATA / "tiny.fa")},
+    }[case]()
+    proc, _ = run_pipeline(tmp_path, params)
+    assert proc.returncode != 0
+    out = proc.stdout + proc.stderr
+    assert message in out, out[-3000:]
+    # checked when the workflow is built, before any task
+    assert "Submitted process" not in out
+
+
+# ---- VARUS_INPUT without -stub-run: the genome check -----------------------------
+
+VARUS_INPUT_TEST = """
+include { VARUS_INPUT } from '%s/modules/varus.nf'
+include { varusInputs } from '%s/lib_nf/functions.nf'
+workflow {
+    VARUS_INPUT(channel.fromList(varusInputs(params.dir, 'rnaseq_varus', 'shortreads')), file(params.genome))
+    VARUS_INPUT.out.gtf.view { f -> "GTF " + f.name }
+    VARUS_INPUT.out.hints.view { f -> "HINTS " + f.text.trim() }
+}
+"""
+
+
+def run_varus_input(tmp_path: Path, genome: Path, md5: str = GENOME_MD5) -> subprocess.CompletedProcess:
+    script = tmp_path / "test.nf"
+    script.write_text(VARUS_INPUT_TEST % (ROOT, ROOT))
+    config = tmp_path / "test.config"
+    config.write_text("process.executor = 'local'\nprocess.container = null\n")
+    return subprocess.run(
+        [NEXTFLOW, "run", str(script), "-c", str(config), "-work-dir", str(tmp_path / "work"),
+         "--dir", varus_dir(tmp_path, "varus", "shortreads", md5=md5), "--genome", str(genome)],
+        cwd=tmp_path, env=dict(os.environ, NXF_ANSI_LOG="false"), capture_output=True, text=True,
+    )
+
+
+@pytest.mark.parametrize("gzipped", [False, True], ids=["plain", "gzip"])
+def test_varus_input_passes_the_files_on(gzipped: bool, tmp_path: Path) -> None:
+    import gzip
+    genome = DATA / "tiny.fa"
+    if gzipped:
+        genome = tmp_path / "tiny.fa.gz"
+        genome.write_bytes(gzip.compress((DATA / "tiny.fa").read_bytes()))
+    proc = run_varus_input(tmp_path, genome)
+    assert_ok(proc)
+    assert "GTF varus.stringtie.gtf" in proc.stdout
+    assert "HINTS seq1\tb2h\tintron\t11\t50\t3\t+\t.\tmult=3;pri=4;src=E" in proc.stdout
+
+
+def test_varus_input_of_another_genome_fails(tmp_path: Path) -> None:
+    proc = run_varus_input(tmp_path, DATA / "tiny.fa", md5="0" * 32)
+    assert proc.returncode != 0
+    assert "the VARUS run used another genome" in proc.stdout + proc.stderr

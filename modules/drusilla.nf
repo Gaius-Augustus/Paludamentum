@@ -18,7 +18,7 @@ process FILTER_STRINGTIE {
   script:
   """
   filter_stringtie_gtf.py \\
-      --in-gtf "${gtf}" \\
+      --in-gtf ${gtf} \\
       --out-gtf stringtie.filtered.gtf \\
       --out-tsv stringtie.decisions.tsv \\
       --min-length ${params.drusilla.min_length} \\
@@ -64,7 +64,7 @@ process DRUSILLA_ANNOTATE {
   annotate() {
       drusilla annotate \\
           --stringtie-gtf "\$1" \\
-          --genome "${genome}" \\
+          --genome ${genome} \\
           ${model} \\
           --out-dir "\$2" \\
           --threads ${threads} \\
@@ -75,12 +75,12 @@ process DRUSILLA_ANNOTATE {
       touch "\$2/orfs.partial.gtf" "\$2/orfs.partial5.gtf"
   }
   if [ ${shards} -le 1 ]; then
-      annotate "${gtf}" drusilla
+      annotate ${gtf} drusilla
   else
       awk -F'\t' -v n=${shards} '/^#/ {next} {
               match(\$9, /gene_id "[^"]+"/); g = substr(\$9, RSTART, RLENGTH)
               if (!(g in shard)) shard[g] = k++ % n
-              print > ("shard_" shard[g] ".gtf") }' "${gtf}"
+              print > ("shard_" shard[g] ".gtf") }' ${gtf}
       pids=""
       for f in shard_*.gtf; do
           i=\${f#shard_}; i=\${i%.gtf}
@@ -129,9 +129,9 @@ process FIX_ORFS {
       --orfs orfs.raw.gtf \\
       --partial orfs.partial.gtf \\
       --partial5 orfs.partial5.gtf \\
-      --miniprot "${miniprot_gff}" \\
-      --hints "${hints_gff}" \\
-      --genome "${genome}" \\
+      --miniprot ${miniprot_gff} \\
+      --hints ${hints_gff} \\
+      --genome ${genome} \\
       --out orfs.fixed.gtf""" + (fixStart ? """ \\
       --fix-starts \\
       --fix-starts-classes LORF_NOUPSTOP upLORF \\
@@ -174,15 +174,15 @@ process GENEFINDER_LGB_FILTER {
   def keep = (params.drusilla.lgb_keep ?: 'correct').toString().split(/[,\s]+/).findAll { k -> k }.join('|')
   def sha256 = params.drusilla.lgb_model_sha256 ? "--sha256 ${params.drusilla.lgb_model_sha256}" : ''
   """
-  gff_to_cds_gtf.py "${ab_initio}" > ab_initio.gtf
+  gff_to_cds_gtf.py ${ab_initio} > ab_initio.gtf
   compute_orf_features.py \\
       --orfs-gtf ab_initio.gtf \\
-      --miniprot-gff "${miniprot_gff}" \\
-      --hints-gff "${hints_gff}" \\
-      --genome "${genome}" \\
+      --miniprot-gff ${miniprot_gff} \\
+      --hints-gff ${hints_gff} \\
+      --genome ${genome} \\
       --out features.tsv
   apply_lgb_model_gtf.py \\
-      --model "${lgb_model}" ${sha256} \\
+      --model ${lgb_model} ${sha256} \\
       --features features.tsv \\
       --in-gtf ab_initio.gtf \\
       --out-gtf lgb_scored.gtf \\
@@ -229,14 +229,14 @@ process HINT_RESCUE_LOCI {
   mkdir -p rescue
   if python3 "${tiberius}" --help 2>&1 | grep -q -- '--hints'; then
       HINTS_OK=true
-      samtools faidx "${genome}"
-      chainedHints.py "${hints_gff}" "${miniprot_gff}" --output chained_hints.gff
+      samtools faidx ${genome}
+      chainedHints.py ${hints_gff} ${miniprot_gff} --output chained_hints.gff
       prepare_hint_rescue_loci.py \\
-          --partial_gtf "${partial_gtf}" \\
-          --correct_gtf "${correct_gtf}" \\
+          --partial_gtf ${partial_gtf} \\
+          --correct_gtf ${correct_gtf} \\
           --chained_hints chained_hints.gff \\
-          --orfs_gtf "${orfs_gtf}" \\
-          --genome "${genome}" \\
+          --orfs_gtf ${orfs_gtf} \\
+          --genome ${genome} \\
           --outdir rescue \\
           --flank ${params.drusilla.rescue_flank}${orfFilter}
   else
@@ -265,32 +265,46 @@ process HINT_RESCUE_TIBERIUS {
   publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy'
   input:
     tuple path(fasta), path(hints), path(manifest)
-    val model_cfg
+    // the model: a name in model_cfg/ of the image, or '' and a configuration
+    // file; weights: contents of params.tiberius.model_dir if use_weights
+    val model_name
+    path model_file
+    val use_weights
+    path weights
 
   output:
     path "hint_rescue.gtf", emit: gtf
 
   script:
   def tiberius = params.drusilla.rescue_tiberius ?: '\$(command -v tiberius.py)'
+  def cfg = model_name ? "\"\$(dirname \"${tiberius}\")/model_cfg/${model_name}.yaml\"" : "${model_file}"
   // Batch size as in RUN_TIBERIUS: params.tiberius.batch_size, else the int32 cap
   // Loci are short: a small seq_len avoids padding every locus to a genome chunk
   def seqLen = params.drusilla.rescue_seq_len
   def batch = params.tiberius?.batch_size ? "BATCH_ARG='--batch_size ${params.tiberius.batch_size}'" :
-      "BATCH_ARG=\$(tiberius_batch_size.py --model_cfg \"\$(dirname \"${tiberius}\")/model_cfg/${model_cfg}.yaml\"" +
+      "BATCH_ARG=\$(tiberius_batch_size.py --model_cfg ${cfg}" +
       (seqLen ? " --seq_len ${seqLen}" : '') + ")"
+  // Staged weights: --model instead of --model_cfg, as in RUN_TIBERIUS
+  // (one argument per line, read into an array)
+  def model = use_weights ?
+      "MODEL_OUT=\$(tiberius_model_args.py --model_cfg ${cfg}" + (seqLen ? " --seq_len ${seqLen}" : '') + ")\n" +
+      "mapfile -t MODEL_ARGS <<< \"\$MODEL_OUT\"" :
+      "MODEL_ARGS=(--model_cfg ${model_name ? "\"${model_name}\"" : model_file})"
   """
   ${batch}
+  ${model}
   python3 "${tiberius}" \\
-      --genome "${fasta}" \\
-      --model_cfg ${model_cfg} \\
-      --hints "${hints}" \\
+      --genome ${fasta} \\
+      "\${MODEL_ARGS[@]}" \\
+      --hints ${hints} \\
       --hint_weight ${params.drusilla.rescue_hint_weight} \\
       --out rescue_raw.gtf${seqLen ? " --seq_len ${seqLen}" : ''} \${BATCH_ARG:-}
-  filter_and_merge_rescue_gtf.py rescue_raw.gtf "${hints}" "${manifest}" hint_rescue.gtf
+  filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} hint_rescue.gtf
   """
 
   stub:
+  // names the model, which the stub-run tests check
   """
-  touch hint_rescue.gtf
+  echo "# model: ${model_name ?: model_file}, staged weights: ${use_weights}" > hint_rescue.gtf
   """
 }

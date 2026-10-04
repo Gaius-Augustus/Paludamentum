@@ -144,6 +144,49 @@ The location of the required executables is set by default so that they are avai
 Already aligned short reads, for example from VARUS, go to `rnaseq_bam` as a
 list of BAM files. They skip the HISAT2 step.
 
+### pyVARUS output directories
+[pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) writes `stringtie.gtf`
+and `hints.gff` next to `VARUS.bam`, made as the pipeline makes them from a
+BAM. Pass the output directory instead of the BAM; this also works after
+`varus run --drop-bam`. The directories skip mapping, `bam2hints` and
+StringTie.
+
+```yaml
+rnaseq_varus:                # short-read runs
+  - /path/to/varus_short
+isoseq_varus:                # --longreads runs
+  - /path/to/varus_long
+```
+
+`rnaseq_varus` counts as short reads and `isoseq_varus` as Iso-Seq when the
+mode is inferred. The pipeline checks that the run used the same genome (MD5
+in `VARUS.manifest.tsv`) and the right read type. A directory of an older
+pyVARUS without `stringtie.gtf` needs
+`varus assemble genome.fa --short DIR/VARUS.bam --outdir DIR` first (`--long`
+for long reads).
+
+The hints of several sources of one read type (several directories, or
+directories and reads) are summed as `bam2hints` would count them on all
+reads. TransDecoder flow: each directory adds its assembly to the
+per-library assemblies. The Drusilla flow needs one assembly of all reads of
+a read type: in `rnaseq` and `isoseq` mode pass exactly one directory and no
+other reads of that type. In `mixed` mode it needs one `stringtie --mix`
+assembly of both read types:
+
+```sh
+varus assemble genome.fa --short varus_short/VARUS.bam --long varus_long/VARUS.bam --outdir varus_mixed
+```
+
+```yaml
+rnaseq_varus: /path/to/varus_short
+isoseq_varus: /path/to/varus_long
+mixed_varus:  /path/to/varus_mixed
+```
+
+Then pass no other short reads or Iso-Seq. `mixed_varus` is used only by the
+Drusilla flow in mixed mode. `varus replay` rebuilds a BAM deleted by
+`--drop-bam`.
+
 ## Gene finder: Tiberius
 
 To run Tiberius set `tiberius.run: true` and choose the model configuration
@@ -156,7 +199,7 @@ The launcher resolves a name such as `diatoms` to that file.
 | --- | --- | --- |
 | `tiberius.run` | `false` (the launcher sets `true` for the selected gene finder) | Run Tiberius and merge its predictions with the HC genes. |
 | `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. |
-| `tiberius.model_dir` | none | Directory that holds the extracted weights directory (`<model>_weights`, from the `weights_url` of the model configuration), for nodes without internet. Without it every task downloads the weights. |
+| `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` in the model configuration without `.tar.gz`, e.g. `vertebrates_weights`), for nodes without internet. Tiberius then runs with `--model` and never downloads; the task fails if the directory is missing or empty. Without `model_dir` every task downloads the weights. |
 | `tiberius.result` | none | Existing Tiberius prediction (GTF/GFF3). It is used instead of running Tiberius; a missing file is an error. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
 | `tiberius.max_files` | `20` | Maximal number of genome chunks, which is the upper limit of parallel Tiberius tasks. |
@@ -182,7 +225,7 @@ predictions. The steps are described in the
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `drusilla.run` | `auto` | `auto`: on for Tiberius `vertebrates` and `mammalia*` and Vipsania `Vertebrata`, if the run has transcripts; `true`: always (an error without transcripts); `false`: never. |
+| `drusilla.run` | `auto` | `auto`: on for Tiberius models whose `target_species` is `Vertebrata` or `Mammalia` (`vertebrates`, `mammalia*`) and Vipsania `Vertebrata`, if the run has transcripts; `true`: always (an error without transcripts), e.g. for a custom vertebrate model of another clade; `false`: never. |
 | `drusilla.model` | `vertebrates` | Released Drusilla model (`drusilla models list`). |
 | `drusilla.weights`, `drusilla.config` | none | A local `.weights.h5` file and its architecture YAML instead of a released model. |
 | `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`). Without it the model is downloaded in the task, which needs internet. |
@@ -198,7 +241,7 @@ predictions. The steps are described in the
 | `drusilla.lgb_keep` | `correct` | Classes kept among the candidates, e.g. `correct,partial`. |
 | `drusilla.rescue` | `true` | Hint rescue: loci of partial ab initio genes are predicted again by Tiberius with hints. |
 | `drusilla.rescue_tiberius` | the one of the hint rescue image | Another `tiberius.py` with `--hints`. Without `--hints` the rescue is skipped with a warning. |
-| `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue; `vertebrates` for Vipsania runs. |
+| `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue: a model configuration file, or the name of a model in `model_cfg/` of the hint rescue image. `vertebrates` for Vipsania runs and for `tiberius.result` without `tiberius.model_cfg`. The weights in `tiberius.model_dir` are used only for the model of the run. |
 | `drusilla.rescue_flank` | `25000` | Flank in bp around each rescue locus. |
 | `drusilla.rescue_hint_weight` | `2.5` | `tiberius.py --hint_weight` of the rescue. |
 | `drusilla.rescue_orf_filter` | `false` | ORF-agreement filter: skip rescue loci where a Drusilla ORF already has all introns of the best protein chain. Off by default, as benchmarked. |

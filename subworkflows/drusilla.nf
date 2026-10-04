@@ -16,7 +16,7 @@ nextflow.enable.dsl=2
 
 include { FILTER_STRINGTIE; DRUSILLA_ANNOTATE; FIX_ORFS; GENEFINDER_LGB_FILTER;
           HINT_RESCUE_LOCI; HINT_RESCUE_TIBERIUS } from '../modules/drusilla.nf'
-include { truthy } from '../lib_nf/functions.nf'
+include { rescueEnabled; rescueModel } from '../lib_nf/functions.nf'
 
 workflow DRUSILLA_HC {
 
@@ -39,10 +39,18 @@ workflow DRUSILLA_HC {
     )
 
     def genefinder_out = kept.gtf
-    if( d.rescue == null || truthy(d.rescue) ) {
-        // Tiberius model of the rescue: the model of the run, else vertebrates
-        def cfg = d.rescue_model_cfg ?: (genefinder == 'tiberius' ? params.tiberius.model_cfg : 'vertebrates')
-        def cfgName = new File(cfg.toString()).name.replaceFirst(/\.ya?ml$/, '')
+    if( rescueEnabled(params) ) {
+        // Tiberius model of the rescue (rescueModel in lib_nf/functions.nf): a
+        // model configuration file, staged with the weights of
+        // params.tiberius.model_dir if it is the model of the run, or the name
+        // of a model in model_cfg/ of the rescue image
+        def rm = rescueModel(params)
+        def cfgFile = rm.file ? file(rm.file, checkIfExists: true) : []
+        def weights = channel.value([])
+        if( rm.weights ) {
+            if( !file(params.tiberius.model_dir).isDirectory() ) error "params.tiberius.model_dir is not a directory: ${params.tiberius.model_dir}"
+            weights = channel.fromPath("${params.tiberius.model_dir}/*", type: 'any').collect()
+        }
         loci    = HINT_RESCUE_LOCI(kept.partial, kept.gtf, orfs.gtf, miniprot_gff, hc_hints, CH_GENOME)
         // The GPU task runs only with a --hints Tiberius and at least one locus
         def tiberius = d.rescue_tiberius ?: 'the tiberius.py of the image'
@@ -62,7 +70,7 @@ workflow DRUSILLA_HC {
                 return true
             }
             .map { fasta, hints, manifest, _hintsOk -> tuple(fasta, hints, manifest) }
-        rescued = HINT_RESCUE_TIBERIUS(todo, cfgName)
+        rescued = HINT_RESCUE_TIBERIUS(todo, rm.name ?: '', cfgFile, rm.weights, weights)
         genefinder_out = kept.gtf.mix(rescued.gtf).collect()
     }
 

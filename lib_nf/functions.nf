@@ -42,9 +42,10 @@ def modes() {
     return ['abinitio', 'proteins', 'rnaseq', 'isoseq', 'mixed']
 }
 
-// Mode of a run from its inputs. Transcript evidence (short reads, BAM, Iso-Seq)
-// needs protein evidence, because the high-confidence genes need both; the
-// caller reports that as an error.
+// Mode of a run from its inputs. Transcript evidence (short reads, BAM, Iso-Seq,
+// pyVARUS directories) needs protein evidence, because the high-confidence
+// genes need both; the caller reports that as an error. The caller counts
+// rnaseq_varus in hasBAM and isoseq_varus in hasIso.
 def inferMode(boolean hasPaired, boolean hasSingle, boolean hasIso, boolean hasBAM, boolean hasProteins) {
   def hasShortReads = hasPaired || hasSingle || hasBAM
   if( !hasProteins ) {
@@ -67,21 +68,56 @@ def normalizeMode(value) {
   return mode
 }
 
+// target_species of a Tiberius model configuration (YAML), null if the file
+// cannot be read or has no target_species.
+def tiberiusTargetSpecies(cfg) {
+    try {
+        def data = new org.yaml.snakeyaml.Yaml().load(file(cfg.toString()).text)
+        return (data instanceof Map) ? data.target_species?.toString()?.trim() ?: null : null
+    } catch( Exception e ) {
+        return null
+    }
+}
+
 // True if the selected gene finder model is one that the Drusilla flow serves:
-// Tiberius vertebrates and mammalia*, Vipsania Vertebrata (etb1go6q). Drusilla's
-// released model and the LightGBM filter are trained on vertebrates.
+// Tiberius models with target_species Vertebrata or Mammalia (vertebrates,
+// mammalia*), Vipsania Vertebrata (etb1go6q). Drusilla's released model and
+// the LightGBM filter are trained on vertebrates.
 def drusillaModelEligible(p) {
     def gf = resolveGenefinder(p)
     if( gf == 'tiberius' ) {
         def cfg = p.tiberius?.model_cfg
-        if( !cfg ) return false
-        def name = new File(cfg.toString()).name.replaceFirst(/\.ya?ml$/, '')
-        return name == 'vertebrates' || name.startsWith('mammalia')
+        return cfg && tiberiusTargetSpecies(cfg)?.toLowerCase() in ['vertebrata', 'mammalia']
     }
     if( gf == 'vipsania' ) {
         return p.vipsania?.model?.toString()?.trim()?.toLowerCase() in ['etb1go6q', 'vertebrata']
     }
     return false
+}
+
+// True if the Drusilla flow runs the hint rescue (params.drusilla.rescue).
+def rescueEnabled(p) {
+    return p.drusilla?.rescue == null || truthy(p.drusilla.rescue)
+}
+
+// Tiberius model of the hint rescue: params.drusilla.rescue_model_cfg, else the
+// model of a Tiberius run, else vertebrates.
+// [file: model configuration to stage, or null; name: model in model_cfg/ of the
+// rescue image, or null; weights: true if params.tiberius.model_dir holds its
+// weights; note: text or null]. A value without '/' and without a .yaml/.yml
+// suffix is a name.
+def rescueModel(p) {
+    def own = p.drusilla?.rescue_model_cfg?.toString()?.trim()
+    if( own ) {
+        def isName = !own.contains('/') && !(own ==~ /.*\.ya?ml$/)
+        return [file: isName ? null : own, name: isName ? own : null, weights: false, note: null]
+    }
+    def tiberiusRun = resolveGenefinder(p) == 'tiberius'
+    if( tiberiusRun && p.tiberius?.model_cfg )
+        return [file: p.tiberius.model_cfg.toString(), name: null, weights: p.tiberius?.model_dir as boolean, note: null]
+    def note = tiberiusRun ?
+        "params.tiberius.result is set without params.tiberius.model_cfg, so the hint rescue uses the Tiberius model vertebrates. Set params.drusilla.rescue_model_cfg for another model." : null
+    return [file: null, name: 'vertebrates', weights: false, note: note]
 }
 
 // High-confidence gene step of an evidence run: [method: 'drusilla' | 'transdecoder', note: text or null].
@@ -98,6 +134,9 @@ def hcMethod(p, String mode) {
         if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.result && !p.tiberius?.model_cfg )
             return [method: 'transdecoder',
                     note: "params.tiberius.result is set without params.tiberius.model_cfg, so the pipeline cannot tell whether the prediction comes from a vertebrate model; using the TransDecoder high-confidence genes. Set params.tiberius.model_cfg, or params.drusilla.run = true, for the Drusilla flow."]
+        if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.model_cfg && !tiberiusTargetSpecies(p.tiberius.model_cfg) )
+            return [method: 'transdecoder',
+                    note: "params.tiberius.model_cfg (${p.tiberius.model_cfg}) has no target_species, so the pipeline cannot tell whether it is a vertebrate model; using the TransDecoder high-confidence genes. Set params.drusilla.run = true for the Drusilla flow."]
         if( !drusillaModelEligible(p) )
             return [method: 'transdecoder', note: null]
         if( !p.drusilla?.lgb_model )
@@ -108,5 +147,53 @@ def hcMethod(p, String mode) {
     if( !hasTranscripts )     error "params.drusilla.run = true needs transcripts (mode rnaseq, isoseq or mixed), the mode is '${mode}'."
     if( !genefinderEnabled(p) ) error "params.drusilla.run = true needs a gene finder (tiberius.run or vipsania.run)."
     if( !p.drusilla?.lgb_model ) error "params.drusilla.run = true needs params.drusilla.lgb_model (LightGBM model of the gene finder filter)."
-    return [method: 'drusilla', note: null]
+    return [method: 'drusilla', note: rescueEnabled(p) ? rescueModel(p).note : null]
+}
+
+// Header keys (#key=value lines) of a pyVARUS manifest; '# ' lines are comments.
+def varusHeader(f) {
+    def header = [:]
+    f.withReader { r ->
+        String line
+        while( (line = r.readLine()) != null ) {
+            if( line.startsWith('# ') || !line.trim() ) continue
+            if( !line.startsWith('#') ) break
+            def i = line.indexOf('=')
+            if( i > 1 ) header[line.substring(1, i)] = line.substring(i + 1)
+        }
+    }
+    return header
+}
+
+// pyVARUS output directories of params key (rnaseq_varus, isoseq_varus,
+// mixed_varus), checked at workflow construction: one
+// [id, dir, manifest, stringtie.gtf, hints.gff or []] per directory.
+// pyVARUS writes stringtie.gtf and hints.gff as Paludamentum makes them from a
+// BAM; VARUS.manifest.tsv (varus run) or VARUS.assembly.tsv (varus assemble)
+// holds the mode and the genome MD5, which VARUS_INPUT checks.
+// mode: 'shortreads', 'longreads' or 'mixed'.
+def varusInputs(value, String key, String mode) {
+    def takes = [rnaseq_varus: 'short-read runs', isoseq_varus: '--longreads runs',
+                 mixed_varus: 'the output of varus assemble --short --long']
+    def option = mode == 'longreads' ? '--long' : '--short'
+    return asList(value).findAll { v -> v }.collect { v ->
+        def dir = file(v.toString())
+        if( !dir.exists() ) error "${key}: ${dir} does not exist."
+        if( !dir.isDirectory() ) error "${key}: ${dir} is not a directory; pass the output directory of pyVARUS."
+        def gtf   = dir.resolve('stringtie.gtf')
+        def hints = dir.resolve('hints.gff')
+        if( mode == 'mixed' && !gtf.exists() )
+            error "${key}: no stringtie.gtf in ${dir}. Make it with `varus assemble GENOME --short A/VARUS.bam --long B/VARUS.bam --outdir ${dir}`."
+        if( mode != 'mixed' && !(gtf.exists() && hints.exists()) )
+            error "${key}: no stringtie.gtf or hints.gff in ${dir} (pyVARUS older than its assembly step, or a failed run). " +
+                  "Make them with `varus assemble GENOME ${option} ${dir}/VARUS.bam --outdir ${dir}`."
+        def names = ['VARUS.assembly.tsv', 'VARUS.manifest.tsv']
+        def manifest = names.collect { n -> dir.resolve(n) }.find { f -> f.exists() }
+        if( !manifest ) error "${key}: no ${names.join(' or ')} in ${dir}; it holds the genome MD5 and the mode of the pyVARUS run."
+        def have = varusHeader(manifest).mode ?: 'shortreads'
+        if( have != mode )
+            error "${key}: ${dir} is a pyVARUS run in mode '${have}' (${manifest.name}), expected '${mode}'. " +
+                  "rnaseq_varus takes ${takes.rnaseq_varus}, isoseq_varus ${takes.isoseq_varus}, mixed_varus ${takes.mixed_varus}."
+        return [dir.name, dir.toString(), manifest, gtf, mode == 'mixed' ? [] : hints]
+    }
 }
