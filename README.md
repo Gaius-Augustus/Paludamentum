@@ -369,7 +369,7 @@ splits the transcripts by gene into parts that run in parallel. On Bos taurus
 
 | Processes | Image | Built from |
 | --- | --- | --- |
-| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, TransDecoder, TD2, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.0` | [docker/evidence/Dockerfile](docker/evidence/Dockerfile) |
+| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, TransDecoder, TD2, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.1` | [docker/evidence/Dockerfile](docker/evidence/Dockerfile) |
 | Tiberius | `docker://gaiusaugustus/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 | Drusilla flow (ORFs, LightGBM filter) | `docker://gaiusaugustus/drusilla:<version>` | [docker/drusilla/Dockerfile](docker/drusilla/Dockerfile) |

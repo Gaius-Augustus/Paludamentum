@@ -11,12 +11,13 @@
 # apt packages are pinned to its versions.
 #
 # Build (no build context is needed) and tag with the version below:
-#   docker build -t gaiusaugustus/paludamentum-evidence:0.2.0 - < docker/evidence/Dockerfile
-#   docker push gaiusaugustus/paludamentum-evidence:0.2.0
+#   docker build -t gaiusaugustus/paludamentum-evidence:0.2.1 - < docker/evidence/Dockerfile
+#   docker push gaiusaugustus/paludamentum-evidence:0.2.1
 #
-# 0.2.0: TD2 1.1.0 (the ORF finder of the TransDecoder flow by default, see
+# 0.2.1: TD2 1.1.0 (the ORF finder of the TransDecoder flow by default, see
 # conf/hc_genes.yaml) with psauron 1.1.3 and the CPU build of PyTorch 2.14.0,
-# the versions of docs/orf_finder_comparison.md.
+# the versions of docs/orf_finder_comparison.md. (0.2.0 lacked psauron on
+# PATH, so TD2.Predict failed; do not use it.)
 
 # ---------------------------------------------------------------- build stage
 FROM ubuntu:24.04 AS build
@@ -125,7 +126,8 @@ RUN python3 -m venv /opt/venv && \
         "pyyaml==6.0.2"
 
 # TD2 in its own venv, so that its dependencies do not change the packages of
-# the bin/ scripts; only TD2.LongOrfs and TD2.Predict go on PATH
+# the bin/ scripts; only TD2.LongOrfs, TD2.Predict and psauron (which
+# TD2.Predict runs as a command) go on PATH
 RUN python3 -m venv /opt/td2-venv && \
     /opt/td2-venv/bin/pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
@@ -134,7 +136,7 @@ RUN python3 -m venv /opt/td2-venv && \
         "psauron==1.1.3" \
         "TD2==1.1.0" && \
     mkdir -p /opt/td2/bin && \
-    ln -s /opt/td2-venv/bin/TD2.LongOrfs /opt/td2-venv/bin/TD2.Predict /opt/td2/bin/
+    ln -s /opt/td2-venv/bin/TD2.LongOrfs /opt/td2-venv/bin/TD2.Predict /opt/td2-venv/bin/psauron /opt/td2/bin/
 
 COPY --from=build /opt/ /opt/
 
@@ -156,8 +158,12 @@ RUN set -e; \
     test -x /opt/augustus/bin/bam2hints; \
     TransDecoder.LongOrfs --version | grep -q '5.7.1'; \
     /opt/td2-venv/bin/python -c "from importlib.metadata import version as v; assert (v('td2'), v('psauron'), v('torch')) == ('1.1.0', '1.1.3', '2.14.0+cpu'), (v('td2'), v('psauron'), v('torch'))"; \
-    TD2.LongOrfs --help > /dev/null; \
-    TD2.Predict --help > /dev/null; \
+    cd /tmp; \
+    python3 -c "import random; random.seed(1); c = [a+b+d for a in 'ACGT' for b in 'ACGT' for d in 'ACGT' if a+b+d not in ('TAA', 'TAG', 'TGA')]; u = lambda n: ''.join(random.choice('ACGT') for _ in range(n)); o = 'ATG' + ''.join(random.choice(c) for _ in range(300)) + 'TAA'; open('td2.fa', 'w').write('>t1\\n' + u(120) + o + u(150) + '\\n')"; \
+    TD2.LongOrfs -t td2.fa -O td2.dir > /dev/null; \
+    TD2.Predict -t td2.fa -O td2.dir > /dev/null; \
+    grep -q 'ORF type:complete (+).* t1:121-1026(+)' td2.fa.TD2.pep; \
+    rm -rf /tmp/td2.*; cd /; \
     for s in gtf_genome_to_cdna_fasta.pl cdna_alignment_orf_to_genome_orf.pl gtf_to_alignment_gff3.pl; do command -v $s > /dev/null; done; \
     perl -MURI::Escape -e 1; \
     python3 -c "import Bio, numpy, pandas, yaml; print('biopython', Bio.__version__, 'numpy', numpy.__version__, 'pandas', pandas.__version__, 'pyyaml', yaml.__version__)"
