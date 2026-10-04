@@ -24,6 +24,10 @@ genome: /path/to/genome.fa
 # rnaseq_bam:
 #   - /path/to/sample1.bam
 
+# pyVARUS output directories instead of the BAM (see docs/parameters.md):
+# rnaseq_varus:
+#   - /path/to/varus_short
+
 # Single-end reads (list of FASTQ files, or one glob string)
 # rnaseq_single:
 #   - /path/to/sample1.fastq.gz
@@ -51,6 +55,13 @@ genome: /path/to/genome.fa
 # isoseq: "/path/to/isoseq/*.fastq.gz"
 # isoseq:
 #   - /path/to/isoseq1.fastq.gz
+
+# pyVARUS output directories of --longreads runs:
+# isoseq_varus:
+#   - /path/to/varus_long
+# Mixed mode with the Drusilla flow: the output directory of
+# varus assemble genome.fa --short varus_short/VARUS.bam --long varus_long/VARUS.bam --outdir varus_mixed
+# mixed_varus: /path/to/varus_mixed
 
 # ------------------------------------------------------------
 # SRA downloads (run accessions)

@@ -182,3 +182,43 @@ def test_intron_strand_with_described_fasta_header(tmp_path: Path):
     assert proc.returncode == 0, proc.stderr
     assert rows(proc.stdout) == [["chr1", "b2h", "intron", "4", "20", "3", "+", ".", "mult=3;src=E"]]
     assert "does not match" not in proc.stderr
+
+
+# ---------------------------------------------------------------- merge_intron_hints.py
+
+def hint(seq: str, start: int, end: int, mult: int, strand: str = "+") -> str:
+    """A hint line as BAM2HINTS (and pyVARUS hints.gff) writes it."""
+    attr = (f"mult={mult};" if mult > 1 else "") + "pri=4;src=E"
+    return f"{seq}\tb2h\tintron\t{start}\t{end}\t{mult}\t{strand}\t.\t{attr}\n"
+
+
+def test_intron_hints_are_summed_as_on_the_merged_bam(tmp_path: Path):
+    (tmp_path / "a.gff").write_text(
+        hint("chr2", 50, 90, 2, "-") + hint("chr1", 121, 220, 1) + hint("chr1", 300, 400, 3)
+    )
+    (tmp_path / "b.gff").write_text(
+        "# comment\n\n" + hint("chr1", 121, 220, 2) + hint("chr1", 100, 220, 1) + hint("chr3", 5, 60, 1)
+        + hint("chr2", 50, 90, 1, "+")
+    )
+    proc = run("merge_intron_hints.py", "a.gff", "b.gff", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == (
+        hint("chr2", 50, 90, 1, "+") + hint("chr2", 50, 90, 2, "-")
+        + hint("chr1", 100, 220, 1) + hint("chr1", 121, 220, 3) + hint("chr1", 300, 400, 3)
+        + hint("chr3", 5, 60, 1)
+    )
+
+
+def test_one_hint_file_is_unchanged(tmp_path: Path):
+    text = hint("chr1", 121, 220, 3) + hint("chr1", 500, 800, 1, "-") + hint("chr2", 10, 70, 1)
+    (tmp_path / "a.gff").write_text(text)
+    proc = run("merge_intron_hints.py", "a.gff", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == text
+
+
+def test_malformed_hint_line_is_an_error(tmp_path: Path):
+    (tmp_path / "a.gff").write_text("chr1\tb2h\tintron\t1\t2\n")
+    proc = run("merge_intron_hints.py", "a.gff", cwd=tmp_path)
+    assert proc.returncode != 0
+    assert "a.gff:1" in proc.stderr

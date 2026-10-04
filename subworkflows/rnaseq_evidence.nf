@@ -8,7 +8,8 @@ include { FILTER_ALIGNMENT as FILTER_PE; FILTER_ALIGNMENT as FILTER_SE } from '.
 include { DOWNLOAD_SRA_PAIRED; DOWNLOAD_SRA_SINGLE } from '../modules/download.nf'
 include { STRINGTIE_ASSEMBLE_RNA } from '../modules/assembly.nf'
 include { EMPTY_FILE } from '../modules/util.nf'
-include { asList } from '../lib_nf/functions.nf'
+include { VARUS_INPUT as VARUS_INPUT_RNA; MERGE_INTRON_HINTS as MERGE_INTRON_HINTS_RNA } from '../modules/varus.nf'
+include { asList; varusInputs } from '../lib_nf/functions.nf'
 
 // Library name of a read file: the file name without the FASTQ suffixes and
 // without a trailing read-pair marker (_1, _R1, .1). Two libraries with the same
@@ -35,12 +36,20 @@ workflow RNASEQ_EVIDENCE {
     def DO_PE = DO_PE_LOCAL || (params_map.rnaseq_sra_paired && params_map.rnaseq_sra_paired.size() > 0)
 
     def DO_BAM = params_map.rnaseq_bam && params_map.rnaseq_bam.size() > 0
+    def DO_READS = DO_SE || DO_PE || DO_BAM
+
+    // pyVARUS directories bring their StringTie assembly and intron hints
+    def varus = varusInputs(params_map.rnaseq_varus, 'rnaseq_varus', 'shortreads')
+    if( asm_mode == 'merged' && varus && (varus.size() > 1 || DO_READS) )
+        error "rnaseq_varus: the Drusilla flow needs one StringTie assembly of all short reads, and a pyVARUS " +
+              "directory holds the assembly of its own reads only. Pass a single pyVARUS directory and no other " +
+              "short reads, or rebuild the BAMs with `varus replay` and pass them as rnaseq_bam."
 
     def hints_out    = empty_file
     def asm_gtf_out  = channel.empty()
     def bam_out      = channel.empty()
 
-    if( DO_SE || DO_PE || DO_BAM ) {
+    if( DO_READS ) {
 
     // Build channels (local + SRA)
     CH_PAIRED_LOCAL = channel.empty()
@@ -155,6 +164,17 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
 
     hints_out    = rnaseq_hints.hints
     bam_out      = rnaseq_merged.bam
+    }
+
+    if( varus ) {
+        vi = VARUS_INPUT_RNA(channel.fromList(varus), channel.value(file(params_map.genome)))
+        if( asm_mode == 'per_sample' )  asm_gtf_out = asm_gtf_out.mix(vi.gtf)
+        else if( asm_mode == 'merged' ) asm_gtf_out = vi.gtf
+        // One hint source is used as it is; several are summed as bam2hints
+        // on all reads would count them.
+        def sources = DO_READS ? hints_out.mix(vi.hints) : vi.hints
+        hints_out = (varus.size() == 1 && !DO_READS) ? vi.hints \
+            : MERGE_INTRON_HINTS_RNA(sources.collect(sort: { f -> f.name })).hints
     }
 
     emit:

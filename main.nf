@@ -2,7 +2,7 @@ nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { MERGE_GENEFINDER_TRAIN; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; varusInputs } from './lib_nf/functions.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
@@ -13,6 +13,7 @@ include { HC_GENES } from './subworkflows/hc_genes.nf'
 include { AB_INITIO } from './subworkflows/ab_initio.nf'
 include { DRUSILLA_HC } from './subworkflows/drusilla.nf'
 include { STRINGTIE_ASSEMBLE_MIX } from './modules/assembly.nf'
+include { VARUS_INPUT as VARUS_INPUT_MIX } from './modules/varus.nf'
 
 workflow {
   main:
@@ -24,6 +25,10 @@ workflow {
     def hasSingle   = params.rnaseq_single?.size()  > 0 || params.rnaseq_sra_single?.size() > 0
     def hasIso      = params.isoseq?.size()         > 0 || params.isoseq_sra?.size() > 0
     def hasBAM      = asList(params.rnaseq_bam).size() > 0
+    // pyVARUS output directories: short reads, Iso-Seq, varus assemble --mix
+    def nVarus      = asList(params.rnaseq_varus).size()
+    def nIsoVarus   = asList(params.isoseq_varus).size()
+    def hasMixVarus = asList(params.mixed_varus).size() > 0
 
     def proteinsList = []
     if( params.proteins ) {
@@ -40,12 +45,13 @@ workflow {
     def genefinder    = resolveGenefinder(params)
     def genefinderRun = genefinderEnabled(params)
 
-    def MODE = params.mode ? normalizeMode(params.mode) : inferMode(hasPaired, hasSingle, hasIso, hasBAM, hasProteins)
+    def MODE = params.mode ? normalizeMode(params.mode) \
+      : inferMode(hasPaired, hasSingle, hasIso || nIsoVarus > 0, hasBAM || nVarus > 0, hasProteins)
     // A forced mode without its inputs would end without the main outputs.
-    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM) )
-      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam or rnaseq_sra_*)."
-    if( MODE in ['isoseq', 'mixed'] && !hasIso )
-      error "params.mode '${MODE}' needs Iso-Seq reads (isoseq or isoseq_sra)."
+    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM || nVarus > 0) )
+      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_varus or rnaseq_sra_*)."
+    if( MODE in ['isoseq', 'mixed'] && !(hasIso || nIsoVarus > 0) )
+      error "params.mode '${MODE}' needs Iso-Seq reads (isoseq, isoseq_sra or isoseq_varus)."
     if( MODE != 'abinitio' && !hasProteins )
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions)."
     log.info "Running mode: ${MODE}"
@@ -54,6 +60,29 @@ workflow {
     if( hc.note ) log.warn hc.note
     def useDrusilla = hc.method == 'drusilla'
     if( MODE != 'abinitio' && MODE != 'proteins' ) log.info "HC genes    : ${hc.method}"
+
+    // Mixed mode with Drusilla: one stringtie --mix assembly of both BAMs.
+    // pyVARUS directories have no BAM; varus assemble makes that assembly.
+    def mixVarus = []
+    if( MODE == 'mixed' && useDrusilla ) {
+      if( hasMixVarus ) {
+        if( asList(params.mixed_varus).size() > 1 )
+          error "mixed_varus takes one directory (the output of varus assemble --short --long), got ${asList(params.mixed_varus).size()}."
+        if( nVarus != 1 || nIsoVarus != 1 || hasPaired || hasSingle || hasBAM || hasIso )
+          error "mixed_varus is the one StringTie assembly of the Drusilla flow, made from one short-read and one " +
+                "Iso-Seq pyVARUS BAM. Pass exactly one rnaseq_varus and one isoseq_varus directory (the runs whose " +
+                "BAMs varus assemble used) and no other short-read or Iso-Seq input."
+        mixVarus = varusInputs(params.mixed_varus, 'mixed_varus', 'mixed')
+      } else if( nVarus > 0 || nIsoVarus > 0 ) {
+        error "The Drusilla flow in mixed mode needs one StringTie assembly of the short reads and the Iso-Seq " +
+              "reads together, and pyVARUS directories have no BAM to make it. Run " +
+              "`varus assemble GENOME --short A/VARUS.bam --long B/VARUS.bam --outdir M` " +
+              "(`varus replay` rebuilds a dropped BAM) and pass M as mixed_varus."
+      }
+    } else if( hasMixVarus ) {
+      log.warn "mixed_varus is not used: it serves only the Drusilla flow in mixed mode " +
+               "(this run: mode ${MODE}${MODE == 'mixed' ? ', TransDecoder HC genes' : ''})."
+    }
 
     def inp  = INPUTS(params)
 
@@ -82,7 +111,9 @@ workflow {
       def asm_gtf  = nextflow.Channel.empty()
 
       if( MODE == 'mixed' ) {
-        asm_gtf  = useDrusilla ? STRINGTIE_ASSEMBLE_MIX(re.bam, ie.bam).gtf : re.asm_gtf.mix(ie.asm_gtf)
+        if( !useDrusilla )  asm_gtf = re.asm_gtf.mix(ie.asm_gtf)
+        else if( mixVarus ) asm_gtf = VARUS_INPUT_MIX(nextflow.Channel.fromList(mixVarus), nextflow.Channel.value(file(params.genome))).gtf
+        else                asm_gtf = STRINGTIE_ASSEMBLE_MIX(re.bam, ie.bam).gtf
       } else if( MODE == 'rnaseq' ) {
         asm_gtf  = re.asm_gtf
       } else if( MODE == 'isoseq' ) {
