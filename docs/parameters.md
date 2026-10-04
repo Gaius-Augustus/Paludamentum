@@ -230,7 +230,7 @@ selects one explicitly; without it the block with `run: true` is used.
 ## Drusilla flow
 
 For runs with transcripts and a vertebrate gene finder model, Drusilla ORFs
-replace the TransDecoder HC genes and a LightGBM model filters the ab initio
+replace the TransDecoder HC genes and a LightGBM model filters the *ab initio*
 predictions. The steps are described in
 [drusilla_flow.md](drusilla_flow.md).
 
@@ -246,11 +246,11 @@ predictions. The steps are described in
 | `drusilla.fix_stop`, `drusilla.fix_start` | `true` | Stop codon fix of the ORFs with miniprot alignments; start codon fix with miniprothint start hints (needs `fix_stop`). |
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
-| `drusilla.lgb_model` | released `drusilla_lgb_3class_v1` | LightGBM model of the ab initio filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. `null` switches the flow off. |
+| `drusilla.lgb_model` | released `drusilla_lgb_3class_v1` | LightGBM model of the *ab initio* filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. `null` switches the flow off. |
 | `drusilla.lgb_model_sha256` | sha256 of the released archive | Checked after the download; set it to `null` for another model. |
 | `drusilla.lgb_threshold` | `0.5` | Transcripts with P(partial) + P(correct) at or above it are candidates. |
 | `drusilla.lgb_keep` | `correct` | Classes kept among the candidates, e.g. `correct,partial`. |
-| `drusilla.rescue` | `true` | Hint rescue: loci of partial ab initio genes are predicted again by Tiberius with hints. |
+| `drusilla.rescue` | `true` | Hint rescue: loci of partial *ab initio* genes are predicted again by Tiberius with hints. |
 | `drusilla.rescue_tiberius` | the one of the hint rescue image | Another `tiberius.py` with `--hints`. Without `--hints` the rescue is skipped with a warning. |
 | `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue: a model configuration file, or the name of a model in `model_cfg/` of the hint rescue image. `vertebrates` for Vipsania runs and for `tiberius.result` without `tiberius.model_cfg`. The weights in `tiberius.model_dir` are used only for the model of the run; otherwise the weights of the rescue model are downloaded once on the submitting host (for a name, `weights_url` is read from `model_cfg/` of the Tiberius submodule; a name that is not there is downloaded by Tiberius in the task). |
 | `drusilla.rescue_flank` | `25000` | Flank in bp around each rescue locus. |

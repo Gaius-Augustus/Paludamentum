@@ -1,7 +1,7 @@
 # Drusilla flow
 
 For vertebrate gene finder models, Paludamentum replaces the TransDecoder
-high-confidence genes with Drusilla ORFs and filters the ab initio
+high-confidence genes with Drusilla ORFs and filters the *ab initio*
 predictions. The flow is derived from the one behind the Tiberius evidence
 results on the GCB 2026 poster
 ([doi:10.13140/RG.2.2.24444.91521](https://doi.org/10.13140/RG.2.2.24444.91521)),
@@ -40,7 +40,7 @@ Steps (numbered as in the figure):
    without an upstream in-frame stop are extended to a start codon hint of
    miniprothint. Isoforms whose CDS is a subsequence of another one are then
    collapsed.
-5. A LightGBM model classifies each ab initio transcript as wrong, partial or
+5. A LightGBM model classifies each *ab initio* transcript as wrong, partial or
    correct, from miniprot alignment and miniprothint hint features. Transcripts
    with P(partial) + P(correct) >= 0.5 whose most likely class is `correct`
    are kept. The model (`drusilla_lgb_3class_v1`, a LightGBM text model) is
@@ -48,7 +48,7 @@ Steps (numbered as in the figure):
    sha256, so the compute nodes need no internet for it.
 6. Hint rescue: loci of `partial` transcripts without a kept transcript are
    predicted again by Tiberius with the hints of the best protein chain of the
-   locus; loci without a protein chain are predicted ab initio, without hints.
+   locus; loci without a protein chain are predicted *ab initio*, without hints.
    With `rescue_orf_filter: true`, loci where a Drusilla ORF already has all
    introns of the chain are skipped; the filter is off by default, and the
    F1 values above were measured without it. This needs a Tiberius with
@@ -58,7 +58,7 @@ Steps (numbered as in the figure):
    is another `tiberius.py` to use instead. If the Tiberius has no `--hints`,
    the step is skipped with a warning in the Nextflow log, and no GPU task is
    started.
-7. The kept and rescued ab initio transcripts and the Drusilla ORFs are merged
+7. The kept and rescued *ab initio* transcripts and the Drusilla ORFs are merged
    into `<tool>_evidence.gff3`.
 
 ```yaml

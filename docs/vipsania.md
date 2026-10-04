@@ -1,7 +1,7 @@
 # Vipsania as gene finder
 
 [Vipsania](https://github.com/Gaius-Augustus/Vipsania) is an unsupervised
-ab initio gene finder. It takes no extrinsic evidence itself. In Paludamentum
+*ab initio* gene finder. It takes no extrinsic evidence itself. In Paludamentum
 its predictions play the same role as those of Tiberius: they are merged with
 the high-confidence genes that the pipeline derives from proteins and
 transcripts.

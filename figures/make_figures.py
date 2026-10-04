@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Writes figures/overview.svg and figures/drusilla_flow.svg."""
+import re
 import sys
 from xml.sax.saxutils import escape
 
@@ -17,6 +18,11 @@ COL = {  # fill, stroke
 }
 
 
+def italic(s):
+    """ab initio is always set in italics."""
+    return re.sub(r"\b([Aa]b initio)\b", r'<tspan font-style="italic">\1</tspan>', s)
+
+
 class Fig:
     def __init__(self, w, h, title, desc):
         self.w, self.h, self.title, self.desc = w, h, title, desc
@@ -28,7 +34,7 @@ class Fig:
     def text(self, x, y, s, size=12.5, weight="normal", fill=SUB, anchor="start", mono=False, style=""):
         fam = MONO if mono else SANS
         self.add(f'<text x="{x}" y="{y}" font-family="{fam}" font-size="{size}" font-weight="{weight}" '
-                 f'fill="{fill}" text-anchor="{anchor}"{style}>{escape(s)}</text>')
+                 f'fill="{fill}" text-anchor="{anchor}"{style}>{italic(escape(s))}</text>')
 
     def box(self, x, y, w, h, color, title, lines, num=None):
         fill, stroke = COL[color]

@@ -35,7 +35,7 @@
 <text x="580" y="243" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">miniprot alignments,</text>
 <text x="580" y="260" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">miniprothint hints</text>
 <path d="M202,342 q0,-6 6,-6 h148 q6,0 6,6 V417 q-40.0,-15 -80.0,0 t-80.0,0 Z" fill="#e3f1e0" stroke="#4f9440" stroke-width="1.6" stroke-linejoin="round"/>
-<text x="282.0" y="367" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Ab initio genes</text>
+<text x="282.0" y="367" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle"><tspan font-style="italic">Ab initio</tspan> genes</text>
 <text x="282.0" y="388" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="middle">Tiberius or Vipsania</text>
 <rect x="384" y="336" width="160" height="88" rx="10" fill="#e3f1e0" stroke="#4f9440" stroke-width="1.6"/>
 <circle cx="408" cy="361" r="11" fill="#4f9440"/>
@@ -54,7 +54,7 @@
 <text x="992" y="219.5" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">7</text>
 <text x="1011" y="220" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="start">Merge</text>
 <text x="982" y="243" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">ORFs, kept and rescued</text>
-<text x="982" y="260" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">ab initio genes</text>
+<text x="982" y="260" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"><tspan font-style="italic">ab initio</tspan> genes</text>
 <path d="M968,342 q0,-6 6,-6 h156 q6,0 6,6 V417 q-42.0,-15 -84.0,0 t-84.0,0 Z" fill="#eceff3" stroke="#5b6675" stroke-width="1.6" stroke-linejoin="round"/>
 <text x="1052.0" y="367" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Final annotation</text>
 <text x="1052.0" y="388" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="middle">&lt;tool&gt;_evidence.gff3</text>

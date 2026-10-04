@@ -5,7 +5,7 @@ repository is the cloak around the emperors of the
 [Gaius-Augustus](https://github.com/Gaius-Augustus) gene finder family: a
 Nextflow pipeline that prepares extrinsic evidence (proteins, RNA-Seq,
 Iso-Seq), derives high-confidence genes from it, and integrates them with the
-ab initio predictions of a deep learning gene finder.
+*ab initio* predictions of a deep learning gene finder.
 
 The gene finders are git submodules of this repository. Paludamentum runs
 them; they do not depend on Paludamentum.
@@ -45,12 +45,12 @@ them; they do not depend on Paludamentum.
 
 The numbers in the figure are the steps below.
 
-1. **Ab initio prediction.** The genome is split into chunks, the gene finder
+1. **_Ab initio_ prediction.** The genome is split into chunks, the gene finder
    runs on each chunk on a GPU, and the chunk predictions are merged.
 2. **Protein evidence.** Proteins (your FASTA files and/or OrthoDB v12
    partitions) are aligned with miniprot, scored with
    miniprot-boundary-scorer, and converted to hints with miniprothint. For
-   very large protein databases the ab initio proteins are used to select the
+   very large protein databases the *ab initio* proteins are used to select the
    most relevant source species first (DIAMOND).
 3. **Transcript evidence.** Short reads are aligned with HISAT2, Iso-Seq reads
    with minimap2. Libraries with a low alignment rate are dropped. Transcripts
@@ -60,7 +60,7 @@ The numbers in the figure are the steps below.
    protein alignments become the high-confidence (HC) gene set. TD2 can
    replace TransDecoder (`transdecoder: td2`); a comparison is in
    [docs/orf_finder_comparison.md](docs/orf_finder_comparison.md).
-5. **Integration.** The HC genes are merged with the ab initio predictions into
+5. **Integration.** The HC genes are merged with the *ab initio* predictions into
    the final annotation, and its protein sequences are extracted.
 
 For vertebrate gene finder models, runs with transcripts use the
@@ -186,14 +186,14 @@ is `tiberius` or `vipsania`.
 
 | File | Content |
 | --- | --- |
-| `<tool>_evidence.gff3` | final annotation: ab initio predictions merged with HC genes |
+| `<tool>_evidence.gff3` | final annotation: *ab initio* predictions merged with HC genes |
 | `<tool>_evidence_proteins.fa` | protein sequences of the final annotation |
-| `<tool>_ab_initio.gff3` | ab initio predictions (in `intermediate/` when evidence is used) |
+| `<tool>_ab_initio.gff3` | *ab initio* predictions (in `intermediate/` when evidence is used) |
 | `intermediate/hc.gff3` | high-confidence genes derived from the evidence (TransDecoder) |
 | `intermediate/drusilla_orfs.gtf` | Drusilla ORFs, the HC genes of the Drusilla flow |
-| `intermediate/<tool>_lgb_filtered.gtf` | ab initio predictions kept by the LightGBM filter (Drusilla flow) |
-| `intermediate/<tool>_lgb_scores.tsv` | LightGBM class probabilities of all ab initio transcripts (Drusilla flow) |
-| `intermediate/hint_rescue.gtf` | ab initio genes predicted again with protein hints (Drusilla flow; missing if the rescue was skipped) |
+| `intermediate/<tool>_lgb_filtered.gtf` | *ab initio* predictions kept by the LightGBM filter (Drusilla flow) |
+| `intermediate/<tool>_lgb_scores.tsv` | LightGBM class probabilities of all *ab initio* transcripts (Drusilla flow) |
+| `intermediate/hint_rescue.gtf` | *ab initio* genes predicted again with protein hints (Drusilla flow; missing if the rescue was skipped) |
 | `hintsfile.gff` | protein, RNA-Seq and Iso-Seq hints |
 | `sra_downloads/` | reads downloaded from SRA |
 | `params.yaml` | the merged parameters of this run, written by the launcher |
@@ -220,7 +220,7 @@ Vipsania finetuning on the target genome is off by default (`--finetune`).
 
 For vertebrate gene finder models, runs with transcripts take another route
 through steps 4 and 5: Drusilla ORFs replace the TransDecoder HC genes, a
-LightGBM model filters the ab initio predictions, and Tiberius predicts
+LightGBM model filters the *ab initio* predictions, and Tiberius predicts
 partial genes again with protein hints. With the Tiberius `vertebrates`
 model, the gene-level F1 is 80.36 on *Takifugu rubripes* and 79.46 on
 *Bos taurus*. The flow is switched on automatically (`drusilla.run: auto`).

@@ -15,7 +15,7 @@ several places from the original SLURM scripts.
 | `seq_len` of Tiberius | default of the model config (400 050): each locus in one piece | 99 990 (`drusilla.rescue_seq_len`): loci longer than 100 kb are split into windows |
 | Tiberius model | always `vertebrates` | the model of the run (*Bos taurus*: `mammalia_softmasking_v2`); `vertebrates` for Vipsania runs (`drusilla.rescue_model_cfg`) |
 | ORFs passed as `--orfs_gtf` | raw Drusilla ORFs, neither fixed nor collapsed | final Drusilla ORFs, stop/start fixed and subsequence-collapsed (`drusilla_orfs.gtf`). The agreement check that would read them is switched off in the script, so the choice has no effect |
-| Partial and correct genes | `tiberius_lgb_partial.gtf` and `tiberius_lgb_correct.gtf` from the raw Tiberius GTF | from the merged ab initio GFF3, converted to transcript and CDS lines. Partial: most likely class `partial` among the transcripts with P(partial) + P(correct) ≥ 0.5; how the original partial file was built is not recorded |
+| Partial and correct genes | `tiberius_lgb_partial.gtf` and `tiberius_lgb_correct.gtf` from the raw Tiberius GTF | from the merged *ab initio* GFF3, converted to transcript and CDS lines. Partial: most likely class `partial` among the transcripts with P(partial) + P(correct) ≥ 0.5; how the original partial file was built is not recorded |
 | Final gene set | `cat` of LightGBM "correct" + rescue + ORFs | `merge_annotations.py --mode full` of the same three sets |
 
 ## What the differences mean

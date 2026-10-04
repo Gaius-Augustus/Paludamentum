@@ -68,5 +68,5 @@ smoke tests use `tiberius/test_data/Panthera_pardus` and
       `vipsania/`, `drusilla/`) and is launched by `paludamentum`; Tiberius
       no longer runs the pipeline
 - [x] v0.4.0: Drusilla flow for vertebrate models (Drusilla ORFs as HC genes,
-      LightGBM filter of the ab initio predictions)
+      LightGBM filter of the *ab initio* predictions)
 - [ ] `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation
