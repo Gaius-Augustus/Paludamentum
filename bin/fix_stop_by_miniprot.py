@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # From tiberius_orf_finder/scripts/fix_stop_by_miniprot.py (Lars Gabriel). Changed in Paludamentum:
-# a corrected CDS is only written if it has no in-frame stop codon before its end.
+# a corrected CDS is only written if it has no in-frame stop codon before its end,
+# every intron it adds has canonical splice sites, and a start fix begins with the ATG.
 # Copyright (c) 2026 Lars Gabriel. Artistic License 1.0, see LICENSE.
 """Fix or recover stop codons in predicted ORFs using miniprot protein-to-genome alignments.
 
@@ -24,7 +25,9 @@ The stop codon triplet is always verified in the genome FASTA before any
 corrected output is written, and a corrected CDS is only written if its
 translation has no stop codon before the last one (an extension that runs
 through an in-frame stop is dropped, and the ORF is kept as it was, or
-omitted if it was partial). Splice sites of extension exons are not checked.
+omitted if it was partial). Every intron a correction adds to the ORF must
+be at least MIN_INTRON nt long with GT/GC...AG splice sites; otherwise the
+next candidate alignment or hint is tried.
 
 Usage
 -----
@@ -58,6 +61,10 @@ from pathlib import Path
 from pyfaidx import Fasta
 
 STOP_CODONS: frozenset[str] = frozenset({"TAA", "TAG", "TGA"})
+DONORS: frozenset[str] = frozenset({"GT", "GC"})
+MIN_INTRON = 20
+# candidate corrections rejected by splice_sites_ok(), reported at the end
+n_bad_splice = 0
 _RC = str.maketrans("ACGTNacgtn", "TGCANtgcan")
 
 
@@ -380,6 +387,56 @@ def has_internal_stop(
     return any(seq[i:i + 3] in STOP_CODONS for i in range(0, len(seq) - 3, 3))
 
 
+def _introns(segs: list[tuple[int, int]]) -> set[tuple[int, int]]:
+    segs = sorted(segs)
+    return {(a[1], b[0]) for a, b in zip(segs, segs[1:])}
+
+
+def splice_sites_ok(segs: list[tuple[int, int]], orf: ORF, genome: Fasta) -> bool:
+    """True if every intron of segs that the ORF does not have is canonical.
+
+    The extensions join the ORF to miniprot CDS blocks or hint introns, so a
+    new intron can start where the transcript happened to end, or be one of
+    the 1-2 nt gaps miniprot leaves at a frameshift. Such an intron must be
+    at least MIN_INTRON nt long and read GT...AG or GC...AG on the ORF strand.
+    """
+    global n_bad_splice
+    for s, e in _introns(segs) - _introns(orf.segments):
+        seq = str(genome[orf.contig][s:e]).upper()
+        if orf.strand == "-":
+            seq = _rev_comp(seq)
+        if e - s < MIN_INTRON or seq[:2] not in DONORS or seq[-2:] != "AG":
+            n_bad_splice += 1
+            return False
+    return True
+
+
+def _upstream_ext(
+    mp_segs: list[tuple[int, int]], strand: str, atg_pos: int, orf_first: int, orf_last: int,
+) -> list[tuple[int, int]] | None:
+    """CDS segments from the ATG at atg_pos to the ORF, along the miniprot exons.
+
+    An ATG upstream of the alignment's 5' end is joined to its first exon
+    without an intron; an ATG that is not inside a miniprot exon (it lies in
+    one of its introns) gives None.
+    """
+    atg_end = atg_pos + 3
+    if strand == "+":
+        ext = [(max(s, atg_pos), min(e, orf_first))
+               for s, e in mp_segs if s < orf_first and e > atg_pos]
+        if atg_pos < mp_segs[0][0]:
+            ext.append((atg_pos, mp_segs[0][0]))
+    else:
+        ext = [(max(s, orf_last), min(e, atg_end))
+               for s, e in mp_segs if e > orf_last and s < atg_end]
+        if atg_end > mp_segs[-1][1]:
+            ext.append((mp_segs[-1][1], atg_end))
+    ext = _merge_adjacent([(s, e) for s, e in ext if s < e])
+    if not any(s <= atg_pos and atg_end <= e for s, e in ext):
+        return None
+    return ext
+
+
 def _merge_adjacent(segs: list[tuple[int, int]]) -> list[tuple[int, int]]:
     if not segs:
         return []
@@ -407,6 +464,10 @@ def _build_extended(
 
     For + strand:
       ext_boundary = last CDS end (partial) or last CDS end − 3 (complete).
+                  If it lies in a miniprot intron whose donor is in the ORF's
+                  last exon, the ORF read into that intron (a retained intron
+                  or a transcript that ends in it): ext_boundary moves back to
+                  the donor, so the CDS splices with the protein.
       ORF base: orf_segs clipped to ext_boundary.
       Extension:  mp_segs starting at or past ext_boundary.
       Gap fill:   codons between mp_last_end and stop_pos (when stop is further
@@ -414,7 +475,8 @@ def _build_extended(
       Stop codon: (stop_pos, stop_pos + 3).
 
     For − strand (mirrored):
-      ext_boundary = first CDS start (partial) or first CDS start + 3 (complete).
+      ext_boundary = first CDS start (partial) or first CDS start + 3 (complete),
+                  moved up to the miniprot donor in the same way.
       ORF base: orf_segs at or above ext_boundary.
       Extension:  mp_segs ending at or before ext_boundary.
       Gap fill:   codons between stop_pos+3 and mp_first_start.
@@ -432,6 +494,12 @@ def _build_extended(
         if stop_end - orf_last > max_extension:
             return None
 
+        last_exon_start = max(orf_segs)[0]
+        for (_, donor), (acceptor, _) in zip(mp_segs, mp_segs[1:]):
+            if donor < ext_boundary < acceptor and donor > last_exon_start:
+                ext_boundary = donor
+                break
+
         base = [(s, min(e, ext_boundary)) for s, e in orf_segs if s < ext_boundary]
         base = [(s, e) for s, e in base if s < e]
         ext = [(max(s, ext_boundary), e) for s, e in mp_segs if e > ext_boundary]
@@ -448,6 +516,12 @@ def _build_extended(
 
         if orf_first - stop_pos > max_extension:
             return None
+
+        first_exon_end = min(orf_segs)[1]
+        for (_, acceptor), (donor, _) in zip(mp_segs, mp_segs[1:]):
+            if acceptor < ext_boundary < donor and donor < first_exon_end:
+                ext_boundary = donor
+                break
 
         base = [(max(s, ext_boundary), e) for s, e in orf_segs if e > ext_boundary]
         base = [(s, e) for s, e in base if s < e]
@@ -630,7 +704,7 @@ def try_fix(
             orf, mp_alns, hint_index, genome, contig_lens,
             max_extension, max_stop_scan,
         )
-        if new_segs is not None:
+        if new_segs is not None and splice_sites_ok(new_segs, orf, genome):
             return new_segs, True
 
     # ── (2) raw miniprot CDS path ─────────────────────────────────────────────
@@ -662,7 +736,7 @@ def try_fix(
             orf.segments, mp.cds_segments,
             not orf.is_partial, orf.strand, max_extension, sp,
         )
-        if new_segs is not None:
+        if new_segs is not None and splice_sites_ok(new_segs, orf, genome):
             return new_segs, False
 
     return None, False
@@ -703,13 +777,13 @@ def try_fix_5prime(
             if atg_pos is None or atg_pos >= orf_first:
                 continue
             # Build extension using miniprot exon structure from atg_pos to orf_first
-            ext = [(max(s, atg_pos), min(e, orf_first))
-                   for s, e in mp.cds_segments if s < orf_first and e > atg_pos]
-            ext = [(s, e) for s, e in ext if s < e]
-            new_segs = _merge_adjacent(ext + list(orf.segments))
-            if not new_segs:
+            ext = _upstream_ext(mp.cds_segments, "+", atg_pos, orf_first, orf_last)
+            if ext is None:
                 continue
+            new_segs = _merge_adjacent(ext + list(orf.segments))
             if sum(e - s for s, e in new_segs) % 3 != 0:
+                continue
+            if not splice_sites_ok(new_segs, orf, genome):
                 continue
             return new_segs
 
@@ -729,14 +803,13 @@ def try_fix_5prime(
             )
             if atg_pos is None or atg_pos + 3 <= orf_last:
                 continue
-            atg_end = atg_pos + 3
-            ext = [(max(s, orf_last), min(e, atg_end))
-                   for s, e in mp.cds_segments if e > orf_last and s < atg_end]
-            ext = [(s, e) for s, e in ext if s < e]
-            new_segs = _merge_adjacent(list(orf.segments) + ext)
-            if not new_segs:
+            ext = _upstream_ext(mp.cds_segments, "-", atg_pos, orf_first, orf_last)
+            if ext is None:
                 continue
+            new_segs = _merge_adjacent(list(orf.segments) + ext)
             if sum(e - s for s, e in new_segs) % 3 != 0:
+                continue
+            if not splice_sites_ok(new_segs, orf, genome):
                 continue
             return new_segs
 
@@ -770,8 +843,9 @@ def try_fix_start_with_hints(
     if not all_starts:
         return None
 
+    orf_first = min(s for s, _ in orf.segments)
+    orf_last = max(e for _, e in orf.segments)
     if strand == "+":
-        orf_first = min(s for s, _ in orf.segments)
         candidates_mp = sorted(
             [m for m in overlapping if m.cds_segments[0][0] < orf_first],
             key=lambda m: m.cds_segments[0][0],
@@ -789,18 +863,17 @@ def try_fix_start_with_hints(
             # Best score first; ties: prefer closest to mp 5' boundary
             hint_candidates.sort(key=lambda x: (-x[1], abs(x[0] - mp_cds_start)))
             for atg_pos, _ in hint_candidates:
-                ext = [(max(s, atg_pos), min(e, orf_first))
-                       for s, e in mp.cds_segments if s < orf_first and e > atg_pos]
-                ext = [(s, e) for s, e in ext if s < e]
-                new_segs = _merge_adjacent(ext + list(orf.segments))
-                if not new_segs:
+                ext = _upstream_ext(mp.cds_segments, "+", atg_pos, orf_first, orf_last)
+                if ext is None:
                     continue
+                new_segs = _merge_adjacent(ext + list(orf.segments))
                 if sum(e - s for s, e in new_segs) % 3 != 0:
+                    continue
+                if not splice_sites_ok(new_segs, orf, genome):
                     continue
                 return new_segs
 
     else:  # "-"
-        orf_last = max(e for _, e in orf.segments)
         candidates_mp = sorted(
             [m for m in overlapping if m.cds_segments[-1][1] > orf_last],
             key=lambda m: m.cds_segments[-1][1], reverse=True,
@@ -818,14 +891,13 @@ def try_fix_start_with_hints(
                 continue
             hint_candidates.sort(key=lambda x: (-x[1], abs(x[0] - mp_5prime_codon)))
             for atg_pos, _ in hint_candidates:
-                atg_end = atg_pos + 3
-                ext = [(max(s, orf_last), min(e, atg_end))
-                       for s, e in mp.cds_segments if e > orf_last and s < atg_end]
-                ext = [(s, e) for s, e in ext if s < e]
-                new_segs = _merge_adjacent(list(orf.segments) + ext)
-                if not new_segs:
+                ext = _upstream_ext(mp.cds_segments, "-", atg_pos, orf_first, orf_last)
+                if ext is None:
                     continue
+                new_segs = _merge_adjacent(list(orf.segments) + ext)
                 if sum(e - s for s, e in new_segs) % 3 != 0:
+                    continue
+                if not splice_sites_ok(new_segs, orf, genome):
                     continue
                 return new_segs
 
@@ -916,7 +988,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--max-start-scan", type=int, default=30,
                     help="Max nt to scan in-frame upstream from the miniprot "
                          "5' boundary when searching for an ATG (default 30). "
-                         "Only used with --fix-starts.")
+                         "Used with --fix-starts and for --partial5 ORFs.")
     return ap.parse_args(argv)
 
 
@@ -1062,7 +1134,7 @@ def main(argv: list[str] | None = None) -> int:
             overlapping = find_overlapping(orf, mp_index, args.min_overlap_frac)
             new_segs = clean(try_fix_5prime(
                 orf, overlapping, genome, contig_lens,
-                args.max_extension, args.max_stop_scan,
+                args.max_extension, args.max_start_scan,
             ), orf)
             if new_segs is not None:
                 lines = _gtf_lines(
@@ -1092,7 +1164,8 @@ def main(argv: list[str] | None = None) -> int:
         f"{n_complete_unchanged} unchanged.{start_note}\n"
         f"Partial ORFs  : {n_partial_recovered} recovered{hint_note}, "
         f"{n_partial_dropped} dropped (no protein support).{partial5_note}\n"
-        f"Corrections dropped for an in-frame stop codon: {n_internal_stop}.",
+        f"Corrections dropped for an in-frame stop codon: {n_internal_stop}.\n"
+        f"Candidate corrections rejected for a non-canonical new intron: {n_bad_splice}.",
         file=sys.stderr,
     )
     print(f"Output: {args.out}", file=sys.stderr)

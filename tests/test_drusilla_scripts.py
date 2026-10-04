@@ -116,6 +116,98 @@ def test_has_internal_stop_reads_the_minus_strand(tmp_path: Path):
     assert not fs.has_internal_stop([(0, 9)], "c2", "-", genome)
 
 
+@pytest.mark.parametrize("intron, written", [
+    ("GT" + "A" * 96 + "AG", True),
+    ("C" * 100, False),                        # neither GT nor AG: no CDS across it
+])
+def test_extension_introns_need_canonical_splice_sites(tmp_path: Path, intron: str, written: bool):
+    """Partial ORF [0,300) joined to the miniprot exon [400,550): new intron [300,400)."""
+    pytest.importorskip("pyfaidx")
+    genome = "ATG" + "GCT" * 99 + intron + "GCT" * 50 + "TAA" + "GCT" * 20
+    (tmp_path / "g.fa").write_text(">c1\n" + genome + "\n")
+    (tmp_path / "orfs.gtf").write_text("")
+    (tmp_path / "partial.gtf").write_text('c1\tDrusilla\tCDS\t1\t300\t.\t+\t0\ttranscript_id "t1"; gene_id "t1";\n')
+    (tmp_path / "mp.gff").write_text(
+        "c1\tminiprot\tmRNA\t1\t550\t90\t+\t.\tID=MP1;Identity=0.9;StopCodon=0\n"
+        "c1\tminiprot\tCDS\t1\t300\t90\t+\t0\tParent=MP1\n"
+        "c1\tminiprot\tCDS\t401\t550\t90\t+\t0\tParent=MP1\n"
+    )
+    out = tmp_path / "out.gtf"
+    proc = run("fix_stop_by_miniprot.py", "--orfs", "orfs.gtf", "--partial", "partial.gtf",
+               "--miniprot", "mp.gff", "--genome", "g.fa", "--out", str(out), cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    got = [(r[3], r[4]) for r in rows(out.read_text())]
+    if written:
+        assert got == [("1", "300"), ("401", "553")]
+        assert "non-canonical new intron: 0" in proc.stderr
+    else:
+        assert got == []
+        assert "non-canonical new intron: 1" in proc.stderr
+
+
+def _rc_segs(segs, length):
+    return [(length - e, length - s) for s, e in segs]
+
+
+@pytest.mark.parametrize("strand", ["+", "-"])
+def test_stop_fix_splices_a_retained_intron_at_the_miniprot_donor(tmp_path: Path, strand: str):
+    """+ strand: exon [0,150), intron [150,250) with TAA in frame at 177, exon [250,400), TAA.
+
+    The complete ORF [0,180) reads into the intron to the TAA. The fix must use
+    the miniprot intron, not one that starts at the spurious stop (TA...AG).
+    """
+    pyfaidx = pytest.importorskip("pyfaidx")
+    fs = load("fix_stop_by_miniprot")
+    intron = "GT" + "C" * 25 + "TAA" + "C" * 68 + "AG"
+    plus = "ATG" + "GCT" * 49 + intron + "GCT" * 50 + "TAA" + "GCT" * 20
+    seq, orf_segs, mp_segs, want = plus, [(0, 180)], [(0, 150), (250, 400)], [(0, 150), (250, 403)]
+    if strand == "-":
+        n = len(plus)
+        seq = fs._rev_comp(plus)
+        orf_segs, mp_segs, want = (sorted(_rc_segs(x, n)) for x in (orf_segs, mp_segs, want))
+    (tmp_path / "g.fa").write_text(">c1\n" + seq + "\n")
+    genome = pyfaidx.Fasta(str(tmp_path / "g.fa"), as_raw=True, sequence_always_upper=True)
+    orf = fs.ORF("t1", "c1", strand, False, "Drusilla")
+    orf.segments = orf_segs
+    mp = fs.MpAlignment("MP1", "c1", strand, 0.9, False)
+    mp.cds_segments = mp_segs
+    got, via_hints = fs.try_fix(orf, [mp], genome, {"c1": len(seq)}, 5000, 30)
+    assert got == want and not via_hints
+    assert not fs.has_internal_stop(got, "c1", strand, genome)
+
+
+@pytest.mark.parametrize("strand", ["+", "-"])
+def test_start_fix_begins_with_the_atg_upstream_of_the_alignment(tmp_path: Path, strand: str):
+    """+ strand: ATG at 90, miniprot CDS starts at 96, ORF [150,300) ends with TAA."""
+    pyfaidx = pytest.importorskip("pyfaidx")
+    fs = load("fix_stop_by_miniprot")
+    plus = "C" * 90 + "ATG" + "GCT" * 68 + "TAA" + "C" * 30
+    seq, orf_segs, mp_segs, want = plus, [(150, 300)], [(96, 150)], [(90, 300)]
+    if strand == "-":
+        n = len(plus)
+        seq = fs._rev_comp(plus)
+        orf_segs, mp_segs, want = (_rc_segs(x, n) for x in (orf_segs, mp_segs, want))
+    (tmp_path / "g.fa").write_text(">c1\n" + seq + "\n")
+    genome = pyfaidx.Fasta(str(tmp_path / "g.fa"), as_raw=True, sequence_always_upper=True)
+    orf = fs.ORF("t1", "c1", strand, False, "Drusilla")
+    orf.segments = orf_segs
+    mp = fs.MpAlignment("MP1", "c1", strand, 0.9, False)
+    mp.cds_segments = mp_segs
+    got = fs.try_fix_5prime(orf, [mp], genome, {"c1": len(seq)}, 5000, 30)
+    assert got == want
+    assert fs.cds_sequence(got, "c1", strand, genome).startswith("ATG")
+
+
+def test_start_codon_in_a_miniprot_intron_is_not_used():
+    pytest.importorskip("pyfaidx")
+    fs = load("fix_stop_by_miniprot")
+    mp = [(100, 200), (300, 400)]
+    assert fs._upstream_ext(mp, "+", 250, 450, 600) is None
+    assert fs._upstream_ext(mp, "+", 150, 450, 600) == [(150, 200), (300, 400)]
+    assert fs._upstream_ext(mp, "-", 250, 0, 50) is None
+    assert fs._upstream_ext(mp, "-", 150, 0, 50) == [(100, 153)]
+
+
 # ---------------------------------------------------------------- apply_lgb_model_gtf.py
 
 # feature_names of the released model drusilla_lgb_3class_v1, in model order
