@@ -158,14 +158,10 @@ def hcMethod(p, String mode) {
 // Header keys (#key=value lines) of a pyVARUS manifest; '# ' lines are comments.
 def varusHeader(f) {
     def header = [:]
-    f.withReader { r ->
-        String line
-        while( (line = r.readLine()) != null ) {
-            if( line.startsWith('# ') || !line.trim() ) continue
-            if( !line.startsWith('#') ) break
-            def i = line.indexOf('=')
-            if( i > 1 ) header[line.substring(1, i)] = line.substring(i + 1)
-        }
+    def lines = f.readLines().findAll { line -> line.trim() && !line.startsWith('# ') }
+    lines.takeWhile { line -> line.startsWith('#') }.each { line ->
+        def i = line.indexOf('=')
+        if( i > 1 ) header[line.substring(1, i)] = line.substring(i + 1)
     }
     return header
 }
