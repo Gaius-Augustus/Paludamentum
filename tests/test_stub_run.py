@@ -188,6 +188,22 @@ def test_existing_result_is_reused(tmp_path: Path) -> None:
     assert "vipsania_evidence.gff3" in published
 
 
+@pytest.mark.parametrize("tool", ["tiberius", "vipsania"])
+def test_existing_gff3_result_without_model(tool: str, tmp_path: Path) -> None:
+    """A GFF3 of the gene finder is enough: no model, no gene finder task, in every mode."""
+    result = tmp_path / "previous.gff3"
+    result.write_text("##gff-version 3\n")
+    finder = {tool: {"run": True, "result": str(result)}}
+    proc, published = run_pipeline(tmp_path, finder)
+    assert_ok(proc)
+    assert f"RUN_{tool.upper()}" not in proc.stdout and "SPLIT_GENOME" not in proc.stdout
+    assert expected_outputs(tool, "abinitio") <= published
+    proc, published = run_pipeline(tmp_path, {**finder, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert f"RUN_{tool.upper()}" not in proc.stdout and "DOWNLOAD_" not in proc.stdout
+    assert expected_outputs(tool, "rnaseq") <= published
+
+
 def test_evidence_without_gene_finder(tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, PROTEINS)
     assert_ok(proc)

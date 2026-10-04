@@ -85,7 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument("--scoring_matrix", help="Scoring matrix CSV for miniprot-boundary-scorer.")
 
     finder = parser.add_argument_group("Gene finder (both)")
-    finder.add_argument("--result", help="Existing prediction (GTF/GFF3) to use instead of running the gene finder.")
+    finder.add_argument("--result", help="Existing Tiberius or Vipsania prediction (GFF3 or GTF) to use instead of running the gene "
+                             "finder; no model option is needed. With --genefinder vipsania for a Vipsania file.")
     finder.add_argument("--min_split_size", type=int, help="Minimal size in bp of a genome chunk.")
     finder.add_argument("--max_files", type=int, help="Maximal number of genome chunks.")
     finder.add_argument("--max_parallel", type=int, help="Cap of concurrently running gene finder tasks.")

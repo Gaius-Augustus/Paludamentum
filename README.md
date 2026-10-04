@@ -23,6 +23,7 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 - [Inputs and modes](#inputs-and-modes)
 - [Outputs](#outputs)
 - [Gene finders](#gene-finders)
+  - [Existing predictions](#existing-predictions)
 - [Drusilla flow](#drusilla-flow)
 - [Containers and HPC](#containers-and-hpc)
 - [Documentation](#documentation)
@@ -40,7 +41,10 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 The numbers in the figure are the steps below.
 
 1. **_Ab initio_ prediction.** The genome is split into chunks, the gene finder
-   runs on each chunk on a GPU, and the chunk predictions are merged.
+   runs on each chunk on a GPU, and the chunk predictions are merged. If you
+   already have a Tiberius or Vipsania prediction, pass it with `--result`
+   and this step is skipped, see
+   [Existing predictions](#existing-predictions).
 2. **Protein evidence.** Proteins (your FASTA files and/or OrthoDB v12
    partitions) are aligned with miniprot, scored with
    miniprot-boundary-scorer, and converted to hints with miniprothint. For
@@ -109,6 +113,10 @@ paludamentum --params_yaml params.yaml --nf_config slurm_generic
 # Vipsania with evidence, inputs on the command line
 paludamentum --genefinder vipsania --nf_config local --genome genome.fa --model Fungi \
     --proteins proteins.faa --rnaseq_paired "/abs/path/rnaseq/*_{1,2}.fastq.gz"
+
+# Evidence for an existing Tiberius prediction (GFF3 or GTF); the gene finder does not run
+paludamentum --nf_config local --genome genome.fa --result tiberius.gff3 \
+    --proteins proteins.faa --rnaseq_paired "/abs/path/rnaseq/*_{1,2}.fastq.gz"
 ```
 
 `--nf_config` takes a path or the name of a config in `conf/`
@@ -148,6 +156,7 @@ Paths must not contain spaces. All parameters are documented in
 | Parameter | Content |
 | --- | --- |
 | `genome` | genome FASTA, optionally gzipped (required) |
+| `tiberius.result`, `vipsania.result` (`--result`) | existing prediction of the gene finder, GFF3 or GTF, used instead of running it, see [Existing predictions](#existing-predictions) |
 | `proteins` | one protein FASTA or a list; lists are concatenated |
 | `odb12Partitions` | OrthoDB v12 partitions to download: `Metazoa`, `Vertebrata`, `Viridiplantae`, `Arthropoda`, `Fungi`, `Alveolata`, `Stramenopiles`, `Amoebozoa`, `Euglenozoa`, `Eukaryota` |
 | `rnaseq_paired`, `rnaseq_single` | short read FASTQ files (glob or list) |
@@ -207,6 +216,49 @@ gene finder runs per pipeline run.
 Model weights are downloaded once on the submitting host, so the GPU nodes
 need no internet; `model_dir` takes weights that you downloaded yourself.
 Vipsania finetuning on the target genome is off by default (`--finetune`).
+
+### Existing predictions
+
+If the genome is already annotated with Tiberius or Vipsania, give that
+file to the pipeline instead of predicting again. The file may be the GFF3
+or the GTF that `tiberius.py` or `vipsania annotate` wrote, or the
+`<tool>_ab_initio.gff3` of an earlier Paludamentum run. It must belong to
+the genome FASTA of this run (same sequence names).
+
+```bash
+# Tiberius prediction
+paludamentum --nf_config local --genome genome.fa --result tiberius.gff3 \
+    --proteins proteins.faa --rnaseq_paired "/abs/path/rnaseq/*_{1,2}.fastq.gz"
+
+# Vipsania prediction
+paludamentum --genefinder vipsania --nf_config local --genome genome.fa --result vipsania.gff \
+    --proteins proteins.faa --isoseq isoseq.fastq.gz
+```
+
+In a params file the option is `result` in the block of the gene finder:
+
+```yaml
+tiberius:
+  run: true
+  result: /abs/path/tiberius.gff3
+```
+
+All other steps run as usual, and the outputs are the same as in a run that
+predicts itself. No model option is needed, and the gene finder does not
+run. Notes:
+
+- `--genefinder` names the gene finder that made the file (default:
+  Tiberius). It sets the names of the output files (`tiberius_*`,
+  `vipsania_*`).
+- For a prediction of a vertebrate model, name the model as well
+  (`--model_cfg vertebrates` for Tiberius, `--model Vertebrata` for
+  Vipsania). The model is not run; it tells the pipeline to use the
+  [Drusilla flow](#drusilla-flow). Without it, runs with transcripts use the
+  TransDecoder HC genes. The hint rescue of the Drusilla flow runs Tiberius
+  on a GPU; all other steps of a run with `--result` need no GPU.
+- The pipeline renames the genes and transcripts of the file
+  (`gene_000001`, `gene_000001.t1`, ...) and reads its `exon`, `CDS` and UTR
+  features.
 
 ## Drusilla flow
 

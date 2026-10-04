@@ -548,6 +548,19 @@ def test_build_params_explicit_genefinder_and_result(tmp_path: Path, monkeypatch
     assert params["tiberius"] == {"run": True, "result": str(tmp_path / "old.gtf")}   # no model_cfg needed
 
 
+@needs_tiberius
+def test_build_params_result_with_model_name(tmp_path: Path, monkeypatch):
+    """The model of an existing prediction selects the Drusilla flow, so its name is resolved to the file."""
+    monkeypatch.chdir(tmp_path)
+    _, path = launcher.build_params(cli_args(
+        "--genome", str(DATA / "tiny.fa"), "--result", "old.gff3", "--model_cfg", "vertebrates",
+    ))
+    cfg = yaml.safe_load(path.read_text())["tiberius"]
+    assert cfg["result"] == str(tmp_path / "old.gff3")
+    assert cfg["model_cfg"] == str(launcher.resolve_model_cfg("vertebrates"))
+    assert Path(cfg["model_cfg"]).is_file()
+
+
 def test_genefinder_option_overrides_the_params_file(tmp_path: Path, monkeypatch):
     """--genefinder vipsania with a Tiberius params file runs Vipsania, and only Vipsania."""
     monkeypatch.chdir(tmp_path)
