@@ -35,7 +35,10 @@ scripts in `bin/` are not part of an image. Nextflow adds `bin/` to the
 
 Images are pulled once into `~/.cache/paludamentum/singularity` and shared by
 all runs. Set `NXF_SINGULARITY_CACHEDIR`, or `singularity.cacheDir` in your
-config, to use another directory (the Tiberius image is about 11 GB).
+config, to use another directory. Compressed sizes on Docker Hub: Tiberius
+9.4 GB, Vipsania 9.4 GB, Drusilla 9.4 GB, hint rescue 9.6 GB, evidence tools
+0.25 GB. Most of a GPU image is its NGC TensorFlow base, so a run of the
+Drusilla flow pulls about 29 GB (Tiberius, Drusilla, hint rescue, evidence).
 
 The Tiberius, Vipsania and Drusilla images are built on NVIDIA's NGC
 TensorFlow image 25.02 (TensorFlow 2.17, CUDA 12.8) and run on NVIDIA GPUs up

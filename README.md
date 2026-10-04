@@ -236,8 +236,9 @@ Conditions, steps, parameters and known issues are in
 
 All tools and gene finders run in Singularity/Apptainer images that are
 pinned in [conf/base.config](conf/base.config) and pulled once into
-`~/.cache/paludamentum/singularity` (the Tiberius image is about 11 GB). The
-images are listed in [docs/containers.md](docs/containers.md).
+`~/.cache/paludamentum/singularity` (each gene finder image is about 9.4 GB,
+the evidence image 0.25 GB). The images are listed in
+[docs/containers.md](docs/containers.md).
 
 `--nf_config` takes a path or the name of a config in `conf/`:
 `local` runs everything on one machine, `slurm_generic` is a starting point
