@@ -393,11 +393,107 @@ def test_drusilla_flow_not_used_for_other_models(tmp_path: Path) -> None:
     assert "intermediate/hc.gff3" in published
 
 
+def hc_table(tmp_path: Path, clades: dict, orf_finder: str = "td2") -> str:
+    """An HC table (conf/hc_genes.yaml format) for params.hc_table."""
+    table = tmp_path / "hc_genes.yaml"
+    table.write_text(yaml.safe_dump({"orf_finder": orf_finder, "clades": clades}))
+    return str(table)
+
+
 def test_drusilla_flow_needs_the_lgb_model(tmp_path: Path) -> None:
-    proc, published = run_pipeline(tmp_path, {**drusilla_params(tmp_path, "tiberius", lgb=False), **EVIDENCE["rnaseq"]})
+    """hc: drusilla without a LightGBM model in the table or the params: TransDecoder flow."""
+    table = hc_table(tmp_path, {"Vertebrata": {"hc": "drusilla", "drusilla_model": "vertebrates"}})
+    params = {**drusilla_params(tmp_path, "tiberius", lgb=False), "hc_table": table}
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
     assert_ok(proc)
-    assert "params.drusilla.lgb_model is not set" in proc.stdout
+    assert "no LightGBM model (params.drusilla.lgb_model)" in proc.stdout
+    assert "HC genes    : transdecoder (clade Vertebrata, ORF finder td2)" in proc.stdout
     assert "intermediate/hc.gff3" in published
+
+
+def test_hc_table_released_models_for_vertebrates(tmp_path: Path) -> None:
+    """Without drusilla params, conf/hc_genes.yaml gives the Drusilla and LightGBM models."""
+    params = {**drusilla_params(tmp_path, "tiberius"), "drusilla": {}}
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HC genes    : drusilla (clade Vertebrata, Drusilla model vertebrates)" in proc.stdout
+    assert "intermediate/drusilla_orfs.gtf" in published
+
+
+@pytest.mark.parametrize("tool,model,clade", [
+    ("tiberius", "Insecta", "Insecta"),
+    ("vipsania", "Fungi", "Fungi"),
+    ("vipsania", "fh1kg88z", "fh1kg88z"),
+], ids=["tiberius-insecta", "vipsania-fungi", "vipsania-model-id"])
+def test_other_clades_get_td2(tool: str, model: str, clade: str, tmp_path: Path) -> None:
+    if tool == "tiberius":
+        cfg = tmp_path / "insecta.yaml"
+        cfg.write_text(f"target_species: {model}\n")
+        params = {"tiberius": {"run": True, "model_cfg": str(cfg)}}
+    else:
+        params = {"vipsania": {"run": True, "model": model}}
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert f"HC genes    : transdecoder (clade {clade}, ORF finder td2)" in proc.stdout
+    assert "TD_ALL" in proc.stdout and "DRUSILLA" not in proc.stdout
+    assert "intermediate/hc.gff3" in published
+
+
+def test_transdecoder_param_overrides_the_table(tmp_path: Path) -> None:
+    params = {**GENEFINDER["vipsania"], "transdecoder": "td1", **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "HC genes    : transdecoder (clade Fungi, ORF finder td1)" in proc.stdout
+
+
+def test_transdecoder_param_is_checked(tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, {**GENEFINDER["vipsania"], "transdecoder": "td3", **EVIDENCE["rnaseq"]})
+    assert proc.returncode != 0
+    assert "must be 'td1' or 'td2'" in proc.stdout + proc.stderr
+
+
+def test_hc_table_adds_a_drusilla_clade(tmp_path: Path) -> None:
+    """A clade added to the table with hc: drusilla gets the Drusilla flow and its models."""
+    lgb = tmp_path / "insect_lgb.tar.gz"
+    lgb.write_text("")
+    table = hc_table(tmp_path, {
+        "Insecta": {"hc": "drusilla", "drusilla_model": "insects", "lgb_model": str(lgb), "lgb_model_sha256": None},
+        "Fungi": {"hc": "transdecoder", "orf_finder": "td1"},
+    })
+    cfg = tmp_path / "insecta.yaml"
+    cfg.write_text("target_species: Insecta\n")
+    params = {"tiberius": {"run": True, "model_cfg": str(cfg)}, "hc_table": table}
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HC genes    : drusilla (clade Insecta, Drusilla model insects)" in proc.stdout
+    assert "intermediate/drusilla_orfs.gtf" in published
+    # a clade's own orf_finder, and the vertebrates of conf/hc_genes.yaml are gone from this table
+    (tmp_path / "fungi").mkdir()
+    (tmp_path / "vert").mkdir()
+    proc, _ = run_pipeline(tmp_path / "fungi", {**GENEFINDER["vipsania"], "hc_table": table, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HC genes    : transdecoder (clade Fungi, ORF finder td1)" in proc.stdout
+    proc, _ = run_pipeline(tmp_path / "vert", {**drusilla_params(tmp_path, "vipsania", lgb=False), "hc_table": table,
+                                               **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HC genes    : transdecoder (clade etb1go6q, ORF finder td2)" in proc.stdout
+
+
+def test_drusilla_forced_uses_the_drusilla_forced_clade(tmp_path: Path) -> None:
+    """drusilla.run = true on a clade without Drusilla models: those of drusilla_forced (Vertebrata)."""
+    params = {**GENEFINDER["vipsania"], "drusilla": {"run": True}, **EVIDENCE["rnaseq"]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "HC genes    : drusilla (clade Fungi, Drusilla model vertebrates)" in proc.stdout
+    assert "intermediate/drusilla_orfs.gtf" in published
+
+
+def test_drusilla_forced_needs_models_for_the_clade(tmp_path: Path) -> None:
+    table = hc_table(tmp_path, {"Vertebrata": {"hc": "drusilla", "drusilla_model": "vertebrates"}})
+    params = {**GENEFINDER["vipsania"], "drusilla": {"run": True}, "hc_table": table, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert proc.returncode != 0
+    assert "the HC table has none for clade Fungi" in proc.stdout + proc.stderr
 
 
 def test_drusilla_flow_can_be_switched_off(tmp_path: Path) -> None:

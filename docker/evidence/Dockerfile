@@ -1,6 +1,6 @@
 # Image of the Paludamentum evidence tools: every process with the label
 # 'container' (StringTie, HISAT2, minimap2, miniprot, miniprothint, DIAMOND,
-# TransDecoder, bam2hints, SRA downloads, the scripts in bin/). Tiberius runs
+# TransDecoder, TD2, bam2hints, SRA downloads, the scripts in bin/). Tiberius runs
 # in the Tiberius image (label 'tiberius'), Vipsania, Drusilla and the hint
 # rescue in theirs.
 #
@@ -11,8 +11,12 @@
 # apt packages are pinned to its versions.
 #
 # Build (no build context is needed) and tag with the version below:
-#   docker build -t gaiusaugustus/paludamentum-evidence:0.1.0 - < docker/evidence/Dockerfile
-#   docker push gaiusaugustus/paludamentum-evidence:0.1.0
+#   docker build -t gaiusaugustus/paludamentum-evidence:0.2.0 - < docker/evidence/Dockerfile
+#   docker push gaiusaugustus/paludamentum-evidence:0.2.0
+#
+# 0.2.0: TD2 1.1.0 (the ORF finder of the TransDecoder flow by default, see
+# conf/hc_genes.yaml) with psauron 1.1.3 and the CPU build of PyTorch 2.14.0,
+# the versions of docs/orf_finder_comparison.md.
 
 # ---------------------------------------------------------------- build stage
 FROM ubuntu:24.04 AS build
@@ -120,9 +124,21 @@ RUN python3 -m venv /opt/venv && \
         "pandas==2.2.3" \
         "pyyaml==6.0.2"
 
+# TD2 in its own venv, so that its dependencies do not change the packages of
+# the bin/ scripts; only TD2.LongOrfs and TD2.Predict go on PATH
+RUN python3 -m venv /opt/td2-venv && \
+    /opt/td2-venv/bin/pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --extra-index-url https://pypi.org/simple \
+        "torch==2.14.0+cpu" \
+        "psauron==1.1.3" \
+        "TD2==1.1.0" && \
+    mkdir -p /opt/td2/bin && \
+    ln -s /opt/td2-venv/bin/TD2.LongOrfs /opt/td2-venv/bin/TD2.Predict /opt/td2/bin/
+
 COPY --from=build /opt/ /opt/
 
-ENV PATH=/opt/venv/bin:/opt/miniprot:/opt/miniprot-boundary-scorer:/opt/miniprothint:/opt/augustus/bin:/opt/TransDecoder-TransDecoder-v5.7.1:/opt/TransDecoder-TransDecoder-v5.7.1/util:/opt/stringtie-3.0.3.Linux_x86_64:/opt/minimap2-2.30_x64-linux:/opt/gffread-0.12.7.Linux_x86_64:/opt/sratoolkit.3.3.0-ubuntu64/bin:${PATH}
+ENV PATH=/opt/venv/bin:/opt/td2/bin:/opt/miniprot:/opt/miniprot-boundary-scorer:/opt/miniprothint:/opt/augustus/bin:/opt/TransDecoder-TransDecoder-v5.7.1:/opt/TransDecoder-TransDecoder-v5.7.1/util:/opt/stringtie-3.0.3.Linux_x86_64:/opt/minimap2-2.30_x64-linux:/opt/gffread-0.12.7.Linux_x86_64:/opt/sratoolkit.3.3.0-ubuntu64/bin:${PATH}
 
 # Fail the build if a tool is missing or not the pinned version
 RUN set -e; \
@@ -139,6 +155,9 @@ RUN set -e; \
     miniprothint.py --help > /dev/null; \
     test -x /opt/augustus/bin/bam2hints; \
     TransDecoder.LongOrfs --version | grep -q '5.7.1'; \
+    /opt/td2-venv/bin/python -c "from importlib.metadata import version as v; assert (v('td2'), v('psauron'), v('torch')) == ('1.1.0', '1.1.3', '2.14.0+cpu'), (v('td2'), v('psauron'), v('torch'))"; \
+    TD2.LongOrfs --help > /dev/null; \
+    TD2.Predict --help > /dev/null; \
     for s in gtf_genome_to_cdna_fasta.pl cdna_alignment_orf_to_genome_orf.pl gtf_to_alignment_gff3.pl; do command -v $s > /dev/null; done; \
     perl -MURI::Escape -e 1; \
     python3 -c "import Bio, numpy, pandas, yaml; print('biopython', Bio.__version__, 'numpy', numpy.__version__, 'pandas', pandas.__version__, 'pyyaml', yaml.__version__)"

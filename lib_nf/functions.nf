@@ -84,20 +84,73 @@ def tiberiusTargetSpecies(cfg) {
     return tiberiusModelValue(cfg, 'target_species')
 }
 
-// True if the selected gene finder model is one that the Drusilla flow serves:
-// Tiberius models with target_species Vertebrata or Mammalia (vertebrates,
-// mammalia*), Vipsania Vertebrata (etb1go6q). Drusilla's released model and
-// the LightGBM filter are trained on vertebrates.
-def drusillaModelEligible(p) {
+// HC gene step per clade (params.hc_table, conf/hc_genes.yaml): orf_finder and
+// clades (clade name -> hc, drusilla_model, lgb_model, lgb_model_sha256,
+// orf_finder, vipsania_models).
+def hcTable(p) {
+    def path = p.hc_table?.toString()?.trim() ?: "${projectDir}/conf/hc_genes.yaml"
+    def f = file(path)
+    if( !f.exists() ) error "params.hc_table: ${path} not found."
+    def data = new org.yaml.snakeyaml.Yaml().load(f.text)
+    if( !(data instanceof Map) ) error "params.hc_table: ${path} is not a YAML mapping."
+    return data
+}
+
+// Clade of the gene finder model in the HC table: [name: the clade (the table's
+// spelling when listed), entry: its table entry, or null when not listed].
+// Tiberius: target_species of the model configuration. Vipsania: the model,
+// a clade name or one of the clade's vipsania_models. Case is ignored.
+def hcClade(p) {
     def gf = resolveGenefinder(p)
-    if( gf == 'tiberius' ) {
-        def cfg = p.tiberius?.model_cfg
-        return cfg && tiberiusTargetSpecies(cfg)?.toLowerCase() in ['vertebrata', 'mammalia']
+    def name = null
+    if( gf == 'tiberius' && p.tiberius?.model_cfg ) name = tiberiusTargetSpecies(p.tiberius.model_cfg)
+    else if( gf == 'vipsania' ) name = p.vipsania?.model?.toString()?.trim() ?: null
+    if( !name ) return [name: null, entry: null]
+    def key = name.toLowerCase()
+    def clades = hcTable(p).clades
+    def hit = (clades instanceof Map) ? clades.find { k, v ->
+        k.toString().toLowerCase() == key ||
+            (gf == 'vipsania' && v instanceof Map && (v.vipsania_models instanceof List) &&
+             v.vipsania_models.any { m -> m.toString().toLowerCase() == key })
+    } : null
+    if( !hit ) return [name: name, entry: null]
+    return [name: hit.key.toString(), entry: (hit.value instanceof Map) ? hit.value : [:]]
+}
+
+// ORF finder of the TransDecoder flow: params.transdecoder, else orf_finder of
+// the clade in the HC table, else the table's orf_finder, else td2.
+def orfFinder(p) {
+    def td = p.transdecoder?.toString()?.trim()?.toLowerCase()
+    if( !td ) {
+        def own = hcClade(p).entry?.orf_finder
+        td = (own ?: hcTable(p).orf_finder ?: 'td2').toString().trim().toLowerCase()
     }
-    if( gf == 'vipsania' ) {
-        return p.vipsania?.model?.toString()?.trim()?.toLowerCase() in ['etb1go6q', 'vertebrata']
+    if( !(td in ['td1', 'td2']) )
+        error "The ORF finder must be 'td1' or 'td2' (params.transdecoder, or orf_finder in the HC table), got '${td}'."
+    return td
+}
+
+// Drusilla model (key 'model'), LightGBM model ('lgb_model') and its sha256
+// ('lgb_model_sha256'): params.drusilla, else the clade's entry in the HC
+// table. With params.drusilla.run = true, a clade without Drusilla models of
+// its own takes those of the table's drusilla_forced clade. A
+// params.drusilla.lgb_model is checked only against
+// params.drusilla.lgb_model_sha256 (null: not checked).
+def drusillaSetting(p, String key) {
+    def d = p.drusilla ?: [:]
+    def entry = hcClade(p).entry ?: [:]
+    def run = d.run?.toString()?.trim()?.toLowerCase()
+    if( run && run != 'auto' && truthy(d.run) && !entry.drusilla_model && !entry.lgb_model ) {
+        def table = hcTable(p)
+        def forced = table.drusilla_forced?.toString()?.toLowerCase()
+        def fallback = (forced && table.clades instanceof Map) ?
+            table.clades.find { k, v -> k.toString().toLowerCase() == forced }?.value : null
+        if( fallback instanceof Map ) entry = fallback
     }
-    return false
+    if( key == 'model' )            return d.model ?: entry.drusilla_model ?: null
+    if( key == 'lgb_model' )        return d.lgb_model ?: entry.lgb_model ?: null
+    if( key == 'lgb_model_sha256' ) return d.lgb_model_sha256 ?: (d.lgb_model ? null : entry.lgb_model_sha256 ?: null)
+    error "drusillaSetting: unknown key '${key}'."
 }
 
 // True if the Drusilla flow runs the hint rescue (params.drusilla.rescue).
@@ -125,34 +178,41 @@ def rescueModel(p) {
     return [file: null, name: 'vertebrates', weights: false, note: note]
 }
 
-// High-confidence gene step of an evidence run: [method: 'drusilla' | 'transdecoder', note: text or null].
-// params.drusilla.run 'auto' selects Drusilla for runs with transcripts and a
-// vertebrate gene finder model; true and false force the choice.
+// High-confidence gene step of an evidence run: [method: 'drusilla' |
+// 'transdecoder', clade: clade of the gene finder model or null, note: text or
+// null]. params.drusilla.run 'auto' follows hc of the clade in the HC table
+// (conf/hc_genes.yaml) for runs with transcripts and a gene finder; true and
+// false force the choice.
 def hcMethod(p, String mode) {
     def run = p.drusilla?.run
     def auto = run == null || run.toString().trim().toLowerCase() == 'auto'
     def hasTranscripts = mode in ['rnaseq', 'isoseq', 'mixed']
-    if( !auto && !truthy(run) ) return [method: 'transdecoder', note: null]
+    def clade = hcClade(p)
+    def hc = (clade.entry?.hc ?: 'transdecoder').toString().trim().toLowerCase()
+    if( !(hc in ['drusilla', 'transdecoder']) )
+        error "hc of clade ${clade.name} in the HC table must be 'drusilla' or 'transdecoder', got '${hc}'."
+    def td = { String note -> [method: 'transdecoder', clade: clade.name, note: note] }
+    def missing = []
+    if( !drusillaSetting(p, 'lgb_model') ) missing << 'LightGBM model (params.drusilla.lgb_model)'
+    if( !p.drusilla?.weights && !drusillaSetting(p, 'model') ) missing << 'Drusilla model (params.drusilla.model)'
+    if( !auto && !truthy(run) ) return td(null)
     if( auto ) {
         if( !hasTranscripts || !genefinderEnabled(p) )
-            return [method: 'transdecoder', note: null]
+            return td(null)
         if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.result && !p.tiberius?.model_cfg )
-            return [method: 'transdecoder',
-                    note: "params.tiberius.result is set without params.tiberius.model_cfg, so the pipeline cannot tell whether the prediction comes from a vertebrate model; using the TransDecoder high-confidence genes. Set params.tiberius.model_cfg, or params.drusilla.run = true, for the Drusilla flow."]
-        if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.model_cfg && !tiberiusTargetSpecies(p.tiberius.model_cfg) )
-            return [method: 'transdecoder',
-                    note: "params.tiberius.model_cfg (${p.tiberius.model_cfg}) has no target_species, so the pipeline cannot tell whether it is a vertebrate model; using the TransDecoder high-confidence genes. Set params.drusilla.run = true for the Drusilla flow."]
-        if( !drusillaModelEligible(p) )
-            return [method: 'transdecoder', note: null]
-        if( !p.drusilla?.lgb_model )
-            return [method: 'transdecoder',
-                    note: "The gene finder model is a vertebrate model, but params.drusilla.lgb_model is not set; using the TransDecoder high-confidence genes."]
-        return [method: 'drusilla', note: null]
+            return td("params.tiberius.result is set without params.tiberius.model_cfg, so the pipeline cannot tell which clade the prediction comes from; using the TransDecoder high-confidence genes. Set params.tiberius.model_cfg, or params.drusilla.run = true, for the Drusilla flow.")
+        if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.model_cfg && !clade.name )
+            return td("params.tiberius.model_cfg (${p.tiberius.model_cfg}) has no target_species, so the pipeline cannot tell its clade; using the TransDecoder high-confidence genes. Set params.drusilla.run = true for the Drusilla flow.")
+        if( hc != 'drusilla' )
+            return td(null)
+        if( missing )
+            return td("The HC table selects the Drusilla flow for ${clade.name}, but there is no ${missing.join(' and no ')}, neither for the clade in the HC table nor in the params; using the TransDecoder high-confidence genes.")
+        return [method: 'drusilla', clade: clade.name, note: null]
     }
     if( !hasTranscripts )     error "params.drusilla.run = true needs transcripts (mode rnaseq, isoseq or mixed), the mode is '${mode}'."
     if( !genefinderEnabled(p) ) error "params.drusilla.run = true needs a gene finder (tiberius.run or vipsania.run)."
-    if( !p.drusilla?.lgb_model ) error "params.drusilla.run = true needs params.drusilla.lgb_model (LightGBM model of the gene finder filter)."
-    return [method: 'drusilla', note: rescueEnabled(p) ? rescueModel(p).note : null]
+    if( missing ) error "params.drusilla.run = true needs a ${missing.join(' and a ')}; the HC table has none for clade ${clade.name ?: 'unknown'}, nor a drusilla_forced clade with them."
+    return [method: 'drusilla', clade: clade.name, note: rescueEnabled(p) ? rescueModel(p).note : null]
 }
 
 // Header keys (#key=value lines) of a pyVARUS manifest; '# ' lines are comments.

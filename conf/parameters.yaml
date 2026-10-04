@@ -91,7 +91,8 @@ genome: /path/to/genome.fa
 # threads: 48                    # CPUs reserved per task
 # mode: null                     # inferred: abinitio, proteins, rnaseq, isoseq, mixed
 # min_alignment_rate: 80         # libraries below this mapping rate are dropped
-# transdecoder: td1              # ORF finder of the HC gene step: td1 or td2
+# transdecoder: null             # ORF finder of the HC gene step: td1 or td2; null = conf/hc_genes.yaml (td2)
+# hc_table: conf/hc_genes.yaml   # Drusilla flow or TransDecoder flow per clade of the gene finder model
 
 # ------------------------------------------------------------
 # Gene finder: exactly one of the two blocks has run: true
@@ -117,12 +118,13 @@ tiberius:
 #   finetune: false              # true: finetune on the genome first (one task, no chunks)
 
 # ------------------------------------------------------------
-# Drusilla flow (vertebrate models with transcripts; see README "Drusilla flow")
+# Drusilla flow (clades with hc: drusilla in conf/hc_genes.yaml, runs with
+# transcripts; see README "Drusilla flow")
 # ------------------------------------------------------------
 # drusilla:
-#   run: auto                    # auto: vertebrate models only; true: always; false: never
-#   lgb_model: <released model>  # LightGBM filter model; null switches the flow off
-#   lgb_model_sha256: <of it>    # null for another model
+#   run: auto                    # auto: per conf/hc_genes.yaml; true: always; false: never
+#   lgb_model: null              # LightGBM filter model; null = the clade's in conf/hc_genes.yaml
+#   lgb_model_sha256: null       # sha256 of the lgb_model given here; null: not checked
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
 #   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
 #   rescue: true                 # hint rescue of partial ab initio genes

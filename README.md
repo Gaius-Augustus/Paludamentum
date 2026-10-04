@@ -53,16 +53,18 @@ them; they do not depend on Paludamentum.
 3. **Transcript evidence.** Short reads are aligned with HISAT2, Iso-Seq reads
    with minimap2. Libraries with a low alignment rate are dropped. Transcripts
    are assembled with StringTie, and intron hints are extracted.
-4. **High-confidence genes.** Assembled transcripts get ORFs from TransDecoder.
-   ORFs that are supported by protein homology (DIAMOND) and by the scored
-   protein alignments become the high-confidence (HC) gene set. TD2 can
-   replace TransDecoder (`transdecoder: td2`); a comparison is in
+4. **High-confidence genes.** Assembled transcripts get ORFs from TD2 (or
+   TransDecoder 5.7.1 with `transdecoder: td1`). ORFs that are supported by
+   protein homology (DIAMOND) and by the scored protein alignments become the
+   high-confidence (HC) gene set; a comparison of the ORF finders is in
    [docs/orf_finder_comparison.md](docs/orf_finder_comparison.md).
 5. **Integration.** The HC genes are merged with the ab initio predictions into
    the final annotation, and its protein sequences are extracted.
 
-For vertebrate gene finder models, runs with transcripts use the
-[Drusilla flow](#drusilla-flow) in steps 4 and 5 instead.
+For vertebrate and mammal gene finder models, runs with transcripts use the
+[Drusilla flow](#drusilla-flow) in steps 4 and 5 instead. Which clade gets
+which flow is set in [conf/hc_genes.yaml](conf/hc_genes.yaml) (see
+[Drusilla flow](#drusilla-flow)).
 
 Without any evidence input the pipeline runs step 1 only. That is useful to
 parallelize a gene finder over several GPUs.
@@ -266,11 +268,22 @@ rescue and no merge of overlapping genes. With this flow and the Tiberius
 79.46 on *Bos taurus*. It runs when all of these hold:
 
 - the run has transcripts (mode `rnaseq`, `isoseq` or `mixed`),
-- the gene finder model is a Tiberius model whose `target_species` is
-  `Vertebrata` or `Mammalia` (`vertebrates`, `mammalia*`), or Vipsania
-  `Vertebrata` (`etb1go6q`); `drusilla.run: true` forces the flow for other
-  vertebrate models,
-- `drusilla.lgb_model` is not `null` (the default is the released model).
+- the clade of the gene finder model has `hc: drusilla` in
+  [conf/hc_genes.yaml](conf/hc_genes.yaml): today `Vertebrata` and
+  `Mammalia`, i.e. Tiberius models with that `target_species` (`vertebrates`,
+  `mammalia*`) and Vipsania `Vertebrata` (`etb1go6q`); `drusilla.run: true`
+  forces the flow for other models (with the models of the table's
+  `drusilla_forced` clade, `Vertebrata`, unless the clade has its own),
+  `false` switches it off,
+- a Drusilla model and a LightGBM model are known for the clade: those of
+  `conf/hc_genes.yaml`, or `drusilla.model` and `drusilla.lgb_model`.
+
+Every other clade gets the TransDecoder flow with TD2 as ORF finder
+(`orf_finder` in `conf/hc_genes.yaml`, or `transdecoder: td1` for
+TransDecoder 5.7.1). When Drusilla and LightGBM models are released for
+another clade, add the clade to `conf/hc_genes.yaml` with `hc: drusilla`,
+`drusilla_model`, `lgb_model` and `lgb_model_sha256`; `hc_table` points a run
+at another table.
 
 Steps:
 
@@ -356,7 +369,7 @@ splits the transcripts by gene into parts that run in parallel. On Bos taurus
 
 | Processes | Image | Built from |
 | --- | --- | --- |
-| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, TransDecoder, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.1.0` | [docker/evidence/Dockerfile](docker/evidence/Dockerfile) |
+| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, TransDecoder, TD2, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.0` | [docker/evidence/Dockerfile](docker/evidence/Dockerfile) |
 | Tiberius | `docker://gaiusaugustus/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 | Drusilla flow (ORFs, LightGBM filter) | `docker://gaiusaugustus/drusilla:<version>` | [docker/drusilla/Dockerfile](docker/drusilla/Dockerfile) |

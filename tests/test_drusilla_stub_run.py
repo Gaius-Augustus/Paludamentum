@@ -85,7 +85,7 @@ def test_tiberius_result_without_model_is_not_drusilla(tmp_path: Path) -> None:
     params["tiberius"] = {"run": True, "result": str(result)}
     proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
     assert_ok(proc)
-    assert "cannot tell whether the prediction comes from a vertebrate model" in proc.stdout + proc.stderr
+    assert "cannot tell which clade the prediction comes from" in proc.stdout + proc.stderr
     assert "HC genes    : transdecoder" in proc.stdout
     assert "intermediate/hc.gff3" in published
 

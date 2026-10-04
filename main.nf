@@ -2,7 +2,7 @@ nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { MERGE_GENEFINDER_TRAIN; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; varusInputs } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; varusInputs; orfFinder; drusillaSetting } from './lib_nf/functions.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
@@ -59,7 +59,12 @@ workflow {
     def hc = hcMethod(params, MODE)
     if( hc.note ) log.warn hc.note
     def useDrusilla = hc.method == 'drusilla'
-    if( MODE != 'abinitio' && MODE != 'proteins' ) log.info "HC genes    : ${hc.method}"
+    if( MODE != 'abinitio' && MODE != 'proteins' ) {
+      // conf/hc_genes.yaml (params.hc_table) chooses per clade of the gene finder model
+      def clade = hc.clade ? "clade ${hc.clade}, " : ''
+      log.info "HC genes    : ${hc.method} (" + clade +
+               (useDrusilla ? "Drusilla model ${drusillaSetting(params, 'model') ?: params.drusilla.weights}" : "ORF finder ${orfFinder(params)}") + ")"
+    }
 
     // Mixed mode with Drusilla: one stringtie --mix assembly of both BAMs.
     // pyVARUS directories have no BAM; varus assemble makes that assembly.

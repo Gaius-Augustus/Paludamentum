@@ -113,7 +113,8 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
 | `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
 | `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. |
-| `transdecoder`             | `"td1"`                                | ORF finder of the HC gene step: `td1` (TransDecoder 5.7.1) or `td2` ([TD2](https://github.com/Markusjsommer/TD2), experimental). TD2 is not in the container image and must be on the `PATH` of the task. See [orf_finder_comparison.md](orf_finder_comparison.md). |
+| `hc_table`                 | `"conf/hc_genes.yaml"`                 | HC gene step per clade of the gene finder model: `hc: drusilla` (with `drusilla_model`, `lgb_model`, `lgb_model_sha256`) or the TransDecoder flow, and its `orf_finder`. Today Drusilla for `Vertebrata` and `Mammalia`, TD2 for every other clade. |
+| `transdecoder`             | `orf_finder` of `hc_table` (`"td2"`)   | ORF finder of the TransDecoder HC gene flow: `td1` (TransDecoder 5.7.1) or `td2` ([TD2](https://github.com/Markusjsommer/TD2) 1.1.0, in the container image). See [orf_finder_comparison.md](orf_finder_comparison.md). |
 | `td2_predict_args`         | none                                   | Options appended to `TD2.Predict`, for example `"--precise"`.                                                |
 
 The location of the required executables is set by default so that they are available in your path, unless you are using the Singularity container:
@@ -218,15 +219,16 @@ selects one explicitly; without it the block with `run: true` is used.
 
 ## Drusilla flow
 
-For runs with transcripts and a vertebrate gene finder model, Drusilla ORFs
-replace the TransDecoder HC genes and a LightGBM model filters the ab initio
-predictions. The steps are described in the
+For runs with transcripts and a gene finder model of a clade with
+`hc: drusilla` in `hc_table` (`conf/hc_genes.yaml`: `Vertebrata`, `Mammalia`),
+Drusilla ORFs replace the TransDecoder HC genes and a LightGBM model filters
+the ab initio predictions. The steps are described in the
 [README](../README.md#drusilla-flow).
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `drusilla.run` | `auto` | `auto`: on for Tiberius models whose `target_species` is `Vertebrata` or `Mammalia` (`vertebrates`, `mammalia*`) and Vipsania `Vertebrata`, if the run has transcripts; `true`: always (an error without transcripts), e.g. for a custom vertebrate model of another clade; `false`: never. |
-| `drusilla.model` | `vertebrates` | Released Drusilla model (`drusilla models list`). |
+| `drusilla.run` | `auto` | `auto`: on for the clades with `hc: drusilla` in `hc_table` (Tiberius models whose `target_species` is `Vertebrata` or `Mammalia`, Vipsania `Vertebrata`), if the run has transcripts; `true`: always (an error without transcripts), e.g. for a custom vertebrate model of another clade; a clade without Drusilla models of its own in `hc_table` then uses those of `drusilla_forced` (`Vertebrata`); `false`: never. |
+| `drusilla.model` | `drusilla_model` of the clade in `hc_table` | Released Drusilla model (`drusilla models list`). |
 | `drusilla.weights`, `drusilla.config` | none | A local `.weights.h5` file and its architecture YAML instead of a released model. |
 | `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`), e.g. filled by `drusilla models download vertebrates`, for a submitting host without internet. Without it the archive of the model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task, so the GPU nodes need no internet. A model name that is not in `drusilla/model_cfg/` is downloaded by Drusilla in the task. |
 | `drusilla.batch_size` | automatic | Drusilla batch size; without it Drusilla sizes the batch from the GPU memory. |
@@ -235,8 +237,8 @@ predictions. The steps are described in the
 | `drusilla.fix_stop`, `drusilla.fix_start` | `true` | Stop codon fix of the ORFs with miniprot alignments; start codon fix with miniprothint start hints (needs `fix_stop`). |
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
-| `drusilla.lgb_model` | released `drusilla_lgb_3class_v1` | LightGBM model of the ab initio filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. `null` switches the flow off. |
-| `drusilla.lgb_model_sha256` | sha256 of the released archive | Checked after the download; set it to `null` for another model. |
+| `drusilla.lgb_model` | `lgb_model` of the clade in `hc_table` (released `drusilla_lgb_3class_v1`) | LightGBM model of the ab initio filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. |
+| `drusilla.lgb_model_sha256` | none (with `lgb_model` of `hc_table`: its `lgb_model_sha256`) | sha256 of the archive given as `drusilla.lgb_model`, checked after the download; `null`: not checked. |
 | `drusilla.lgb_threshold` | `0.5` | Transcripts with P(partial) + P(correct) at or above it are candidates. |
 | `drusilla.lgb_keep` | `correct` | Classes kept among the candidates, e.g. `correct,partial`. |
 | `drusilla.rescue` | `true` | Hint rescue: loci of partial ab initio genes are predicted again by Tiberius with hints. |
