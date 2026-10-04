@@ -92,7 +92,7 @@ submodules `tiberius/`, `vipsania/` and `drusilla/`; in an existing clone run
 
 The first run pulls the images into `~/.cache/paludamentum/singularity`,
 later runs reuse them. Each gene finder image is about 9.4 GB, the image of
-the evidence tools 0.25 GB. On a cluster this directory must be on a file
+the evidence tools 0.6 GB. On a cluster this directory must be on a file
 system that the compute nodes can read; set `NXF_SINGULARITY_CACHEDIR` to
 use another directory.
 

@@ -2,7 +2,7 @@
 
 | Processes | Image | Built from |
 | --- | --- | --- |
-| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, TransDecoder, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.1.0` | [docker/evidence/Dockerfile](../docker/evidence/Dockerfile) |
+| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, TransDecoder, TD2, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.1` | [docker/evidence/Dockerfile](../docker/evidence/Dockerfile) |
 | Tiberius | `docker://gaiusaugustus/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 | Drusilla flow (ORFs, LightGBM filter) | `docker://gaiusaugustus/drusilla:<version>` | [docker/drusilla/Dockerfile](../docker/drusilla/Dockerfile) |
@@ -37,7 +37,7 @@ Images are pulled once into `~/.cache/paludamentum/singularity` and shared by
 all runs. Set `NXF_SINGULARITY_CACHEDIR`, or `singularity.cacheDir` in your
 config, to use another directory. Compressed sizes on Docker Hub: Tiberius
 9.4 GB, Vipsania 9.4 GB, Drusilla 9.4 GB, hint rescue 9.6 GB, evidence tools
-0.25 GB. Most of a GPU image is its NGC TensorFlow base, so a run of the
+0.6 GB (TD2 brings the CPU build of PyTorch). Most of a GPU image is its NGC TensorFlow base, so a run of the
 Drusilla flow pulls about 29 GB (Tiberius, Drusilla, hint rescue, evidence).
 
 The Tiberius, Vipsania and Drusilla images are built on NVIDIA's NGC
