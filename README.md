@@ -56,16 +56,17 @@ The numbers in the figure are the steps below.
    are assembled with StringTie, and intron hints are extracted. If you
    already have a StringTie assembly, pass it with `--stringtie` instead of
    the reads, see [Existing StringTie assemblies](#existing-stringtie-assemblies).
-4. **High-confidence genes.** Assembled transcripts get ORFs from TransDecoder.
-   ORFs that are supported by protein homology (DIAMOND) and by the scored
-   protein alignments become the high-confidence (HC) gene set. TD2 can
-   replace TransDecoder (`transdecoder: td2`); a comparison is in
+4. **High-confidence genes.** Assembled transcripts get ORFs from TD2 (or
+   TransDecoder 5.7.1 with `transdecoder: td1`). ORFs that are supported by
+   protein homology (DIAMOND) and by the scored protein alignments become the
+   high-confidence (HC) gene set; a comparison of the ORF finders is in
    [docs/orf_finder_comparison.md](docs/orf_finder_comparison.md).
 5. **Integration.** The HC genes are merged with the *ab initio* predictions into
    the final annotation, and its protein sequences are extracted.
 
-For vertebrate gene finder models, runs with transcripts use the
-[Drusilla flow](#drusilla-flow) in steps 4 and 5 instead.
+For vertebrate and mammal gene finder models, runs with transcripts use the
+[Drusilla flow](#drusilla-flow) in steps 4 and 5 instead. Which clade gets
+which flow is set in [conf/hc_genes.yaml](conf/hc_genes.yaml).
 
 Without any evidence input the pipeline runs step 1 only. That is useful to
 parallelize a gene finder over several GPUs.
@@ -211,7 +212,8 @@ need no GPU, no mapping and no assembly step. Notes:
 
 - Several assemblies can be given, also together with reads; they are
   merged with the assemblies that the pipeline makes from the reads.
-- With a vertebrate gene finder model the [Drusilla flow](#drusilla-flow)
+- With a vertebrate or mammal gene finder model (a clade with
+  `hc: drusilla` in `conf/hc_genes.yaml`) the [Drusilla flow](#drusilla-flow)
   runs, which filters transcripts by the coverage and TPM that StringTie
   writes. It takes exactly one assembly of all reads and no other RNA-Seq
   or Iso-Seq input, and the GTF must come from `stringtie` on the reads,
@@ -305,7 +307,8 @@ run. Notes:
 
 ## Drusilla flow
 
-For vertebrate gene finder models, runs with transcripts take another route
+For vertebrate and mammal gene finder models (clades with `hc: drusilla` in
+[conf/hc_genes.yaml](conf/hc_genes.yaml)), runs with transcripts take another route
 through steps 4 and 5: Drusilla ORFs replace the TransDecoder HC genes, a
 LightGBM model filters the *ab initio* predictions, and Tiberius predicts
 partial genes again with protein hints. The gene-level F1 is 80.46 on

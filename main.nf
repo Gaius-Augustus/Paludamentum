@@ -2,7 +2,7 @@ nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { MERGE_GENEFINDER_TRAIN; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; varusInputs } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; varusInputs; orfFinder; drusillaSetting } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
@@ -71,20 +71,25 @@ workflow {
     def hc = hcMethod(params, MODE)
     if( hc.note ) log.warn hc.note
     def useDrusilla = hc.method == 'drusilla'
-    if( MODE != 'abinitio' && MODE != 'proteins' ) log.info "HC genes    : ${hc.method}"
+    if( MODE != 'abinitio' && MODE != 'proteins' ) {
+      // conf/hc_genes.yaml (params.hc_table) chooses per clade of the gene finder model
+      def clade = hc.clade ? "clade ${hc.clade}, " : ''
+      log.info "HC genes    : ${hc.method} (" + clade +
+               (useDrusilla ? "Drusilla model ${drusillaSetting(params, 'model') ?: params.drusilla.weights}" : "ORF finder ${orfFinder(params)}") + ")"
+    }
     // The Drusilla flow filters one assembly of all reads by its coverage and
     // TPM, so a given assembly must be that one assembly.
     def stringtieOnly = hasStringtie && useDrusilla
     if( stringtieOnly && (stringtieFiles.size() > 1 || hasPaired || hasSingle || hasBAM || hasIso
                           || nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
-      error "stringtie: the Drusilla flow (vertebrate gene finder models) needs one StringTie assembly of all reads, " +
+      error "stringtie: the Drusilla flow (clades with hc: drusilla in hc_table) needs one StringTie assembly of all reads, " +
             "with the coverage and TPM that StringTie writes. Pass a single StringTie GTF and no other RNA-Seq or " +
             "Iso-Seq input, or set drusilla.run = false to merge several assemblies in the TransDecoder flow."
 
     // References of the tools that this run uses
     file("${outdir}/citations.md").text = citationsText([
         mode: MODE, genefinder: genefinderRun ? genefinder : null, tiberiusModel: params.tiberius?.model_cfg,
-        hc: hc.method, orfFinder: params.transdecoder?.toString()?.toLowerCase() ?: 'td1',
+        hc: hc.method, orfFinder: hc.method == 'transdecoder' ? orfFinder(params) : null,
         rescue: rescueEnabled(params), odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
         isoFastq: hasIso, isoVarus: nIsoVarus > 0,

@@ -1,5 +1,7 @@
 nextflow.enable.dsl=2
 
+include { drusillaSetting } from '../lib_nf/functions.nf'
+
 // Processes of the Drusilla flow: the StringTie pre-filter, the Drusilla ORF
 // annotation, the stop and start codon fix of the ORFs, the LightGBM filter of
 // the gene finder predictions, and the hint rescue of partial gene finder genes.
@@ -104,7 +106,7 @@ process DRUSILLA_ANNOTATE {
     path "drusilla/orfs.partial5.gtf", emit: partial5
 
   script:
-  def name = params.drusilla.model ?: 'vertebrates'
+  def name = drusillaSetting(params, 'model')
   def model_args = params.drusilla.weights ?
       "--weights \"${params.drusilla.weights}\"" + (params.drusilla.config ? " --config \"${params.drusilla.config}\"" : '') :
       use_model ? "--weights drusilla_model/model.weights.h5 --config drusilla_model/arch.yaml" :
@@ -235,7 +237,8 @@ process GENEFINDER_LGB_FILTER {
 
   script:
   def keep = (params.drusilla.lgb_keep ?: 'correct').toString().split(/[,\s]+/).findAll { k -> k }.join('|')
-  def sha256 = params.drusilla.lgb_model_sha256 ? "--sha256 ${params.drusilla.lgb_model_sha256}" : ''
+  def sha = drusillaSetting(params, 'lgb_model_sha256')
+  def sha256 = sha ? "--sha256 ${sha}" : ''
   """
   gff_to_cds_gtf.py ${ab_initio} > ab_initio.gtf
   compute_orf_features.py \\

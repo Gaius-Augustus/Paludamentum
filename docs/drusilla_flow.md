@@ -1,6 +1,6 @@
 # Drusilla flow
 
-For vertebrate gene finder models, Paludamentum replaces the TransDecoder
+For vertebrate and mammal gene finder models, Paludamentum replaces the TransDecoder
 high-confidence genes with Drusilla ORFs and filters the *ab initio*
 predictions. The flow is derived from the one behind the Tiberius evidence
 results on the GCB 2026 poster
@@ -12,11 +12,22 @@ is 80.46 on *Takifugu rubripes* with the Tiberius `vertebrates` model and
 It runs when all of these hold:
 
 - the run has transcripts (mode `rnaseq`, `isoseq` or `mixed`),
-- the gene finder model is a Tiberius model whose `target_species` is
-  `Vertebrata` or `Mammalia` (`vertebrates`, `mammalia*`), or Vipsania
-  `Vertebrata` (`etb1go6q`); `drusilla.run: true` forces the flow for other
-  vertebrate models,
-- `drusilla.lgb_model` is not `null` (the default is the released model).
+- the clade of the gene finder model has `hc: drusilla` in
+  [conf/hc_genes.yaml](../conf/hc_genes.yaml): today `Vertebrata` and
+  `Mammalia`, i.e. Tiberius models with that `target_species` (`vertebrates`,
+  `mammalia*`) and Vipsania `Vertebrata` (`etb1go6q`); `drusilla.run: true`
+  forces the flow for other models (with the models of the table's
+  `drusilla_forced` clade, `Vertebrata`, unless the clade has its own),
+  `false` switches it off,
+- a Drusilla model and a LightGBM model are known for the clade: those of
+  `conf/hc_genes.yaml`, or `drusilla.model` and `drusilla.lgb_model`.
+
+Every other clade gets the TransDecoder flow with TD2 as ORF finder
+(`orf_finder` in `conf/hc_genes.yaml`, or `transdecoder: td1` for
+TransDecoder 5.7.1). When Drusilla and LightGBM models are released for
+another clade, add the clade to `conf/hc_genes.yaml` with `hc: drusilla`,
+`drusilla_model`, `lgb_model` and `lgb_model_sha256`; `hc_table` points a run
+at another table.
 
 <p align="center">
   <img src="../figures/drusilla_flow.svg" alt="Drusilla flow: StringTie assembly, transcript filter, Drusilla ORFs and codon fix give the high-confidence genes; LightGBM filter and hint rescue treat the ab initio genes; both are merged into the final annotation" width="100%">
@@ -66,19 +77,18 @@ Steps (numbered as in the figure):
 
 ```yaml
 drusilla:
-  run: auto              # auto: vertebrate models only; true: always; false: never
-  model: vertebrates     # released Drusilla model
+  run: auto              # auto: per conf/hc_genes.yaml; true: always; false: never
+  model: null            # released Drusilla model; null = drusilla_model of the clade in conf/hc_genes.yaml
   weights: null          # a local .weights.h5 instead (needs config)
   config: null
   cache_dir: null        # model cache (DRUSILLA_CACHE_DIR); null = downloaded once on the submitting host
   batch_size: null       # null = Drusilla sizes the batch from the GPU memory
   shards: 1              # parallel Drusilla processes; e.g. 24 on a 48-core CPU node
   min_coding_length: 200 # minimal CDS length of a Drusilla ORF
-  lgb_model: https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz
-                         # LightGBM model of the ab initio filter (required): the
-                         # archive (URL or file), its unpacked directory, or a .txt with its .json
-  lgb_model_sha256: d5bf3a9774914c6ca6421507c4cb956ef813b0bd2305bf45717af5f5eb42f1da
-                         # sha256 of the archive; null for another model
+  lgb_model: null        # LightGBM model of the ab initio filter: the archive (URL or file),
+                         # its unpacked directory, or a .txt with its .json;
+                         # null = lgb_model of the clade in conf/hc_genes.yaml
+  lgb_model_sha256: null # sha256 of the lgb_model given here; null: not checked
   lgb_threshold: 0.5
   lgb_keep: correct      # classes kept after the threshold, e.g. "correct,partial"
   fix_stop: true         # stop codon fix of the ORFs

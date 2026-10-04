@@ -1,0 +1,42 @@
+# High-confidence (HC) gene step per clade of the gene finder model.
+#
+# The clade is the target_species of the Tiberius model configuration
+# (params.tiberius.model_cfg), or the Vipsania model (params.vipsania.model:
+# a clade name, or a model ID listed under vipsania_models). Case is ignored.
+#
+# hc: drusilla      Drusilla ORFs of the filtered StringTie assembly, and the
+#                   LightGBM filter of the gene finder genes. Needs the clade's
+#                   Drusilla model (drusilla_model: a model of
+#                   drusilla/model_cfg/ or of `drusilla models list`) and its
+#                   LightGBM model (lgb_model: URL or file; lgb_model_sha256:
+#                   sha256 of the archive, null for no check).
+# hc: transdecoder  ORFs of TransDecoder or TD2 (orf_finder), supported by
+#                   protein alignments. The default for clades not listed.
+#
+# orf_finder: td1 (TransDecoder 5.7.1) or td2 (TD2 1.1.0, PSAURON-scored ORFs),
+# for the TransDecoder flow. The top-level value is the default; a clade can
+# set its own.
+#
+# When Drusilla and LightGBM models are released for another clade, add the
+# clade here with hc: drusilla. params.drusilla.run, params.drusilla.model,
+# params.drusilla.lgb_model and params.transdecoder override this table for
+# one run; params.hc_table points at another table.
+
+orf_finder: td2
+
+# params.drusilla.run = true forces the Drusilla flow for any clade; a clade
+# without Drusilla models of its own then uses those of this clade.
+drusilla_forced: Vertebrata
+
+clades:
+  Vertebrata:
+    vipsania_models: [etb1go6q]
+    hc: drusilla
+    drusilla_model: vertebrates
+    lgb_model: https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz
+    lgb_model_sha256: d5bf3a9774914c6ca6421507c4cb956ef813b0bd2305bf45717af5f5eb42f1da
+  Mammalia:
+    hc: drusilla
+    drusilla_model: vertebrates
+    lgb_model: https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz
+    lgb_model_sha256: d5bf3a9774914c6ca6421507c4cb956ef813b0bd2305bf45717af5f5eb42f1da

@@ -17,7 +17,7 @@ nextflow.enable.dsl=2
 include { FILTER_STRINGTIE; DOWNLOAD_DRUSILLA_MODEL; DRUSILLA_ANNOTATE; FIX_ORFS;
           GENEFINDER_LGB_FILTER; HINT_RESCUE_LOCI; HINT_RESCUE_TIBERIUS } from '../modules/drusilla.nf'
 include { DOWNLOAD_TIBERIUS_WEIGHTS as DOWNLOAD_RESCUE_WEIGHTS } from '../modules/genefinder.nf'
-include { rescueEnabled; rescueModel; tiberiusModelValue } from '../lib_nf/functions.nf'
+include { rescueEnabled; rescueModel; tiberiusModelValue; drusillaSetting } from '../lib_nf/functions.nf'
 
 workflow DRUSILLA_HC {
 
@@ -39,7 +39,7 @@ workflow DRUSILLA_HC {
     def drusillaModel = channel.value([])
     def useModel = false
     if( !d.weights && !d.cache_dir ) {
-        def manifest = "${projectDir}/drusilla/model_cfg/${d.model ?: 'vertebrates'}.yaml"
+        def manifest = "${projectDir}/drusilla/model_cfg/${drusillaSetting(params, 'model')}.yaml"
         def url = tiberiusModelValue(manifest, 'weights_url')
         if( url ) {
             drusillaModel = DOWNLOAD_DRUSILLA_MODEL(url, tiberiusModelValue(manifest, 'weights_sha256') ?: '').model
@@ -50,7 +50,7 @@ workflow DRUSILLA_HC {
     orfs     = FIX_ORFS(raw.gtf, raw.partial, raw.partial5, miniprot_gff, hc_hints, CH_GENOME)
     kept     = GENEFINDER_LGB_FILTER(
         genefinder, genefinder_gff, miniprot_gff, hc_hints, CH_GENOME,
-        file(d.lgb_model, checkIfExists: true)
+        file(drusillaSetting(params, 'lgb_model'), checkIfExists: true)
     )
 
     def genefinder_out = kept.gtf

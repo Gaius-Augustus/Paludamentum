@@ -61,13 +61,14 @@ def test_models_of_the_drusilla_flow(tool: str, model: str, method: str, tmp_pat
     else:
         assert not drusilla_files & published
         assert {f"{tool}_evidence.gff3", "intermediate/hc.gff3"} <= published
-    # citations.md: Drusilla and LightGBM for the flow, TransDecoder else; the
-    # hint rescue runs Tiberius, also for Vipsania; the mammalian Tiberius
-    # models have no reference to the clade models
+    # citations.md: Drusilla and LightGBM for the flow, TD2 (the ORF finder of
+    # hc_table) else; the hint rescue runs Tiberius, also for Vipsania; the
+    # mammalian Tiberius models have no reference to the clade models
     text = (tmp_path / "out" / "citations.md").read_text()
     for name in ("Drusilla", "LightGBM"):
         assert (f"**{name}**" in text) == (method == "drusilla"), text
-    assert ("**TransDecoder**" in text) == (method == "transdecoder"), text
+    assert ("**TD2**" in text) == (method == "transdecoder"), text
+    assert "**TransDecoder**" not in text, text
     assert ("**Tiberius**" in text) == (tool == "tiberius" or method == "drusilla"), text
     assert ("multiple clades" in text) == (tool == "tiberius" and not model.startswith("mammalia")), text
 
@@ -94,7 +95,7 @@ def test_tiberius_result_without_model_is_not_drusilla(tmp_path: Path) -> None:
     params["tiberius"] = {"run": True, "result": str(result)}
     proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
     assert_ok(proc)
-    assert "cannot tell whether the prediction comes from a vertebrate model" in proc.stdout + proc.stderr
+    assert "cannot tell which clade the prediction comes from" in proc.stdout + proc.stderr
     assert "HC genes    : transdecoder" in proc.stdout
     assert "intermediate/hc.gff3" in published
 

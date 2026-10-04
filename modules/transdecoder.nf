@@ -1,5 +1,7 @@
 nextflow.enable.dsl=2
 
+include { orfFinder } from '../lib_nf/functions.nf'
+
 //  TransDecoder (td1) or TD2 (td2): gtf->fasta, LongOrfs, Predict
 process TD_ALL {
   label 'container'
@@ -13,8 +15,8 @@ process TD_ALL {
     path "transdecoder/*.transdecoder_dir",                   emit: longdir
 
   script:
-  def td = params.transdecoder?.toString()?.toLowerCase() ?: 'td1'
-  if( !(td in ['td1', 'td2']) ) error "params.transdecoder must be 'td1' or 'td2', got '${params.transdecoder}'."
+  // params.transdecoder, else orf_finder of the HC table (conf/hc_genes.yaml)
+  def td = orfFinder(params)
   if( td == 'td2' )
   """
   mkdir -p transdecoder
