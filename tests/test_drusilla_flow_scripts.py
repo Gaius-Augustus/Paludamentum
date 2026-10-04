@@ -80,6 +80,15 @@ def test_stringtie_filter_rules(tmp_path: Path):
     assert "transcripts total=7 kept=2 (28.6%) dropped=5" in proc.stderr
 
 
+def test_stringtie_filter_rejects_an_assembly_without_cov_and_tpm(tmp_path: Path):
+    """The output of stringtie --merge would be dropped as a whole; that is an error, not an empty result."""
+    gtf = tmp_path / "merged.gtf"
+    gtf.write_text(stringtie_tx("a", [(1, 400)], None, None) + stringtie_tx("b", [(501, 900)], None, None))
+    proc = run("filter_stringtie_gtf.py", "--in-gtf", str(gtf), "--out-gtf", "out.gtf", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "stringtie --merge" in proc.stderr and "drusilla.run = false" in proc.stderr
+
+
 def test_stringtie_filter_thresholds_are_options(tmp_path: Path):
     gtf = write_stringtie(tmp_path)
     proc = run("filter_stringtie_gtf.py", "--in-gtf", str(gtf), "--out-gtf", "out.gtf",

@@ -21,6 +21,7 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [Inputs and modes](#inputs-and-modes)
+  - [Existing StringTie assemblies](#existing-stringtie-assemblies)
 - [Outputs](#outputs)
 - [Gene finders](#gene-finders)
   - [Existing predictions](#existing-predictions)
@@ -52,7 +53,9 @@ The numbers in the figure are the steps below.
    most relevant source species first (DIAMOND).
 3. **Transcript evidence.** Short reads are aligned with HISAT2, Iso-Seq reads
    with minimap2. Libraries with a low alignment rate are dropped. Transcripts
-   are assembled with StringTie, and intron hints are extracted.
+   are assembled with StringTie, and intron hints are extracted. If you
+   already have a StringTie assembly, pass it with `--stringtie` instead of
+   the reads, see [Existing StringTie assemblies](#existing-stringtie-assemblies).
 4. **High-confidence genes.** Assembled transcripts get ORFs from TransDecoder.
    ORFs that are supported by protein homology (DIAMOND) and by the scored
    protein alignments become the high-confidence (HC) gene set. TD2 can
@@ -114,6 +117,10 @@ paludamentum --params_yaml params.yaml --nf_config slurm_generic
 paludamentum --genefinder vipsania --nf_config local --genome genome.fa --model Fungi \
     --proteins proteins.faa --rnaseq_paired "/abs/path/rnaseq/*_{1,2}.fastq.gz"
 
+# Tiberius with proteins and an existing StringTie assembly instead of reads
+paludamentum --nf_config local --genome genome.fa --model_cfg eudicotyledons \
+    --proteins proteins.faa --stringtie stringtie.gtf
+
 # Evidence for an existing Tiberius prediction (GFF3 or GTF); the gene finder does not run
 paludamentum --nf_config local --genome genome.fa --result tiberius.gff3 \
     --proteins proteins.faa --rnaseq_paired "/abs/path/rnaseq/*_{1,2}.fastq.gz"
@@ -124,7 +131,7 @@ paludamentum --nf_config local --genome genome.fa --result tiberius.gff3 \
 runs on, `slurm_generic` needs your GPU partition (see
 [Containers and HPC](#containers-and-hpc)). Evidence can be given on the command line
 (`--proteins`, `--odb12Partitions`, `--rnaseq_paired`, `--rnaseq_single`,
-`--isoseq`, `--rnaseq_sra_paired`, `--rnaseq_sra_single`, `--isoseq_sra`) or
+`--isoseq`, `--stringtie`, `--rnaseq_sra_paired`, `--rnaseq_sra_single`, `--isoseq_sra`) or
 in the params file; command line values override the file. Useful options:
 `--dry_run` writes the params file and validates inputs and executables
 without starting Nextflow, `--resume` continues a previous run, `--work_dir`
@@ -161,6 +168,8 @@ Paths must not contain spaces. All parameters are documented in
 | `odb12Partitions` | OrthoDB v12 partitions to download: `Metazoa`, `Vertebrata`, `Viridiplantae`, `Arthropoda`, `Fungi`, `Alveolata`, `Stramenopiles`, `Amoebozoa`, `Euglenozoa`, `Eukaryota` |
 | `rnaseq_paired`, `rnaseq_single` | short read FASTQ files (glob or list) |
 | `rnaseq_bam` | aligned short reads, for example from VARUS |
+| `stringtie` | StringTie assembly (GTF) made outside the pipeline, one file, a list or a glob; instead of or in addition to reads, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
+| `rnaseq_varus`, `isoseq_varus`, `mixed_varus` | [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) output directories, which bring their StringTie assembly and intron hints, see [docs/parameters.md](docs/parameters.md#pyvarus-output-directories) |
 | `isoseq` | Iso-Seq FASTQ files |
 | `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra` | SRA run accessions, downloaded by the pipeline |
 | `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80 |
@@ -173,11 +182,45 @@ proteins, is an error:
 | --- | --- |
 | `abinitio` (historic name: `tiberius`) | genome only |
 | `proteins` | proteins |
-| `rnaseq` | proteins and short reads |
+| `rnaseq` | proteins and short reads, or proteins and a StringTie assembly |
 | `isoseq` | proteins and Iso-Seq |
 | `mixed` | proteins, short reads and Iso-Seq |
 
 Transcript evidence requires protein evidence, because HC genes need both.
+
+### Existing StringTie assemblies
+
+If the transcripts are already assembled, pass the StringTie GTF with
+`--stringtie` (`stringtie` in the params file). The pipeline then neither
+maps reads nor runs StringTie for them; the assembly goes straight to the
+HC gene step. Proteins are still required.
+
+```bash
+paludamentum --nf_config local --genome genome.fa --model_cfg eudicotyledons \
+    --proteins proteins.faa --stringtie stringtie.gtf
+```
+
+```yaml
+stringtie: /abs/path/stringtie.gtf      # or a list, or a glob such as "/abs/path/*.gtf"
+```
+
+The assembly may come from short reads, Iso-Seq or both (`stringtie --mix`),
+and it must be an assembly of this genome FASTA (same sequence names). It
+combines with `--result`: an existing prediction and an existing assembly
+need no GPU, no mapping and no assembly step. Notes:
+
+- Several assemblies can be given, also together with reads; they are
+  merged with the assemblies that the pipeline makes from the reads.
+- With a vertebrate gene finder model the [Drusilla flow](#drusilla-flow)
+  runs, which filters transcripts by the coverage and TPM that StringTie
+  writes. It takes exactly one assembly of all reads and no other RNA-Seq
+  or Iso-Seq input, and the GTF must come from `stringtie` on the reads,
+  not from `stringtie --merge` (which drops coverage and TPM). Set
+  `drusilla.run: false` to merge several assemblies in the TransDecoder flow
+  instead.
+- A run with only an assembly is reported as mode `rnaseq`, whatever reads
+  the assembly was made from. `hintsfile.gff` then has protein hints only;
+  intron hints from reads do not influence the annotation.
 
 ## Outputs
 

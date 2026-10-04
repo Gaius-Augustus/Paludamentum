@@ -100,7 +100,7 @@ TOP_LEVEL_CLI_KEYS = (
     "threads", "outdir", "genome", "proteins", "odb12Partitions",
     "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "rnaseq_varus",
     "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_sra", "isoseq_varus", "mixed_varus",
-    "mode", "scoring_matrix",
+    "stringtie", "mode", "scoring_matrix",
 )
 GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
     "tiberius": ("model_cfg", "model_dir", "result", "min_split_size", "max_files", "max_parallel", "batch_size",
@@ -112,7 +112,7 @@ GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
 # Params values that are paths: they are written as absolute paths, because
 # Nextflow expands neither '~' nor environment variables.
 PATH_KEYS = ("genome", "proteins", "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "isoseq", "scoring_matrix",
-             "rnaseq_varus", "isoseq_varus", "mixed_varus")
+             "rnaseq_varus", "isoseq_varus", "mixed_varus", "stringtie")
 GENEFINDER_PATH_KEYS = ("result", "model_cfg", "model_dir")
 
 ROOT_ENV = "PALUDAMENTUM_ROOT"
@@ -620,6 +620,7 @@ def validate_input_data(params: Dict, params_path: Path) -> List[str]:
         "rnaseq_paired": "RNA-Seq paired-end FASTQ",
         "rnaseq_bam": "RNA-Seq BAM",
         "isoseq": "Iso-Seq FASTQ",
+        "stringtie": "StringTie assembly",
         "scoring_matrix": "Scoring matrix",
         "proteins": "Protein FASTA",
     }

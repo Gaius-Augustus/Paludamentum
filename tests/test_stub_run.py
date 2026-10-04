@@ -758,3 +758,75 @@ def test_varus_input_of_another_genome_fails(tmp_path: Path) -> None:
     proc = run_varus_input(tmp_path, DATA / "tiny.fa", md5="0" * 32)
     assert proc.returncode != 0
     assert "the VARUS run used another genome" in proc.stdout + proc.stderr
+
+
+# ---- StringTie assemblies made outside the pipeline (stringtie) ---------------
+
+def stringtie_gtf(tmp_path: Path, name: str = "assembly.gtf") -> str:
+    gtf = tmp_path / name
+    gtf.write_text(
+        'seq1\tStringTie\ttranscript\t1\t60\t1000\t+\t.\tgene_id "STRG.1"; transcript_id "STRG.1.1"; '
+        'cov "5.0"; FPKM "1.0"; TPM "2.0";\n'
+    )
+    return str(gtf)
+
+
+@pytest.mark.parametrize("flow", ["transdecoder", "drusilla"])
+@pytest.mark.parametrize("form", ["string", "list"])
+def test_stringtie_assembly_replaces_the_reads(form: str, flow: str, tmp_path: Path) -> None:
+    """Proteins and one StringTie GTF are a complete evidence run, in both flows."""
+    gtf = stringtie_gtf(tmp_path)
+    params = {**flow_params(tmp_path, flow), **PROTEINS, "stringtie": gtf if form == "string" else [gtf]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "Running mode: rnaseq" in proc.stdout
+    assert f"HC genes    : {flow}" in proc.stdout
+    assert not [p for p in MAPPING_AND_ASSEMBLY if p in proc.stdout], proc.stdout
+    assert {"tiberius_evidence.gff3", "tiberius_evidence_proteins.fa", "hintsfile.gff"} <= published
+    assert ("intermediate/drusilla_orfs.gtf" in published) == (flow == "drusilla")
+    assert ("intermediate/hc.gff3" in published) == (flow == "transdecoder")
+
+
+def test_stringtie_assemblies_and_reads_are_combined(tmp_path: Path) -> None:
+    """TransDecoder flow: several given assemblies (here a glob) are merged with those of the reads."""
+    stringtie_gtf(tmp_path, "a.gtf")
+    stringtie_gtf(tmp_path, "b.gtf")
+    params = {**GENEFINDER["tiberius"], **PROTEINS, **ISOSEQ, "stringtie": str(tmp_path / "*.gtf")}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "Running mode: mixed" in proc.stdout
+    assert "STRINGTIE_ASSEMBLE_ISO" in proc.stdout and "STRINGTIE_MERGE" in proc.stdout
+    assert "STRINGTIE_ASSEMBLE_RNA" not in proc.stdout and "HISAT2" not in proc.stdout
+    assert "tiberius_evidence.gff3" in published
+
+
+def test_stringtie_assembly_with_an_existing_prediction(tmp_path: Path) -> None:
+    """Nothing is predicted, mapped or assembled: an existing prediction and an existing assembly."""
+    result = tmp_path / "previous.gff3"
+    result.write_text("##gff-version 3\n")
+    params = {"tiberius": {"run": True, "result": str(result)}, **PROTEINS, "stringtie": stringtie_gtf(tmp_path)}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert not [p for p in (*MAPPING_AND_ASSEMBLY, "RUN_TIBERIUS", "SPLIT_GENOME") if p in proc.stdout], proc.stdout
+    assert "tiberius_evidence.gff3" in published
+
+
+@pytest.mark.parametrize("case,message", [
+    ("missing-file", "stringtie: no such file"),
+    ("without-proteins", "need protein evidence"),
+    ("drusilla-two-assemblies", "needs one StringTie assembly of all reads"),
+    ("drusilla-assembly-and-reads", "needs one StringTie assembly of all reads"),
+])
+def test_bad_stringtie_inputs_stop_the_run_early(case: str, message: str, tmp_path: Path) -> None:
+    drusilla = {**drusilla_params(tmp_path, "tiberius"), **PROTEINS}
+    gtf = stringtie_gtf(tmp_path)
+    params = {
+        "missing-file": lambda: {**GENEFINDER["tiberius"], **PROTEINS, "stringtie": str(tmp_path / "no.gtf")},
+        "without-proteins": lambda: {**GENEFINDER["tiberius"], "stringtie": gtf},
+        "drusilla-two-assemblies": lambda: {**drusilla, "stringtie": [gtf, stringtie_gtf(tmp_path, "b.gtf")]},
+        "drusilla-assembly-and-reads": lambda: {**drusilla, **SHORT_READS, "stringtie": gtf},
+    }[case]()
+    proc, _ = run_pipeline(tmp_path, params)
+    assert proc.returncode != 0
+    out = proc.stdout + proc.stderr
+    assert message in out, out[-3000:]
