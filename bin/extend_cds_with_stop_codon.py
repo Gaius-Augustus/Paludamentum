@@ -5,7 +5,8 @@ Extend CDS features to include stop codons and rebuild a clean GFF3.
 Strategy:
     - Read input GFF3
     - For each transcript:
-        * extend CDS with stop_codon coordinates
+        * extend CDS with stop_codon coordinates (a stop codon split by an
+          intron adds a CDS segment after the intron)
     - Build a NEW GFF3 that only contains:
         * gene  (spans all transcripts' CDS regions)
         * transcript  (replaces mRNA, spans all its CDS regions)
@@ -164,7 +165,14 @@ def read_gff(gff_handle):
 
 
 def extend_cds_with_stops(cds_by_tx, stops_by_tx):
-    """Extend CDS segments to include stop codons for each transcript."""
+    """Extend CDS segments to include stop codons for each transcript.
+
+    The stop codon parts are added in transcript order. A part that touches
+    or overlaps the 3' CDS segment extends it; a part beyond it is the rest
+    of a stop codon split by an intron and becomes a CDS segment of its own
+    (phase = its length), so the CDS does not run across the intron. Parts
+    already inside the CDS change nothing.
+    """
     for tx_id, cds_list in cds_by_tx.items():
         if tx_id not in stops_by_tx:
             continue
@@ -173,22 +181,29 @@ def extend_cds_with_stops(cds_by_tx, stops_by_tx):
         stop_list = stops_by_tx[tx_id]
         # assume all CDS and stops share same strand/seqid
         strand = cds_list[0].strand
+        if strand not in ("+", "-"):
+            continue
 
-        if strand == "+":
-            # choose stop with largest end as terminal stop
-            chosen_stop = max(stop_list, key=lambda f: f.end)
-            # extend CDS with largest end
-            last_cds = max(cds_list, key=lambda f: f.end)
-            if chosen_stop.end > last_cds.end:
-                last_cds.end = chosen_stop.end
-        elif strand == "-":
-            # choose stop with smallest start as terminal stop
-            chosen_stop = min(stop_list, key=lambda f: f.start)
-            # extend CDS with smallest start
-            first_cds = min(cds_list, key=lambda f: f.start)
-            if chosen_stop.start < first_cds.start:
-                first_cds.start = chosen_stop.start
-        # if strand is '.', we don't do anything
+        for stop in sorted(stop_list, key=lambda f: f.start if strand == "+" else -f.end):
+            if strand == "+":
+                last_cds = max(cds_list, key=lambda f: f.end)
+                if stop.end <= last_cds.end:
+                    continue
+                if stop.start <= last_cds.end + 1:
+                    last_cds.end = stop.end
+                    continue
+            else:
+                last_cds = min(cds_list, key=lambda f: f.start)
+                if stop.start >= last_cds.start:
+                    continue
+                if stop.end >= last_cds.start - 1:
+                    last_cds.start = stop.start
+                    continue
+            cds_list.append(Feature(
+                last_cds.seqid, last_cds.source, "CDS", stop.start, stop.end,
+                last_cds.score, strand, str((stop.end - stop.start + 1) % 3),
+                dict(last_cds.attrs),
+            ))
 
 
 def rebuild_gff(genes, transcripts, cds_by_tx, utrs_by_tx, gene_children, out_handle):

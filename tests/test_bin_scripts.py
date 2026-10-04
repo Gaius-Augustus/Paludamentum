@@ -66,6 +66,46 @@ def test_passing_gff_keeps_gene_and_transcript_lines(tmp_path: Path):
     ]
 
 
+# ---------------------------------------------------------------- extend_cds_with_stop_codon.py
+
+# ATGAAA, stop TAA split as T | intron GTAAGTTTAG | AA, then CCC
+SPLIT_STOP_GENOME = "ATGAAAT" + "GTAAGTTTAG" + "AACCC"
+SPLIT_STOP_GENOME_RC = SPLIT_STOP_GENOME[::-1].translate(str.maketrans("ACGT", "TGCA"))
+
+
+def split_stop_gff(strand: str, cds: list[tuple[int, int]], stops: list[tuple[int, int]]) -> str:
+    lo = min(s for s, _ in cds + stops)
+    hi = max(e for _, e in cds + stops)
+    text = (f"c1\tx\tgene\t{lo}\t{hi}\t.\t{strand}\t.\tID=g1\n"
+            f"c1\tx\tmRNA\t{lo}\t{hi}\t.\t{strand}\t.\tID=t1;Parent=g1\n")
+    text += "".join(f"c1\tx\tCDS\t{s}\t{e}\t.\t{strand}\t0\tID=cds.t1;Parent=t1\n" for s, e in cds)
+    text += "".join(f"c1\tx\tstop_codon\t{s}\t{e}\t.\t{strand}\t0\tParent=t1\n" for s, e in stops)
+    return text
+
+
+@pytest.mark.parametrize("strand, genome, cds, stops, want_cds, want_exons", [
+    # stop codon split by an intron: one CDS segment on each side, no CDS in the intron
+    ("+", SPLIT_STOP_GENOME, [(1, 6)], [(7, 7), (18, 19)],
+     [(1, 7, "0"), (18, 19, "2")], [(1, 7), (18, 19)]),
+    ("-", SPLIT_STOP_GENOME_RC, [(17, 22)], [(16, 16), (4, 5)], [(4, 5, "2"), (16, 22, "0")], [(4, 5), (16, 22)]),
+    # stop codon next to the CDS, and one already inside it
+    ("+", "ATGAAATAACCC", [(1, 6)], [(7, 9)], [(1, 9, "0")], [(1, 9)]),
+    ("+", "ATGAAATAACCC", [(1, 9)], [(7, 9)], [(1, 9, "0")], [(1, 9)]),
+])
+def test_stop_codon_is_added_to_the_cds(tmp_path: Path, strand, genome, cds, stops, want_cds, want_exons):
+    (tmp_path / "g.fa").write_text(f">c1\n{genome}\n")
+    (tmp_path / "in.gff").write_text(split_stop_gff(strand, cds, stops))
+    proc = run("extend_cds_with_stop_codon.py", "in.gff", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    out = rows(proc.stdout)
+    assert [(int(r[3]), int(r[4]), r[7]) for r in out if r[2] == "CDS"] == want_cds
+    assert [(int(r[3]), int(r[4])) for r in out if r[2] == "exon"] == want_exons
+    (tmp_path / "ext.gff").write_text(proc.stdout)
+    proc = run("check_stop_codons.py", "ext.gff", "g.fa", "--write-passing-gff", "out.gff", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert any(r[2] == "CDS" for r in rows((tmp_path / "out.gff").read_text()))   # valid stop, kept
+
+
 # ---------------------------------------------------------------- merge_annotations.py
 
 def merge(tmp_path: Path, *contents: str) -> subprocess.CompletedProcess:
