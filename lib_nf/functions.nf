@@ -178,6 +178,11 @@ def rescueModel(p) {
     return [file: null, name: 'vertebrates', weights: false, note: note]
 }
 
+// TransDecoder result of hcMethod.
+def hcTransdecoder(clade, note) {
+    return [method: 'transdecoder', clade: clade, note: note]
+}
+
 // High-confidence gene step of an evidence run: [method: 'drusilla' |
 // 'transdecoder', clade: clade of the gene finder model or null, note: text or
 // null]. params.drusilla.run 'auto' follows hc of the clade in the HC table
@@ -191,22 +196,21 @@ def hcMethod(p, String mode) {
     def hc = (clade.entry?.hc ?: 'transdecoder').toString().trim().toLowerCase()
     if( !(hc in ['drusilla', 'transdecoder']) )
         error "hc of clade ${clade.name} in the HC table must be 'drusilla' or 'transdecoder', got '${hc}'."
-    def td = { String note -> [method: 'transdecoder', clade: clade.name, note: note] }
     def missing = []
     if( !drusillaSetting(p, 'lgb_model') ) missing << 'LightGBM model (params.drusilla.lgb_model)'
     if( !p.drusilla?.weights && !drusillaSetting(p, 'model') ) missing << 'Drusilla model (params.drusilla.model)'
-    if( !auto && !truthy(run) ) return td(null)
+    if( !auto && !truthy(run) ) return hcTransdecoder(clade.name, null)
     if( auto ) {
         if( !hasTranscripts || !genefinderEnabled(p) )
-            return td(null)
+            return hcTransdecoder(clade.name, null)
         if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.result && !p.tiberius?.model_cfg )
-            return td("params.tiberius.result is set without params.tiberius.model_cfg, so the pipeline cannot tell which clade the prediction comes from; using the TransDecoder high-confidence genes. Set params.tiberius.model_cfg, or params.drusilla.run = true, for the Drusilla flow.")
+            return hcTransdecoder(clade.name, "params.tiberius.result is set without params.tiberius.model_cfg, so the pipeline cannot tell which clade the prediction comes from; using the TransDecoder high-confidence genes. Set params.tiberius.model_cfg, or params.drusilla.run = true, for the Drusilla flow.")
         if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.model_cfg && !clade.name )
-            return td("params.tiberius.model_cfg (${p.tiberius.model_cfg}) has no target_species, so the pipeline cannot tell its clade; using the TransDecoder high-confidence genes. Set params.drusilla.run = true for the Drusilla flow.")
+            return hcTransdecoder(clade.name, "params.tiberius.model_cfg (${p.tiberius.model_cfg}) has no target_species, so the pipeline cannot tell its clade; using the TransDecoder high-confidence genes. Set params.drusilla.run = true for the Drusilla flow.")
         if( hc != 'drusilla' )
-            return td(null)
+            return hcTransdecoder(clade.name, null)
         if( missing )
-            return td("The HC table selects the Drusilla flow for ${clade.name}, but there is no ${missing.join(' and no ')}, neither for the clade in the HC table nor in the params; using the TransDecoder high-confidence genes.")
+            return hcTransdecoder(clade.name, "The HC table selects the Drusilla flow for ${clade.name}, but there is no ${missing.join(' and no ')}, neither for the clade in the HC table nor in the params; using the TransDecoder high-confidence genes.")
         return [method: 'drusilla', clade: clade.name, note: null]
     }
     if( !hasTranscripts )     error "params.drusilla.run = true needs transcripts (mode rnaseq, isoseq or mixed), the mode is '${mode}'."
