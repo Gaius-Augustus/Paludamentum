@@ -125,7 +125,7 @@ process SPLIT_GENOME {
 // Ab initio predictions as final result (ab initio mode).
 process MERGE_GENEFINDER {
     label 'container'
-    publishDir "${params.outdir}/", mode:'copy'
+    publishDir "${params.outdir}/", mode:'copy', overwrite: true
 
     input:
       val prefix
@@ -149,7 +149,7 @@ process MERGE_GENEFINDER {
 // Ab initio predictions as intermediate result (evidence modes).
 process MERGE_GENEFINDER_EVI {
     label 'container'
-    publishDir "${params.outdir}/intermediate/", mode:'copy'
+    publishDir "${params.outdir}/intermediate/", mode:'copy', overwrite: true
 
     input:
       val prefix
@@ -172,7 +172,7 @@ process MERGE_GENEFINDER_EVI {
 
 process MERGE_GENEFINDER_TRAIN {
     label 'container'
-    publishDir "${params.outdir}/", mode:'copy'
+    publishDir "${params.outdir}/", mode:'copy', overwrite: true
 
     input:
       val prefix
@@ -223,7 +223,7 @@ process PROTEIN_FROM_GFF {
 }
 
 process PROTEIN_FROM_GFF_FINAL {
-  publishDir "${params.outdir}/", mode:'copy'
+  publishDir "${params.outdir}/", mode:'copy', overwrite: true
 
   label 'container'
 

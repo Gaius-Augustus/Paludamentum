@@ -101,6 +101,9 @@ rnaseq_single:
 ### RNA-Seq/Iso-Seq (SRA-download)
 RNA-Seq and Iso-Seq libraries can also be automatically downloaded from the Sequence-Read-Archive by specifying their SRA IDs at
 `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra`.  
+An accession whose download fails twice (a network error, or a run that `fasterq-dump` cannot read) is dropped
+with an `Error is ignored` note, as a library below `min_alignment_rate` is dropped; the other libraries go on,
+and `-resume` tries the dropped accession again. The reads are copied to `sra_downloads/` in `outdir`.
 
 
 ## Parameters
@@ -133,7 +136,6 @@ The location of the required executables is set by default so that they are avai
 | `tools.td2_longorfs`                 | `"TD2.LongOrfs"`                        | Long ORF detection of TD2 (`transdecoder: td2`).                    |
 | `tools.td2_predict`                  | `"TD2.Predict"`                         | ORF prediction of TD2 (`transdecoder: td2`).                        |
 | `tools.diamond`                      | `"diamond"`                             | Diamond alignment tool for protein-to-genome searches.              |
-| `tools.bedtools`                     | `"bedtools"`                            | Bedtools for genomic interval operations.                           |
 | `tools.miniprot`                     | `"miniprot"`                            | MiniProt — protein-to-genome aligner.                               |
 | `tools.miniprot_boundary_scorer`     | `"miniprot_boundary_scorer"`            | Additional MiniProt scoring utility for boundary refinement.        |
 | `tools.miniprothint`                 | `"miniprothint.py"`                     | MiniProtHint wrapper script for generating protein hints.           |

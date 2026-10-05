@@ -88,7 +88,7 @@ process DOWNLOAD_ODB12_PARTITIONS {
 
 
 process CONCAT_HINTS {
-  publishDir "${params.outdir}", mode: 'copy'
+  publishDir "${params.outdir}", mode: 'copy', overwrite: true
   label 'container'
 
   input:

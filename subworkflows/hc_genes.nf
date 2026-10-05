@@ -13,11 +13,17 @@ workflow HC_GENES {
     proteindb
 
     main:
-    // Without any assembly (every library dropped for its alignment rate) the
-    // run would end without HC genes and without the final annotation.
+    // Without any assembly (every library dropped for its alignment rate or
+    // its failed SRA download) the run would end without HC genes and without
+    // the final annotation. The channel is empty as well when a task failed or
+    // the run was cancelled before any reads were mapped; the error of that
+    // task is the one to report then, and nothing more starts anyway.
     def assemblies = asm_gtf_ch.collect().ifEmpty {
-        error "No transcript assembly: every RNA-Seq/Iso-Seq library was dropped (alignment rate below params.min_alignment_rate = ${params.min_alignment_rate}). Check that the reads belong to this genome, or lower params.min_alignment_rate."
-    }
+        def s = workflow.session
+        if( !(s.fault || s.aborted || s.cancelled) )
+            error "No transcript assembly: no RNA-Seq/Iso-Seq library is left. Libraries whose alignment rate is below params.min_alignment_rate = ${params.min_alignment_rate} are dropped (the 'Removing' lines above), and so are SRA accessions whose download failed twice (the 'Error is ignored' notes above). Check that the reads belong to this genome, lower params.min_alignment_rate, or replace the failed accessions."
+        return []
+    }.filter { gtfs -> gtfs }
     asm      = STRINGTIE_MERGE(assemblies)
     td_all   = TD_ALL(asm.gtf, CH_GENOME)
 

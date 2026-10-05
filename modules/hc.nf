@@ -37,7 +37,7 @@ process HC_SUPPORTED {
 }
 
 process HC_FORMAT_FILTER {
-  publishDir "${params.outdir}/intermediate", pattern: "hc.gff3", mode: 'copy'
+  publishDir "${params.outdir}/intermediate", pattern: "hc.gff3", mode: 'copy', overwrite: true
   label 'container'
   input:
     path traingff,  stageAs: 'training_original.gff'

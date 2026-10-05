@@ -45,7 +45,7 @@ process DOWNLOAD_VIPSANIA_MODEL {
 process RUN_VIPSANIA {
     label 'gpu', 'vipsania', 'bigmem'
     maxForks params.vipsania?.max_parallel ? (params.vipsania.max_parallel as Integer) : Integer.MAX_VALUE
-    publishDir "${params.outdir}/intermediate/vipsania", mode: 'copy', pattern: "{*.log,finetuning_*}"
+    publishDir "${params.outdir}/intermediate/vipsania", mode: 'copy', overwrite: true, pattern: "{*.log,finetuning_*}"
 
     input:
         path genome

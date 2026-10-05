@@ -174,7 +174,7 @@ process DRUSILLA_ANNOTATE {
 // Then isoforms whose CDS is a subsequence of another one are collapsed.
 process FIX_ORFS {
   label 'drusilla'
-  publishDir "${params.outdir}/intermediate", pattern: "drusilla_orfs.gtf", mode: 'copy'
+  publishDir "${params.outdir}/intermediate", pattern: "drusilla_orfs.gtf", mode: 'copy', overwrite: true
   input:
     path orfs,     stageAs: 'orfs.raw.gtf'
     path partial,  stageAs: 'orfs.partial.gtf'
@@ -221,7 +221,7 @@ process FIX_ORFS {
 // of class partial are the candidates of the hint rescue.
 process GENEFINDER_LGB_FILTER {
   label 'drusilla'
-  publishDir "${params.outdir}/intermediate", pattern: "*_lgb_{filtered.gtf,scores.tsv}", mode: 'copy'
+  publishDir "${params.outdir}/intermediate", pattern: "*_lgb_{filtered.gtf,scores.tsv}", mode: 'copy', overwrite: true
   input:
     val prefix
     path ab_initio
@@ -328,7 +328,7 @@ process HINT_RESCUE_LOCI {
 // GPU task is booked for a rescue that cannot run.
 process HINT_RESCUE_TIBERIUS {
   label 'gpu', 'hint_rescue', 'bigmem'
-  publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy'
+  publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy', overwrite: true
   input:
     tuple path(fasta), path(hints), path(manifest)
     // the model: a name in model_cfg/ of the image, or '' and a configuration
