@@ -56,7 +56,6 @@ process HISAT2_MAP_PAIRED {
 
   script:
   """
-  mkdir -p tmp
   ${params.tools.hisat2} -x ${idxdir}/genome -1 ${reads[0]} -2 ${reads[1]} -p ${task.cpus} \
     | ${params.tools.samtools} sort -@ ${task.cpus} -o "${sample}.bam"
   """
