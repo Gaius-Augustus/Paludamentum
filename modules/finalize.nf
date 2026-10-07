@@ -79,7 +79,8 @@ process ADD_UTRS {
 // and the coding sequences.
 process FINALIZE_ANNOTATION {
   label 'container'
-  publishDir "${params.outdir}/", mode:'copy', overwrite: true, pattern: "${stem}*"
+  // a fixed pattern: Nextflow 26 evaluates publishDir before the inputs (stem) exist
+  publishDir "${params.outdir}/", mode:'copy', overwrite: true, pattern: "*{.gff3,.gtf,.fa}"
 
   input:
     val stem
