@@ -43,7 +43,7 @@ paludamentum --genefinder vipsania --nf_config slurm_generic --genome genome.fa 
 | `vipsania.run` | `false` | Run Vipsania and merge its predictions with the HC genes. |
 | `vipsania.model` | none (required, unless `vipsania.result` is set) | Clade name (`Fungi`, `Insecta`, `Vertebrata`, ...) or model id. See the model table in the Vipsania README. |
 | `vipsania.model_dir` | none | Directory with models from `vipsania download <model> -d DIR`. No download is attempted then. |
-| `vipsania.result` | none | Existing Vipsania prediction (`--result`): the GFF3 or GTF of `vipsania annotate`, or the `vipsania_ab_initio.gff3` of an earlier run. It is used instead of running Vipsania, in every mode. `vipsania.model` is then optional; `Vertebrata` selects the [Drusilla flow](drusilla_flow.md). |
+| `vipsania.result` | none | Existing Vipsania prediction (`--result`): the GFF3 or GTF of `vipsania annotate`, or the `intermediate/vipsania_ab_initio.gff3` of an earlier run (not `vipsania_ab_initio.gff3` in the output directory of mode `abinitio`, which is the sanity-filtered final annotation). It is used instead of running Vipsania, in every mode. `vipsania.model` is then optional; `Vertebrata` selects the [Drusilla flow](drusilla_flow.md). |
 | `vipsania.finetune` | `false` | Finetune the model on the target genome before annotating. |
 | `vipsania.finetune_epochs`, `finetune_B`, `finetune_lr` | Vipsania defaults | Forwarded to `vipsania annotate`. |
 | `vipsania.batch_size` | automatic | `-B`. Automatic sizing needs `nvidia-smi`; set it on CPU-only nodes. |
@@ -101,4 +101,6 @@ GPUs.
 - Soft masking is read as repeat information. See the Vipsania documentation
   on masking and finetuning.
 - Output files are named `vipsania_evidence.gff3`,
-  `vipsania_evidence_proteins.fa` and `vipsania_ab_initio.gff3`.
+  `vipsania_evidence_proteins.fa` and so on (mode `abinitio`:
+  `vipsania_ab_initio.gff3`); the unfiltered predictions are
+  `intermediate/vipsania_ab_initio.gff3`.

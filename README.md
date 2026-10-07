@@ -245,12 +245,13 @@ is `tiberius` or `vipsania`.
 | `<tool>_evidence.gtf` | the final annotation as GTF |
 | `<tool>_evidence_proteins.fa` | protein sequences of all transcripts of the final annotation |
 | `<tool>_evidence_cds.fa` | coding sequences of the final annotation |
-| `<tool>_ab_initio.gff3` | *ab initio* predictions; in mode `abinitio` the final annotation (sanity filtered, with `.gtf`, `_proteins.fa` and `_cds.fa` as above), else in `intermediate/` |
+| `<tool>_ab_initio.gff3` | mode `abinitio` only: the final annotation (sanity filtered, with `.gtf`, `_proteins.fa` and `_cds.fa` as above) |
 | `<tool>_evidence_with_ncRNA.gff3` | final annotation plus rRNA, tRNA, Rfam and lncRNA genes (`ncrna.run`) |
 | `<tool>_evidence_go.gff3`, `<tool>_evidence_with_ncRNA_go.gff3` | the same with GO terms (`fantasia.run`) |
 | `report.html` | gene set statistics, completeness, evidence support, sanity filter, UTRs, ncRNA, versions and references of the run |
 | `qc/` | sanity filter and UTR reports, gene set statistics and plots, hint support, completeness, OMArk, gffcompare, FANTASIA, software versions, see [docs/postprocessing.md](docs/postprocessing.md#outputs) |
 | `ncrna/` | rRNA, tRNA, Rfam and lncRNA annotations (`ncrna.run`) |
+| `intermediate/<tool>_ab_initio.gff3` | *ab initio* predictions before the sanity filter, in every mode; the file to give to `--result` of a later run |
 | `intermediate/<tool>_merged.gff3` | *ab initio* predictions merged with the HC genes, before the sanity filter |
 | `intermediate/<stem>_sanity_filtered.gff3` | the annotation after the sanity filter, before the UTRs |
 | `intermediate/hc.gff3` | high-confidence genes derived from the evidence (TransDecoder) |
@@ -286,8 +287,10 @@ Vipsania finetuning on the target genome is off by default (`--finetune`).
 If the genome is already annotated with Tiberius or Vipsania, give that
 file to the pipeline instead of predicting again. The file may be the GFF3
 or the GTF that `tiberius.py` or `vipsania annotate` wrote, or the
-`<tool>_ab_initio.gff3` of an earlier Paludamentum run. It must belong to
-the genome FASTA of this run (same sequence names).
+`intermediate/<tool>_ab_initio.gff3` of an earlier Paludamentum run (the
+predictions before the sanity filter; `<tool>_ab_initio.gff3` in the output
+directory of mode `abinitio` is the filtered final annotation). It must
+belong to the genome FASTA of this run (same sequence names).
 
 ```bash
 # Tiberius prediction

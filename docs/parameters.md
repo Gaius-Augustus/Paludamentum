@@ -222,7 +222,7 @@ The launcher resolves a name such as `diatoms` to that file.
 | `tiberius.run` | `false` (the launcher sets `true` for the selected gene finder) | Run Tiberius and merge its predictions with the HC genes. |
 | `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. |
 | `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` in the model configuration without `.tar.gz`, e.g. `vertebrates_weights`), instead of the download at the start of the run. Tiberius then runs with `--model` and never downloads; the task fails if the directory is missing or empty. Without `model_dir` the archive of `weights_url` is downloaded once on the submitting host (label `download`) and staged into the tasks, so the GPU nodes need no internet. |
-| `tiberius.result` | none | Existing Tiberius prediction (`--result`): the GFF3 or GTF of `tiberius.py`, or the `tiberius_ab_initio.gff3` of an earlier run. It is used instead of running Tiberius, in every mode; a missing file is an error. `tiberius.model_cfg` is then optional: it is not run, but the model of a vertebrate prediction selects the [Drusilla flow](drusilla_flow.md) and is the model of its hint rescue. |
+| `tiberius.result` | none | Existing Tiberius prediction (`--result`): the GFF3 or GTF of `tiberius.py`, or the `intermediate/tiberius_ab_initio.gff3` of an earlier run (not `tiberius_ab_initio.gff3` in the output directory of mode `abinitio`, which is the sanity-filtered final annotation). It is used instead of running Tiberius, in every mode; a missing file is an error. `tiberius.model_cfg` is then optional: it is not run, but the model of a vertebrate prediction selects the [Drusilla flow](drusilla_flow.md) and is the model of its hint rescue. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
 | `tiberius.max_files` | `20` | Maximal number of genome chunks, which is the upper limit of parallel Tiberius tasks. |
 | `tiberius.max_parallel` | unlimited | Cap of concurrently running Tiberius tasks, for example `1` on a single-GPU workstation. |
@@ -298,7 +298,7 @@ Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
 | `qc.omark` | `false` | OMArk on the proteome; needs `qc.omamer_db`. |
 | `qc.omamer_db` | none | OMAmer database (e.g. `LUCA.h5`, about 15 GB). |
 | `qc.ete_taxa_path` | none | Directory with NCBI `taxdump.tar.gz` for OMArk; without it ete3 downloads it on the compute node. |
-| `qc.reference_annotation` | none | Reference annotation (GFF3 or GTF): `gffcompare` at CDS level, `qc/gffcompare.stats`. |
+| `qc.reference_annotation` | none | Reference annotation (GFF3 or GTF, gzipped or not): `gffcompare` at CDS level, `qc/gffcompare.stats`. |
 | `qc.gene_support` | `true` | Hint support per transcript, `qc/gene_support.tsv` (evidence modes). |
 | `qc.statistics` | `true` | Gene set statistics and plots. |
 | `qc.report` | `true` | `report.html`. |
