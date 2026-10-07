@@ -1,0 +1,51 @@
+/*
+ * Paludamentum slide: overview
+ * Pink-green slide style of the BOUDICCA walk-through series. Text is
+ * sized for a 16:9 slide of 13.333 x 7.5 in (title 46 pt, box headings
+ * 32 pt, second lines 24 pt). Tools are pink, inputs light pink, results
+ * green. The drawing must stay smaller than the slide, or the padding
+ * step below crops it.
+ *
+ * Render (3840 x 2160 px, drawing centred on white):
+ *   dot -Tpng -Gdpi=288 01_overview.dot | convert - -gravity center \
+ *       -background white -extent 3840x2160 01_overview.png
+ */
+digraph slide_01_overview {
+    rankdir   = TB;
+    bgcolor   = "white";
+    pad       = "0.2";
+    nodesep   = 0.35;
+    ranksep   = 0.5;
+    newrank   = true;
+    fontname  = "Liberation Sans";
+    fontsize  = 46;
+    fontcolor = "#E0218A";
+    labelloc  = t;
+    label     = <<B>From a genome to its gene annotation</B><BR/><FONT POINT-SIZE="16"> </FONT>>;
+
+    node [fontname="Liberation Sans", shape=box, style="filled,rounded", penwidth=3, margin="0.26,0.14"];
+    edge [color="#9C1160", penwidth=4, arrowsize=1.5];
+
+    genome [label=<<B><FONT POINT-SIZE="32">Genome</FONT></B>>, fillcolor="#FFD9EC", fontcolor="#6B0F3F", color="#E0218A"];
+    prot [label=<<B><FONT POINT-SIZE="32">Proteins</FONT></B>>, fillcolor="#FFD9EC", fontcolor="#6B0F3F", color="#E0218A"];
+    reads [label=<<B><FONT POINT-SIZE="32">RNA-Seq, Iso-Seq</FONT></B>>, fillcolor="#FFD9EC", fontcolor="#6B0F3F", color="#E0218A"];
+
+    abi [label=<<B><FONT POINT-SIZE="32">Tiberius / Vipsania</FONT></B><BR/><FONT POINT-SIZE="24"><I>ab initio</I> on GPU</FONT>>, fillcolor="#E0218A", fontcolor="#FFFFFF", color="#9C1160"];
+    mp [label=<<B><FONT POINT-SIZE="32">miniprot</FONT></B><BR/><FONT POINT-SIZE="24">protein alignments</FONT>>, fillcolor="#E0218A", fontcolor="#FFFFFF", color="#9C1160"];
+    tx [label=<<B><FONT POINT-SIZE="32">HISAT2, StringTie</FONT></B><BR/><FONT POINT-SIZE="24">transcripts</FONT>>, fillcolor="#E0218A", fontcolor="#FFFFFF", color="#9C1160"];
+
+    hc [label=<<B><FONT POINT-SIZE="32">High-confidence genes</FONT></B><BR/><FONT POINT-SIZE="24">transcript ORFs with protein support</FONT>>, fillcolor="#E0218A", fontcolor="#FFFFFF", color="#9C1160"];
+
+    final [label=<<B><FONT POINT-SIZE="32">Gene annotation</FONT></B><BR/><FONT POINT-SIZE="24">GFF3 + protein FASTA</FONT>>, fillcolor="#3DDC6B", fontcolor="#0B3D1E", color="#0E7A34"];
+
+    { rank = same; genome; prot; reads; }
+    { rank = same; abi; mp; tx; }
+
+    genome -> abi;
+    prot -> mp;
+    reads -> tx;
+    mp -> hc [weight=10];
+    tx -> hc;
+    abi -> final [color="#0E7A34"];
+    hc -> final [color="#0E7A34", weight=10];
+}
