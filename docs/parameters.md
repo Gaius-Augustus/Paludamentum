@@ -311,7 +311,7 @@ Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
 | `fantasia.lookup_dir` | none | `lookup_table.npz`, `annotations.json`, `accessions.json` of Zenodo record 17720428 (required with `fantasia.run`). |
 | `fantasia.min_score` | `0.5` | Minimum score of a GO term. |
 | `fantasia.additional_params` | none | Appended to `fantasia_pipeline.py`. |
-| `tools.gffread`, `tools.compleasm`, `tools.busco`, `tools.gffcompare`, `tools.trnascan`, `tools.cmscan`, `tools.cmpress`, `tools.barrnap`, `tools.omamer`, `tools.omark` | the names on `PATH` in the images | Executables of the post-processing (`--check_tools` checks those of the steps that are on). GffRead and GenomeTools of the final files are called by name. |
+| `tools.gffread`, `tools.compleasm`, `tools.busco`, `tools.gffcompare`, `tools.trnascan`, `tools.cmscan`, `tools.cmpress`, `tools.barrnap`, `tools.omamer`, `tools.omark` | the names on `PATH` in the images | Executables of the post-processing (`--check_tools` checks those of the steps that are on). GenomeTools (`gt`, GFF3 validation of the final files) has no override and is called by name. |
 
 ## Mode
 

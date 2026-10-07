@@ -70,7 +70,7 @@ process OMARK {
   script:
   """
   filter_proteins.py --in ${proteins} --out proteins.fa --strip-stop
-  omamer search --db ${omamer_db} --query proteins.fa --nthreads ${task.cpus} --out proteome.omamer
+  ${params.tools.omamer} search --db ${omamer_db} --query proteins.fa --nthreads ${task.cpus} --out proteome.omamer
   # one line per gene: its transcript IDs, separated by ';'
   awk -F'\\t' '\$3 == "mRNA" { id = ""; parent = "";
       n = split(\$9, a, ";");
@@ -83,13 +83,13 @@ process OMARK {
   export HOME=\$PWD
   mkdir -p .etetoolkit
   if [ -f taxdump/taxdump.tar.gz ]; then cp taxdump/taxdump.tar.gz .etetoolkit/; fi
-  omark -f proteome.omamer -d ${omamer_db} -i isoforms.splice -o omark
+  ${params.tools.omark} -f proteome.omamer -d ${omamer_db} -i isoforms.splice -o omark
   summary=\$(find omark -name '*_detailed_summary.txt' | head -n 1)
   [ -n "\$summary" ] || summary=\$(find omark -name '*.sum' | head -n 1)
   [ -n "\$summary" ] || { echo "OMArk wrote no summary" >&2; exit 1; }
   cp "\$summary" omark_summary.txt
-  printf 'OMArk\\t%s\\t%s\\n' "\$(omark --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" > versions.tsv
-  printf 'OMAmer\\t%s\\t%s\\n' "\$(omamer --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" >> versions.tsv
+  printf 'OMArk\\t%s\\t%s\\n' "\$(${params.tools.omark} --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" > versions.tsv
+  printf 'OMAmer\\t%s\\t%s\\n' "\$(${params.tools.omamer} --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" >> versions.tsv
   """
 
   stub:
@@ -124,12 +124,12 @@ process GFFCOMPARE {
   fi
   case "\$name" in
       *.gtf) ;;
-      *) gffread "\$ref" -T -o reference.gtf; ref=reference.gtf ;;
+      *) ${params.tools.gffread} "\$ref" -T -o reference.gtf; ref=reference.gtf ;;
   esac
   awk -F'\\t' '\$3 == "CDS"' "\$ref" > reference.CDS.gtf
   awk -F'\\t' '\$3 == "CDS"' ${gtf} > prediction.CDS.gtf
-  gffcompare --strict-match -e 3 -T -r reference.CDS.gtf -o gffcompare prediction.CDS.gtf
-  printf 'GffCompare\\t%s\\t%s\\n' "\$(gffcompare --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" > versions.tsv
+  ${params.tools.gffcompare} --strict-match -e 3 -T -r reference.CDS.gtf -o gffcompare prediction.CDS.gtf
+  printf 'GffCompare\\t%s\\t%s\\n' "\$(${params.tools.gffcompare} --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" > versions.tsv
   """
 
   stub:
