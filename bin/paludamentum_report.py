@@ -8,7 +8,7 @@ STAGED_DIR holds the published files of the run (any of them may be missing;
 the section of a missing or empty file is skipped):
 
     <stem>.gff3 .gtf _proteins.fa _cds.fa _with_ncRNA.gff3 _go.gff3 _with_ncRNA_go.gff3
-    citations.md
+    citations.md hintsfile.gff params.yaml
     qc/sanity_filter.tsv qc/utr_report.tsv qc/completeness.tsv qc/gene_set_statistics.txt
     qc/isoform_and_exon_structure.png qc/transcript_lengths.png qc/introns_per_gene.png
     qc/evidence_support.png qc/gene_support.tsv qc/software_versions.tsv
@@ -23,7 +23,8 @@ OMArk, gffcompare, FANTASIA, software versions, references (citations.md).
 If qc/completeness.tsv has rows, a stacked horizontal bar chart of it
 (complete single-copy, complete duplicated, fragmented, missing; one bar per
 row) is written to --completeness-png (default: completeness.png next to the
-report) and embedded. Needs matplotlib; without it the chart is skipped.
+report) and embedded; the output files list it as qc/completeness.png, where
+the pipeline publishes it. Needs matplotlib; without it the chart is skipped.
 
 The stem (file prefix, e.g. tiberius_evidence) is the 'stem' of run_info.json,
 else the prefix of the one '<stem>_proteins.fa' or '<stem>.gff3' in STAGED_DIR.
@@ -261,14 +262,16 @@ def section_run_summary(run_info: dict) -> str:
     return table(None, rows) if rows else ""
 
 
-def section_output_files(staged: str, stem: str | None) -> str:
+def section_output_files(staged: str, stem: str | None, written: dict[str, str] | None = None) -> str:
+    """The files of STAGED_DIR; `written` maps a listed path to a file the report
+    wrote itself (qc/completeness.png), which is not in STAGED_DIR."""
     entries = []
     if stem:
         entries += [(p.format(stem=stem), d) for p, d in STEM_FILES]
     entries += OTHER_FILES
     rows = []
     for rel, desc in entries:
-        path = os.path.join(staged, rel)
+        path = (written or {}).get(rel) or os.path.join(staged, rel)
         if os.path.isfile(path):
             rows.append([rel, desc, human_size(os.path.getsize(path))])
     return table(["File", "Content", "Size"], rows, numeric={2}) if rows else ""
@@ -348,8 +351,8 @@ def completeness_chart(rows: list[list[str]], out_png: str) -> bool:
     return True
 
 
-def section_completeness(staged: str, out_png: str) -> str:
-    comments, header, rows = read_completeness(os.path.join(staged, "qc", "completeness.tsv"))
+def section_completeness(comments: list[str], rows: list[list[str]], chart_png: str | None) -> str:
+    """Table of the completeness rows and the chart, if it was written (chart_png)."""
     if not rows:
         return ""
     parts = []
@@ -360,8 +363,8 @@ def section_completeness(staged: str, out_png: str) -> str:
     parts.append(table(head, [r[:8] for r in rows], numeric={2, 3, 4, 5, 6, 7}))
     parts.append("<p class=\"note\">compleasm: fragmented = F + I (both fragment classes of compleasm).</p>"
                  if any(r[0].strip() == "compleasm" for r in rows) else "")
-    if completeness_chart(rows, out_png):
-        parts.append(png(out_png, "Completeness: complete single-copy, complete duplicated, fragmented, missing"))
+    if chart_png:
+        parts.append(png(chart_png, "Completeness: complete single-copy, complete duplicated, fragmented, missing"))
     return "\n".join(p for p in parts if p)
 
 
@@ -644,14 +647,31 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; }
 """
 
 
+def draw_completeness(qc: str, out_png: str) -> tuple[list[str], list[list[str]], str | None]:
+    """(comments, rows) of qc/completeness.tsv and the path of the chart drawn from
+    the rows, or None if there are no rows or no chart could be written."""
+    comments, _, rows = read_completeness(os.path.join(qc, "completeness.tsv"))
+    if not rows:
+        return comments, rows, None
+    try:
+        written = completeness_chart(rows, out_png)
+    except Exception as err:   # a broken input must not stop the report
+        warn(f"completeness chart skipped: {type(err).__name__}: {err}")
+        written = False
+    return comments, rows, out_png if written else None
+
+
 def build_report(staged: str, run_info: dict, completeness_png: str) -> str:
     stem = find_stem(staged, run_info)
     qc = os.path.join(staged, "qc")
+    # the chart is drawn before the output files are listed, so that the list has it
+    comments, rows, chart = draw_completeness(qc, completeness_png)
+    written = {"qc/completeness.png": chart} if chart else {}
     sections = [
         ("run-summary", "Run summary", lambda: section_run_summary(run_info)),
-        ("output-files", "Output files", lambda: section_output_files(staged, stem)),
+        ("output-files", "Output files", lambda: section_output_files(staged, stem, written)),
         ("gene-set-statistics", "Gene set statistics", lambda: section_gene_set_statistics(staged)),
-        ("completeness", "Completeness", lambda: section_completeness(staged, completeness_png)),
+        ("completeness", "Completeness", lambda: section_completeness(comments, rows, chart)),
         ("evidence-support", "Evidence support", lambda: section_evidence_support(staged)),
         ("sanity-filter", "Sanity filter", lambda: section_sanity_filter(staged)),
         ("utrs", "UTRs", lambda: section_utrs(staged)),

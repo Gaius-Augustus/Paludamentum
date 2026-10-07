@@ -168,7 +168,8 @@ END_VERSIONS
 }
 
 // report.html from the published files, staged as they are published:
-// top-level files, qc/ and ncrna/
+// top-level files (with hintsfile.gff and the launcher's params.yaml), qc/
+// and ncrna/. completeness.png, drawn by the report, is published to qc/.
 process REPORT {
   label 'postprocess'
   publishDir "${params.outdir}/", mode:'copy', overwrite: true, pattern: 'report.html'
@@ -180,6 +181,8 @@ process REPORT {
     path ncrna, stageAs: 'staged/ncrna/*'
     path fantasia, stageAs: 'staged/qc/fantasia/*'
     path citations, stageAs: 'staged/citations.md'
+    path hints, stageAs: 'staged/hintsfile.gff'       // [] in mode abinitio
+    path params_yaml, stageAs: 'staged/params.yaml'   // [] when Nextflow was run without the launcher
     val run_info
 
   output:
