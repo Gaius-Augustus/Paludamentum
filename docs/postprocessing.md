@@ -227,7 +227,7 @@ transcript and gene (locus) level.
 
 | File | Tool |
 | --- | --- |
-| `ncrna/rRNA.gff3` | pybarrnap 0.5.1 (`--kingdom euk`) |
+| `ncrna/rRNA.gff3` | pybarrnap 0.5.2 (`--kingdom euk`) |
 | `ncrna/tRNAs.gff3`, `ncrna/tRNAs.txt` | tRNAscan-SE 2.0.12 (`-E`; with `ncrna.trnascan_high_confidence` the EukHighConfidenceFilter) |
 | `ncrna/infernal.tblout`, `ncrna/ncRNAs_infernal.gff3` | Infernal 1.1.5 `cmscan --cut_ga --rfam --nohmmonly --clanin --oclan` against Rfam 15.1, one task per genome chunk; `bin/infernal_to_gff3.py` keeps the hits above the gathering threshold and, where several hits of one Rfam clan cover the same locus, the best-scoring one (`olp` other than `=`), and types each by its Rfam family |
 | `ncrna/lncRNAs.gff3`, `ncrna/feelnc_classifier.txt` | FEELnc 0.2 on the merged StringTie assemblies (modes with transcripts, `ncrna.lncrna`; see below) |

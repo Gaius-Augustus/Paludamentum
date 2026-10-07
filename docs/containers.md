@@ -7,7 +7,7 @@
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 | Drusilla flow (ORFs, LightGBM filter) | `docker://gaiusaugustus/drusilla:<version>` | [docker/drusilla/Dockerfile](../docker/drusilla/Dockerfile) |
 | hint rescue of the Drusilla flow | `docker://gaiusaugustus/paludamentum-hint-rescue:0.2.0` | [docker/hint_rescue/Dockerfile](../docker/hint_rescue/Dockerfile) |
-| post-processing: compleasm, GffCompare, tRNAscan-SE, Infernal, pybarrnap, gene set statistics, report | `docker://gaiusaugustus/paludamentum-postprocess:0.1.0` | [docker/postprocess/Dockerfile](../docker/postprocess/Dockerfile) |
+| post-processing: compleasm, GffCompare, tRNAscan-SE, Infernal, pybarrnap, gene set statistics, report | `docker://gaiusaugustus/paludamentum-postprocess:0.1.1` | [docker/postprocess/Dockerfile](../docker/postprocess/Dockerfile) |
 | BUSCO | `docker://ezlabgva/busco:v6.1.0_cv2` | the BUSCO project |
 | FEELnc (lncRNA) | `docker://quay.io/biocontainers/feelnc:0.2--pl526_0` | BioContainers |
 | OMArk and OMAmer | `docker://quay.io/biocontainers/omark:0.4.1--pyh7e72e81_0` | BioContainers |

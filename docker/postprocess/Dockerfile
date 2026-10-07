@@ -6,13 +6,17 @@
 # Every tool is pinned: one micromamba environment with Bioconda and
 # conda-forge packages at fixed version and build (resolved together on
 # 2026-10-07), and compleasm 0.2.9 from its release archive (it bundles its
-# miniprot and hmmsearch), checked against its SHA-256. The Bioconda
+# miniprot and hmmsearch), checked against its SHA-256. pyhmmer is pinned
+# as well: pybarrnap 0.5.1 asks only for pyhmmer >= 0.11 and fails on the
+# keyword-only TextSequence of pyhmmer 0.12 (0.1.0 of this image: every
+# pybarrnap run stopped with '__init__() takes exactly 0 positional
+# arguments'); 0.5.2 needs pyhmmer >= 0.12.1. The Bioconda
 # compleasm pulls Python 3.7 and HMMER 3.1b2 (through sepp), and compleasm
 # 0.2.7 fails on the current file_versions.tsv of busco-data.ezlab.org.
 #
 # Build (no build context is needed) and tag with the version below:
-#   docker build -t gaiusaugustus/paludamentum-postprocess:0.1.0 - < docker/postprocess/Dockerfile
-#   docker push gaiusaugustus/paludamentum-postprocess:0.1.0
+#   docker build -t gaiusaugustus/paludamentum-postprocess:0.1.1 - < docker/postprocess/Dockerfile
+#   docker push gaiusaugustus/paludamentum-postprocess:0.1.1
 
 FROM mambaorg/micromamba:2.0.5
 
@@ -30,7 +34,8 @@ RUN micromamba install -y -n base --override-channels -c conda-forge -c bioconda
         gffread=0.12.7=h077b44d_6 \
         infernal=1.1.5=pl5321h7b50bb2_4 \
         trnascan-se=2.0.12=pl5321h7b50bb2_2 \
-        pybarrnap=0.5.1=pyhdfd78af_0 \
+        pybarrnap=0.5.2=pyhdfd78af_0 \
+        pyhmmer=0.12.3=py312hfabe715_0 \
         matplotlib-base=3.11.2=py312hfe9aac7_1 \
         pandas=3.0.6=np2py312h91ec553_0 \
         curl=8.22.0=ha042cf0_0 \
@@ -63,7 +68,8 @@ RUN set -e; \
     cmpress -h > /dev/null; \
     tRNAscan-SE -h 2>&1 | grep -q 'tRNAscan-SE 2.0.12'; \
     command -v EukHighConfidenceFilter > /dev/null; \
-    pybarrnap --version | grep -q '0.5.1'; \
+    pybarrnap --version | grep -q '0.5.2'; \
+    pybarrnap --kingdom euk /opt/conda/lib/python3.12/site-packages/pybarrnap/example_data/fungus.fna 2> /dev/null | grep -q 'Name=28S_rRNA'; \
     curl --version > /dev/null; \
     ps --version > /dev/null; \
     python -c "import matplotlib, pandas; assert (matplotlib.__version__, pandas.__version__) == ('3.11.2', '3.0.6'), (matplotlib.__version__, pandas.__version__)"
