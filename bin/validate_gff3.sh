@@ -18,7 +18,13 @@ if ! gt gff3validator "$gff" > "$log" 2>&1; then
 fi
 
 # -E: expose (warn about) duplicate IDs, missing parents, invalid CDS
-gffread -E "$gff" -o /dev/null > "$log" 2>&1
+status=0
+gffread -E "$gff" -o /dev/null > "$log" 2>&1 || status=$?
+if [ "$status" -ne 0 ]; then
+    echo "validate_gff3.sh: gffread -E exits with $status on $gff:" >&2
+    head -n 50 "$log" >&2
+    exit 1
+fi
 if grep -i -E 'warning|error|discarded|invalid|overlap|no parent|not found' "$log" > /dev/null; then
     echo "validate_gff3.sh: gffread -E warns about $gff:" >&2
     head -n 50 "$log" >&2
