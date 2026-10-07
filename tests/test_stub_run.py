@@ -43,16 +43,35 @@ GENEFINDER = {
 }
 
 
+STATISTICS = {
+    "qc/gene_set_statistics.txt", "qc/isoform_and_exon_structure.png", "qc/transcript_lengths.png",
+    "qc/introns_per_gene.png",
+}
+
+
+def final_files(stem: str) -> set[str]:
+    """The published annotation, its post-processing and QC files (default params)."""
+    return {
+        f"{stem}.gff3", f"{stem}.gtf", f"{stem}_proteins.fa", f"{stem}_cds.fa",
+        f"intermediate/{stem}_sanity_filtered.gff3", "qc/sanity_filter.tsv",
+        "qc/software_versions.tsv", "report.html", *STATISTICS,
+    }
+
+
 def expected_outputs(tool: str, mode: str) -> set[str]:
     if mode == "abinitio":
-        return {f"{tool}_ab_initio.gff3"}
-    return {
-        f"{tool}_evidence.gff3",
-        f"{tool}_evidence_proteins.fa",
+        return final_files(f"{tool}_ab_initio") | {f"intermediate/{tool}_ab_initio.gff3"}
+    files = final_files(f"{tool}_evidence") | {
         f"intermediate/{tool}_ab_initio.gff3",
+        f"intermediate/{tool}_merged.gff3",
         "intermediate/hc.gff3",
         "hintsfile.gff",
+        "qc/gene_support.tsv",
+        "qc/evidence_support.png",
     }
+    if mode in ("rnaseq", "isoseq", "mixed"):
+        files.add("qc/utr_report.tsv")
+    return files
 
 
 def run_pipeline(tmp_path: Path, params: dict) -> tuple[subprocess.CompletedProcess, set[str]]:
@@ -104,6 +123,21 @@ def test_tiberius_file_names_are_unchanged(tmp_path: Path) -> None:
         "intermediate/hc.gff3",
         "hintsfile.gff",
         "citations.md",
+        # post-processing (docs/postprocessing.md)
+        "tiberius_evidence.gtf",
+        "tiberius_evidence_cds.fa",
+        "intermediate/tiberius_merged.gff3",
+        "intermediate/tiberius_evidence_sanity_filtered.gff3",
+        "qc/sanity_filter.tsv",
+        "qc/utr_report.tsv",
+        "qc/gene_support.tsv",
+        "qc/gene_set_statistics.txt",
+        "qc/isoform_and_exon_structure.png",
+        "qc/transcript_lengths.png",
+        "qc/introns_per_gene.png",
+        "qc/evidence_support.png",
+        "qc/software_versions.tsv",
+        "report.html",
     }
 
 
@@ -415,16 +449,13 @@ def test_drusilla_flow_for_vertebrate_models(tool: str, mode: str, tmp_path: Pat
     assert "TD_ALL" not in proc.stdout
     published = {f for f in published if not f.startswith("intermediate/vipsania/")}
     assert published == {
-        f"{tool}_evidence.gff3",
-        f"{tool}_evidence_proteins.fa",
         f"intermediate/{tool}_ab_initio.gff3",
         f"intermediate/{tool}_lgb_filtered.gtf",
         f"intermediate/{tool}_lgb_scores.tsv",
         "intermediate/drusilla_orfs.gtf",
         "intermediate/hint_rescue.gtf",
-        "hintsfile.gff",
         "citations.md",
-    }
+    } | expected_outputs(tool, mode) - {"intermediate/hc.gff3"}
     # one StringTie assembly of all reads
     assert proc.stdout.count("STRINGTIE_ASSEMBLE") == 1, proc.stdout
 

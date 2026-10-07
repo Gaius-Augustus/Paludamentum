@@ -86,9 +86,10 @@ On a cluster put it on a shared file system that the compute nodes can read.
 | --- | --- |
 | `container` | runs in the evidence tools image pinned in `base.config` |
 | `tiberius`, `vipsania`, `drusilla`, `hint_rescue` | runs in that image instead (see [containers.md](containers.md)); never combined with `container` |
-| `gpu` | needs a GPU; gets `containerOptions = '--nv'` |
-| `bigmem` | high memory task, 100 GB by default |
-| `download` | downloads of SRA reads, OrthoDB partitions and model weights; runs on the submitting host, which needs internet access (4 CPUs, or all of the host's CPUs when it has fewer; 8 GB) |
+| `postprocess`, `busco`, `feelnc`, `omark`, `fantasia` | post-processing images: compleasm, gffcompare, tRNAscan-SE, Infernal, pybarrnap, the report; BUSCO; FEELnc; OMArk; FANTASIA-Lite (see [postprocessing.md](postprocessing.md)) |
+| `gpu` | needs a GPU; gets `containerOptions = '--nv'` (FANTASIA_ANNOTATE: `--nv` and a bind, set by `withName` in `base.config`) |
+| `bigmem` | high memory task, 100 GB by default (also compleasm and BUSCO on the genome, cmscan) |
+| `download` | downloads of SRA reads, OrthoDB partitions, model weights, BUSCO lineages and Rfam; runs on the submitting host, which needs internet access (4 CPUs, or all of the host's CPUs when it has fewer; 8 GB). The BUSCO and Rfam downloads also carry the image label `postprocess`. |
 | `local_only` | tiny task that runs on the submitting host |
 
 Override resources per label (`withLabel:`) or per process (`withName:`) in

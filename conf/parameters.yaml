@@ -136,3 +136,33 @@ tiberius:
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
 #   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
 #   rescue: true                 # hint rescue of partial ab initio genes
+
+# ------------------------------------------------------------
+# Post-processing and quality control (docs/postprocessing.md)
+# ------------------------------------------------------------
+# postprocess:
+#   sanity_filter: true          # false: report only (qc/sanity_filter.tsv)
+#   utr: true                    # UTRs from the StringTie assemblies (modes with transcripts)
+#   max_utr_extension: 5000
+# qc:
+#   busco_lineage: eukaryota_odb12      # compleasm and BUSCO; null = no completeness assessment
+#   busco_download_path: null    # lineage cache; null = ~/.cache/paludamentum/busco
+#   compleasm: true
+#   busco: true
+#   omark: false                 # needs omamer_db
+#   omamer_db: /abs/path/LUCA.h5
+#   ete_taxa_path: null          # directory with taxdump.tar.gz for OMArk
+#   reference_annotation: /abs/path/reference.gff3   # gffcompare at CDS level
+#   gene_support: true
+#   statistics: true
+#   report: true
+# ncrna:
+#   run: false                   # rRNA, tRNA, Rfam, lncRNA: <stem>_with_ncRNA.gff3
+#   rfam_dir: null               # Rfam.cm and Rfam.clanin; null = downloaded once (Rfam 15.1)
+#   trnascan_high_confidence: false
+#   lncrna: true                 # FEELnc, modes with transcripts
+# fantasia:
+#   run: false                   # GO terms, GPU: <stem>_go.gff3
+#   hf_cache_dir: /abs/path/hf_cache     # with Rostlab/prot_t5_xl_uniref50
+#   lookup_dir: /abs/path/fantasia_lookup
+#   min_score: 0.5

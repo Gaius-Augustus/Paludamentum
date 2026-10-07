@@ -281,6 +281,38 @@ the *ab initio* predictions. The steps are described in
 | `drusilla.rescue_orf_filter` | `false` | ORF-agreement filter: skip rescue loci where a Drusilla ORF already has all introns of the best protein chain. Off by default, as benchmarked. |
 | `drusilla.rescue_seq_len` | `99990` | `tiberius.py --seq_len` of the rescue (divisible by 18). |
 
+## Post-processing and quality control
+
+The steps after the integration, see [postprocessing.md](postprocessing.md).
+Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
+`--fantasia`; the other keys go into the params file.
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `postprocess.sanity_filter` | `true` | Remove transcripts with an internal stop codon, a CDS length that is not a multiple of 3, a broken CDS structure or no CDS; `false`: report only (`qc/sanity_filter.tsv`). |
+| `postprocess.utr` | `true` | UTRs from the StringTie assemblies for transcripts without UTRs (modes `rnaseq`, `isoseq`, `mixed`). |
+| `postprocess.max_utr_extension` | `5000` | Maximal UTR extension in bp beyond the CDS. |
+| `qc.busco_lineage` | none | BUSCO/compleasm lineage, e.g. `eukaryota_odb12`, `vertebrata_odb12` (without `_odbNN`: odb12). Without it there is no completeness assessment. |
+| `qc.busco_download_path` | `~/.cache/paludamentum/busco` | Lineage cache, layout `<dir>/lineages/<lineage>/`; a missing lineage is downloaded once on the submitting host. |
+| `qc.compleasm`, `qc.busco` | `true` | compleasm and BUSCO on genome and proteome (with `qc.busco_lineage`). |
+| `qc.omark` | `false` | OMArk on the proteome; needs `qc.omamer_db`. |
+| `qc.omamer_db` | none | OMAmer database (e.g. `LUCA.h5`, about 15 GB). |
+| `qc.ete_taxa_path` | none | Directory with NCBI `taxdump.tar.gz` for OMArk; without it ete3 downloads it on the compute node. |
+| `qc.reference_annotation` | none | Reference annotation (GFF3 or GTF): `gffcompare` at CDS level, `qc/gffcompare.stats`. |
+| `qc.gene_support` | `true` | Hint support per transcript, `qc/gene_support.tsv` (evidence modes). |
+| `qc.statistics` | `true` | Gene set statistics and plots. |
+| `qc.report` | `true` | `report.html`. |
+| `ncrna.run` | `false` | rRNA, tRNA, Rfam and lncRNA genes, `<stem>_with_ncRNA.gff3`. |
+| `ncrna.rfam_dir` | `~/.cache/paludamentum/rfam` | Directory with `Rfam.cm` and `Rfam.clanin` (Rfam 15.1); unset: downloaded once on the submitting host. |
+| `ncrna.trnascan_high_confidence` | `false` | tRNAscan-SE high-confidence filter (EukHighConfidenceFilter). |
+| `ncrna.lncrna` | `true` | lncRNA with FEELnc (modes with transcripts). |
+| `fantasia.run` | `false` | GO terms with FANTASIA-Lite (GPU), `<stem>_go.gff3`. |
+| `fantasia.hf_cache_dir` | none | Hugging Face cache with `Rostlab/prot_t5_xl_uniref50` (required with `fantasia.run`). |
+| `fantasia.lookup_dir` | none | `lookup_table.npz`, `annotations.json`, `accessions.json` of Zenodo record 17720428 (required with `fantasia.run`). |
+| `fantasia.min_score` | `0.5` | Minimum score of a GO term. |
+| `fantasia.additional_params` | none | Appended to `fantasia_pipeline.py`. |
+| `tools.gffread`, `tools.compleasm`, `tools.busco`, `tools.gffcompare`, `tools.trnascan`, `tools.cmscan`, `tools.cmpress`, `tools.barrnap`, `tools.omamer`, `tools.omark` | the names on `PATH` in the images | Executables of the post-processing (`--check_tools` checks those of the steps that are on). GffRead and GenomeTools of the final files are called by name. |
+
 ## Mode
 
 The pipeline infers its mode from the inputs, see the table in the

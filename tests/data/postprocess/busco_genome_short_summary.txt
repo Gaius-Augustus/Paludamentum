@@ -1,0 +1,30 @@
+# BUSCO version is: 6.1.0 
+# The lineage dataset is: eukaryota_odb12 (Creation date: 2025-07-01, number of genomes: 456, number of BUSCOs: 129)
+# Summarized benchmarking in BUSCO notation for file /home/katharina/git/BRAKER4/test_scenarios_local/scenario_04_etp_bam/output/bam_proteins_masked/genome_masked.fa
+# BUSCO was run in mode: euk_genome_min
+# Gene predictor used: miniprot
+
+	***** Results: *****
+
+	C:1.6%[S:1.6%,D:0.0%],F:0.0%,M:98.4%,n:129,E:50.0%	   
+	2	Complete BUSCOs (C)	(of which 1 contain internal stop codons)		   
+	2	Complete and single-copy BUSCOs (S)	   
+	0	Complete and duplicated BUSCOs (D)	   
+	0	Fragmented BUSCOs (F)			   
+	127	Missing BUSCOs (M)			   
+	129	Total BUSCO groups searched		   
+
+Assembly Statistics:
+	8	Number of scaffolds
+	8	Number of contigs
+	1000001	Total length
+	0.000%	Percent gaps
+	125 kbp	Scaffold N50
+	125 kbp	Contigs N50
+
+
+Dependencies and versions:
+	hmmsearch: 3.4
+	bbtools: None
+	miniprot_index: 0.18-r281
+	miniprot_align: 0.18-r281

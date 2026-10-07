@@ -52,7 +52,7 @@ def references() {
         stringtie: [tool: 'StringTie', use: 'transcript assembly',
             ref: 'Kovaka S, Zimin AV, Pertea GM, Razaghi R, Salzberg SL, Pertea M. Transcriptome assembly from long-read RNA-seq alignments with StringTie2. Genome Biology. 2019;20(1):278.',
             doi: '10.1186/s13059-019-1910-1'],
-        gffread: [tool: 'GffRead', use: 'format conversion, protein sequences',
+        gffread: [tool: 'GffRead and GffCompare', use: 'format conversion, protein sequences, comparison with a reference annotation',
             ref: 'Pertea G, Pertea M. GFF Utilities: GffRead and GffCompare. F1000Research. 2020;9:304.',
             doi: '10.12688/f1000research.23297.2'],
         transdecoder: [tool: 'TransDecoder', use: 'ORFs of the assembled transcripts',
@@ -70,14 +70,73 @@ def references() {
         lightgbm: [tool: 'LightGBM', use: 'filter of the gene predictions',
             ref: 'Ke G, Meng Q, Finley T, Wang T, Chen W, Ma W, Ye Q, Liu TY. LightGBM: A Highly Efficient Gradient Boosting Decision Tree. Advances in Neural Information Processing Systems 30 (NIPS 2017). 2017.',
             url: 'https://proceedings.neurips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html'],
+        genometools: [tool: 'GenomeTools', use: 'validation of the published GFF3 files',
+            ref: 'Gremme G, Steinbiss S, Kurtz S. GenomeTools: a comprehensive software library for efficient processing of structured genome annotations. IEEE/ACM Transactions on Computational Biology and Bioinformatics. 2013;10(3):645-656.',
+            doi: '10.1109/TCBB.2013.68'],
+        busco: [tool: 'BUSCO', use: 'completeness of genome and proteome',
+            ref: 'Manni M, Berkeley MR, Seppey M, Simão FA, Zdobnov EM. BUSCO Update: novel and streamlined workflows along with broader and deeper phylogenetic coverage for scoring of eukaryotic, prokaryotic, and viral genomes. Molecular Biology and Evolution. 2021;38(10):4647-4654.',
+            doi: '10.1093/molbev/msab199'],
+        compleasm: [tool: 'compleasm', use: 'completeness of genome and proteome',
+            ref: 'Huang N, Li H. compleasm: a faster and more accurate reimplementation of BUSCO. Bioinformatics. 2023;39(10):btad595.',
+            doi: '10.1093/bioinformatics/btad595'],
+        omark: [tool: 'OMArk', use: 'consistency and completeness of the proteome',
+            ref: 'Nevers Y, Warwick Vesztrocy A, Rossier V, Train CM, Altenhoff A, Dessimoz C, Glover NM. Quality assessment of gene repertoire annotations with OMArk. Nature Biotechnology. 2025;43(1):124-133.',
+            doi: '10.1038/s41587-024-02147-w'],
+        omamer: [tool: 'OMAmer', use: 'protein families of the proteome for OMArk',
+            ref: 'Rossier V, Warwick Vesztrocy A, Robinson-Rechavi M, Dessimoz C. OMAmer: tree-driven and alignment-free protein assignment to subfamilies outperforms closest sequence approaches. Bioinformatics. 2021;37(18):2866-2873.',
+            doi: '10.1093/bioinformatics/btab219'],
+        barrnap: [tool: 'barrnap (pybarrnap)', use: 'rRNA genes',
+            ref: 'Seemann T. barrnap: BAsic Rapid Ribosomal RNA Predictor; Python implementation pybarrnap by Shimoyama Y (https://github.com/moshi4/pybarrnap).',
+            url: 'https://github.com/tseemann/barrnap'],
+        trnascan: [tool: 'tRNAscan-SE', use: 'tRNA genes',
+            ref: 'Chan PP, Lin BY, Mak AJ, Lowe TM. tRNAscan-SE 2.0: improved detection and functional classification of transfer RNA genes. Nucleic Acids Research. 2021;49(16):9077-9096.',
+            doi: '10.1093/nar/gkab688'],
+        infernal: [tool: 'Infernal', use: 'ncRNA genes of the Rfam families',
+            ref: 'Nawrocki EP, Eddy SR. Infernal 1.1: 100-fold faster RNA homology searches. Bioinformatics. 2013;29(22):2933-2935.',
+            doi: '10.1093/bioinformatics/btt509'],
+        rfam: [tool: 'Rfam', use: 'RNA families database (release 15.1)',
+            ref: 'Ontiveros-Palacios N, Cooke E, Nawrocki EP, Triebel S, Marz M, Rivas E, Griffiths-Jones S, Petrov AI, Bateman A, Sweeney B. Rfam 15: RNA families database in 2025. Nucleic Acids Research. 2025;53(D1):D258-D267.',
+            doi: '10.1093/nar/gkae1023'],
+        feelnc: [tool: 'FEELnc', use: 'lncRNA genes',
+            ref: 'Wucher V, Legeai F, Hédan B, et al. FEELnc: a tool for long non-coding RNA annotation and its application to the dog transcriptome. Nucleic Acids Research. 2017;45(8):e57.',
+            doi: '10.1093/nar/gkw1306'],
+        fantasia: [tool: 'FANTASIA', use: 'GO terms from protein language model embeddings',
+            ref: 'Martínez-Redondo GI, Perez-Canales FM, Carbonetto B, Fernández JM, Barrios-Núñez I, Vázquez-Valls M, Cases I, Rojas AM, Fernández R. FANTASIA leverages language models to decode the functional dark proteome across the animal tree of life. Communications Biology. 2025;8(1):1227.',
+            doi: '10.1038/s42003-025-08651-2'],
+        fantasia_suite: [tool: 'FANTASIA suite (FANTASIA-Lite)', use: 'GO term annotation software',
+            ref: 'Pérez-Canales FM, Domínguez-Rodríguez À, Carbonetto B, Fernández R, Cases I, Rojas AM. FANTASIA suite: a reproducible and configurable framework for embedding-based functional annotation of proteins. NAR Genomics and Bioinformatics. 2026;8(3):lqag106.',
+            doi: '10.1093/nargab/lqag106'],
+        prott5: [tool: 'ProtT5', use: 'protein language model of FANTASIA',
+            ref: 'Elnaggar A, Heinzinger M, Dallago C, Rehawi G, Wang Y, Jones L, Gibbs T, Feher T, Angerer C, Steinegger M, Bhowmik D, Rost B. ProtTrans: Toward Understanding the Language of Life Through Self-Supervised Learning. IEEE Transactions on Pattern Analysis and Machine Intelligence. 2022;44(10):7112-7127.',
+            doi: '10.1109/TPAMI.2021.3095381'],
     ]
 }
 
 // Keys of references() for a run. run: [mode, genefinder (name or null),
 // tiberiusModel (params.tiberius.model_cfg or null), hc ('drusilla' |
 // 'transdecoder'), orfFinder ('td1' | 'td2'), rescue, odb12, shortFastq,
-// shortBam, shortVarus, isoFastq, isoVarus] (all but the first five boolean).
+// shortBam, shortVarus, isoFastq, isoVarus, busco, compleasm, omark,
+// gffcompare, ncrna, lncrna, fantasia] (all but the first five boolean).
 def citationKeys(Map run) {
+    def keys = evidenceCitationKeys(run)
+    // post-processing of the final annotation (runs with a gene finder)
+    if( run.genefinder ) {
+        if( !keys.contains('gffread') ) keys << 'gffread'
+        keys << 'genometools'
+        if( run.busco ) keys << 'busco'
+        if( run.compleasm ) keys << 'compleasm'
+        if( run.omark ) keys << 'omark' << 'omamer'
+        if( run.ncrna ) {
+            keys << 'barrnap' << 'trnascan' << 'infernal' << 'rfam'
+            if( run.lncrna && run.mode in ['rnaseq', 'isoseq', 'mixed'] ) keys << 'feelnc'
+        }
+        if( run.fantasia ) keys << 'fantasia' << 'fantasia_suite' << 'prott5'
+    }
+    return keys
+}
+
+// Keys of the gene finder and the evidence steps of a run (see citationKeys)
+def evidenceCitationKeys(Map run) {
     def keys = ['paludamentum', 'nextflow']
     def transcripts = run.mode in ['rnaseq', 'isoseq', 'mixed']
     def drusilla = transcripts && run.hc == 'drusilla'

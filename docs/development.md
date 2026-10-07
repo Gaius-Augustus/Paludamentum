@@ -11,11 +11,12 @@ them; they do not depend on Paludamentum.
 | [Vipsania](https://github.com/Gaius-Augustus/Vipsania) (`vipsania/`) | gene finder | supported, see [vipsania.md](vipsania.md) |
 | [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (`drusilla/`) | ORF annotator for assembled transcripts | high-confidence genes for vertebrate models, see [Drusilla flow](drusilla_flow.md) |
 
-> **Status (v0.4.0).** Paludamentum is the entry point: `paludamentum`
+> **Status (v0.5.0).** Paludamentum is the entry point: `paludamentum`
 > launches the pipeline with Tiberius or Vipsania. Earlier versions were a
 > submodule of Tiberius and were launched by `tiberius.py`; that direction is
 > reversed since v0.3.0. v0.4.0 adds the [Drusilla flow](drusilla_flow.md) for
-> vertebrate models.
+> vertebrate models, v0.5.0 the [post-processing and quality
+> control](postprocessing.md) of the final annotation.
 
 ## Repository layout
 
@@ -24,8 +25,8 @@ main.nf                entry workflow
 nextflow.config        manifest, includes conf/base.config
 lib_nf/                shared Groovy functions
 modules/               Nextflow processes
-subworkflows/          inputs, protein, RNA-Seq, Iso-Seq, HC genes, gene finder
-bin/                   scripts called by processes
+subworkflows/          inputs, protein, RNA-Seq, Iso-Seq, HC genes, gene finder, post-processing
+bin/                   scripts called by processes (bin/gff3_lib.py: GFF3 model of the post-processing scripts)
 conf/                  base config, site configs, parameters.yaml, blosum62.csv
 paludamentum/          Python launcher (paludamentum, python -m paludamentum)
 tiberius/              submodule: Tiberius (gene finder)
@@ -86,4 +87,14 @@ smoke tests use `tiberius/test_data/Panthera_pardus` and
       no longer runs the pipeline
 - [x] v0.4.0: Drusilla flow for vertebrate models (Drusilla ORFs as HC genes,
       LightGBM filter of the *ab initio* predictions)
+- [x] v0.5.0: post-processing and quality control (docs/postprocessing.md):
+  - [x] subworkflow `POSTPROCESS` and its parameter blocks
+  - [x] sanity filter, GFF3 contract and validator, GTF, CDS FASTA, longest isoform
+  - [x] completeness with compleasm and BUSCO
+  - [x] UTRs from the StringTie assemblies
+  - [x] hint support, gene set statistics, software versions, `report.html`
+  - [x] ncRNA: pybarrnap, tRNAscan-SE, Infernal/Rfam, FEELnc
+  - [x] OMArk and gffcompare
+  - [x] GO terms with FANTASIA-Lite (GPU)
+- [ ] BUSCO rescue of *ab initio* genes dropped by the Drusilla flow (decide with the completeness numbers)
 - [ ] `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation

@@ -1,0 +1,30 @@
+# gffcompare v0.12.6 | Command line was:
+#gffcompare --strict-match -e 3 -T -r output/athaliana_ep/gffcompare/reference.CDS.gtf -o output/athaliana_ep/gffcompare/gffcompare output/athaliana_ep/gffcompare/prediction.CDS.gtf
+#
+
+#= Summary for dataset: output/athaliana_ep/gffcompare/prediction.CDS.gtf 
+#     Query mRNAs :   32232 in   30535 loci  (24471 multi-exon transcripts)
+#            (1436 multi-transcript loci, ~1.1 transcripts per locus)
+# Reference mRNAs :   40127 in   27708 loci  (33058 multi-exon)
+# Super-loci w/ reference transcripts:    24971
+#-----------------| Sensitivity | Precision  |
+        Base level:    94.9     |    83.7    |
+        Exon level:    80.8     |    83.6    |
+      Intron level:    87.7     |    88.2    |
+Intron chain level:    48.0     |    64.8    |
+  Transcript level:    48.6     |    60.5    |
+       Locus level:    69.7     |    63.3    |
+
+     Matching intron chains:   15854
+       Matching transcripts:   19511
+              Matching loci:   19322
+
+          Missed exons:    9783/156225	(  6.3%)
+           Novel exons:   15995/150890	( 10.6%)
+        Missed introns:    6934/120332	(  5.8%)
+         Novel introns:   10436/119734	(  8.7%)
+           Missed loci:    2393/27708	(  8.6%)
+            Novel loci:    5141/30535	( 16.8%)
+
+ Total union super-loci across all input datasets: 30112 
+32232 out of 32232 consensus transcripts written in output/athaliana_ep/gffcompare/gffcompare.annotated.gtf (0 discarded as redundant)

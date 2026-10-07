@@ -1,6 +1,7 @@
 # Image of the Paludamentum evidence tools: every process with the label
 # 'container' (StringTie, HISAT2, minimap2, miniprot, miniprothint, DIAMOND,
-# TransDecoder, TD2, bam2hints, SRA downloads, the scripts in bin/). Tiberius runs
+# TransDecoder, TD2, bam2hints, SRA downloads, GffRead and GenomeTools of the
+# post-processing, the scripts in bin/). Tiberius runs
 # in the Tiberius image (label 'tiberius'), Vipsania, Drusilla and the hint
 # rescue in theirs.
 #
@@ -11,9 +12,11 @@
 # apt packages are pinned to its versions.
 #
 # Build (no build context is needed) and tag with the version below:
-#   docker build -t gaiusaugustus/paludamentum-evidence:0.2.1 - < docker/evidence/Dockerfile
-#   docker push gaiusaugustus/paludamentum-evidence:0.2.1
+#   docker build -t gaiusaugustus/paludamentum-evidence:0.2.2 - < docker/evidence/Dockerfile
+#   docker push gaiusaugustus/paludamentum-evidence:0.2.2
 #
+# 0.2.2: GenomeTools 1.6.5 (gt gff3validator, bin/validate_gff3.sh), which
+# checks every GFF3 that the post-processing publishes.
 # 0.2.1: TD2 1.1.0 (the ORF finder of the TransDecoder flow by default, see
 # conf/hc_genes.yaml) with psauron 1.1.3 and the CPU build of PyTorch 2.14.0,
 # the versions of docs/orf_finder_comparison.md. (0.2.0 lacked psauron on
@@ -100,8 +103,8 @@ LABEL org.opencontainers.image.title="paludamentum-evidence" \
 
 # samtools, HISAT2 and DIAMOND from Ubuntu (the versions that the benchmark
 # image ran: its DIAMOND 2.1.16 tarball came after the apt DIAMOND on PATH).
-# libbamtools for bam2hints, liburi-perl for TransDecoder, procps for the
-# Nextflow task metrics.
+# libbamtools for bam2hints, liburi-perl for TransDecoder, GenomeTools for the
+# GFF3 validation of the post-processing, procps for the Nextflow task metrics.
 RUN apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
         samtools=1.19.2-1build2 \
@@ -109,6 +112,7 @@ RUN apt-get update --yes && \
         diamond-aligner=2.1.9-1 \
         libbamtools-dev=2.5.2+dfsg-4 \
         liburi-perl=5.27-1 \
+        genometools=1.6.5+ds-2.1ubuntu2 \
         perl \
         python3 \
         python3-venv \
@@ -151,6 +155,7 @@ RUN set -e; \
     stringtie --version | grep -qx '3.0.3'; \
     minimap2 --version | grep -qx '2.30-r1287'; \
     gffread --version | grep -qx '0.12.7'; \
+    gt --version | head -1 | grep -q '1.6.5'; \
     fasterq-dump --version | grep -q '3.3.0'; \
     miniprot --version | grep -qx '0.18-r281'; \
     test -x /opt/miniprot-boundary-scorer/miniprot_boundary_scorer; \

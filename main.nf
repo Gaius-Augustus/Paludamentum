@@ -1,8 +1,8 @@
 nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
-include { MERGE_GENEFINDER_TRAIN; PROTEIN_FROM_GFF_FINAL } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; varusInputs; orfFinder; drusillaSetting } from './lib_nf/functions.nf'
+include { MERGE_GENEFINDER_TRAIN } from './modules/genefinder.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; varusInputs; orfFinder; drusillaSetting; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
@@ -15,6 +15,7 @@ include { AB_INITIO } from './subworkflows/ab_initio.nf'
 include { DRUSILLA_HC } from './subworkflows/drusilla.nf'
 include { STRINGTIE_ASSEMBLE_MIX } from './modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_MIX } from './modules/varus.nf'
+include { POSTPROCESS } from './subworkflows/postprocess.nf'
 
 workflow {
   main:
@@ -93,6 +94,10 @@ workflow {
         rescue: rescueEnabled(params), odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
         isoFastq: hasIso, isoVarus: nIsoVarus > 0,
+        busco: params.qc?.busco_lineage && truthy(params.qc?.busco),
+        compleasm: params.qc?.busco_lineage && truthy(params.qc?.compleasm),
+        omark: truthy(params.qc?.omark), gffcompare: params.qc?.reference_annotation as boolean,
+        ncrna: truthy(params.ncrna?.run), lncrna: truthy(params.ncrna?.lncrna), fantasia: truthy(params.fantasia?.run),
     ], workflow.manifest.version ?: 'unknown')
 
     // Mixed mode with Drusilla: one stringtie --mix assembly of both BAMs.
@@ -120,8 +125,15 @@ workflow {
 
     def inp  = INPUTS(params)
 
+    // The final protein-coding annotation of either branch, and the evidence
+    // that the post-processing uses (subworkflows/postprocess.nf)
+    def final_gff = nextflow.Channel.empty()
+    def asm_short = nextflow.Channel.empty()   // StringTie assemblies of short reads (UTRs)
+    def asm_long  = nextflow.Channel.empty()   // StringTie assemblies of Iso-Seq reads (UTRs)
+    def hints     = nextflow.Channel.empty()   // hintsfile.gff (gene support)
+
     if( MODE == 'abinitio' ) {
-      AB_INITIO(inp.genome, params)
+      final_gff = AB_INITIO(inp.genome, params).gff
 
     } else {
 
@@ -159,7 +171,18 @@ workflow {
       // TransDecoder flow: the given assemblies are merged with those of the reads
       if( hasStringtie && !stringtieOnly ) asm_gtf = asm_gtf.mix(stringtie_gtf)
 
+      // UTRs: the Iso-Seq assemblies of the TransDecoder flow are long-read
+      // evidence; one assembly of all reads (Drusilla flow) counts as short reads
+      if( useDrusilla || stringtieOnly ) {
+        asm_short = asm_gtf
+      } else {
+        asm_short = (MODE in ['mixed','rnaseq']) ? re.asm_gtf : nextflow.Channel.empty()
+        asm_long  = (MODE in ['mixed','isoseq']) ? ie.asm_gtf : nextflow.Channel.empty()
+        if( hasStringtie ) asm_short = asm_short.mix(stringtie_gtf)
+      }
+
       def all_hints = CONCAT_HINTS(pe.prot_hints, re.hints, ie.hints)
+      hints = all_hints.hints
 
       def train_final
       def genefinder_final = pe.genefinder_gff
@@ -174,8 +197,20 @@ workflow {
       }
 
       if( genefinderRun ) {
-        MERGE_GENEFINDER_TRAIN(genefinder, genefinder_final, train_final)
-        PROTEIN_FROM_GFF_FINAL(genefinder, MERGE_GENEFINDER_TRAIN.out.merged, inp.genome)
+        final_gff = MERGE_GENEFINDER_TRAIN(genefinder, genefinder_final, train_final).merged
       }
+    }
+
+    // Sanity filter, UTRs, GTF and sequences, quality control, ncRNA and GO
+    // terms of the final annotation. Evidence runs without a gene finder have
+    // no final annotation and end with the hints and the HC genes.
+    if( genefinderRun ) {
+      def runInfo = [
+          version: workflow.manifest.version ?: 'unknown', mode: MODE, genefinder: genefinder,
+          model: genefinder == 'tiberius' ? (params.tiberius?.model_cfg ? file(params.tiberius.model_cfg.toString()).baseName : null)
+                                          : params.vipsania?.model,
+          hc: MODE in ['abinitio', 'proteins'] ? null : hc.method,
+      ]
+      POSTPROCESS(final_gff, inp.genome, genefinder, MODE, asm_short, asm_long, hints, runInfo)
     }
 }

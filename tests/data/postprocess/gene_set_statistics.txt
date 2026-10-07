@@ -1,0 +1,15 @@
+BRAKER4 Gene Set Statistics
+==================================================
+
+Genes:                       260
+Transcripts:                 287
+Mean transcripts/gene:      1.10
+Mean exons/transcript:      5.33
+
+Single-exon transcripts:      72 (25.1%)
+Multi-exon transcripts:      215 (74.9%)
+
+Mean CDS length:           1,265 bp
+Mean genomic span:         1,845 bp
+Median CDS length:         1,125 bp
+Median genomic span:       1,672 bp

@@ -2,11 +2,16 @@
 
 | Processes | Image | Built from |
 | --- | --- | --- |
-| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, TransDecoder, TD2, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.1` | [docker/evidence/Dockerfile](../docker/evidence/Dockerfile) |
+| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, TransDecoder, TD2, GffRead, GenomeTools, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.2` | [docker/evidence/Dockerfile](../docker/evidence/Dockerfile) |
 | Tiberius | `docker://gaiusaugustus/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 | Drusilla flow (ORFs, LightGBM filter) | `docker://gaiusaugustus/drusilla:<version>` | [docker/drusilla/Dockerfile](../docker/drusilla/Dockerfile) |
 | hint rescue of the Drusilla flow | `docker://gaiusaugustus/paludamentum-hint-rescue:0.2.0` | [docker/hint_rescue/Dockerfile](../docker/hint_rescue/Dockerfile) |
+| post-processing: compleasm, GffCompare, tRNAscan-SE, Infernal, pybarrnap, gene set statistics, report | `docker://gaiusaugustus/paludamentum-postprocess:0.1.0` | [docker/postprocess/Dockerfile](../docker/postprocess/Dockerfile) |
+| BUSCO | `docker://ezlabgva/busco:v6.1.0_cv2` | the BUSCO project |
+| FEELnc (lncRNA) | `docker://quay.io/biocontainers/feelnc:0.2--pl526_0` | BioContainers |
+| OMArk and OMAmer | `docker://quay.io/biocontainers/omark:0.4.1--pyh7e72e81_0` | BioContainers |
+| FANTASIA-Lite (GO terms, GPU) | `docker://katharinahoff/fantasia_for_brain:lite.v1.0.0` | the FANTASIA-Lite image of BRAKER4 |
 
 The evidence image is Ubuntu 24.04 with every tool pinned: Ubuntu packages
 at fixed versions, release archives checked against their SHA-256, and tools
@@ -24,9 +29,15 @@ Tiberius branch `hint_integration` and the bricks2marble branch `intron_hints`
 in place of the released versions, plus samtools. It is used for the hint rescue only and will be
 dropped when both branches are released.
 
+The post-processing image is micromamba with one environment of pinned
+Bioconda packages (version and build) and compleasm 0.2.9 from its release
+archive, checked against its SHA-256. The BUSCO, FEELnc, OMArk and
+FANTASIA-Lite images are used as their projects publish them, pinned by tag;
+they are pulled only when their steps are on.
+
 The images are pinned in [conf/base.config](../conf/base.config) through the
-process labels `container` (evidence image), `tiberius`, `vipsania`, `drusilla`
-and `hint_rescue`; a process carries at most one of them (processes that run
+process labels `container` (evidence image), `tiberius`, `vipsania`, `drusilla`,
+`hint_rescue`, `postprocess`, `busco`, `feelnc`, `omark` and `fantasia`; a process carries at most one of them (processes that run
 on the submitting host carry none). The image
 tag of a gene finder must match the version of its submodule; the launcher
 warns when they differ. The pipeline

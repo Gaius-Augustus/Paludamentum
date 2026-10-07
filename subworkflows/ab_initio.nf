@@ -17,5 +17,5 @@ workflow AB_INITIO {
     GENEFINDER(CH_GENOME, params_map, true)
 
     emit:
-    GENEFINDER.out
+    gff = GENEFINDER.out    // <tool>_ab_initio.gff3, the input of POSTPROCESS
 }
