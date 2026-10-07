@@ -1,6 +1,6 @@
 # BUSCO version is: 6.1.0 
 # The lineage dataset is: eukaryota_odb12 (Creation date: 2025-07-01, number of genomes: 456, number of BUSCOs: 129)
-# Summarized benchmarking in BUSCO notation for file /home/katharina/git/BRAKER4/test_scenarios_local/scenario_04_etp_bam/output/bam_proteins_masked/busco/busco_input_proteins.faa
+# Summarized benchmarking in BUSCO notation for file /data/busco_input_proteins.faa
 # BUSCO was run in mode: proteins
 
 	***** Results: *****
