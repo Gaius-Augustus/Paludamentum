@@ -172,7 +172,12 @@ process MERGE_GENEFINDER_EVI {
 }
 
 // Ab initio predictions merged with the HC genes, before the sanity filter;
-// the final <prefix>_evidence.gff3 is written by FINALIZE_ANNOTATION.
+// the final <prefix>_evidence.gff3 is written by FINALIZE_ANNOTATION. The HC
+// genes enter the annotation here; nothing is trained on them (the 'TRAIN' of
+// the name, and the traingenes input, come from BRAKER, where they train
+// AUGUSTUS). Both are kept because the process name and its script body are
+// part of the Nextflow task hash: renaming them would invalidate -resume for
+// this process and everything downstream of it.
 process MERGE_GENEFINDER_TRAIN {
     label 'container'
     publishDir "${params.outdir}/intermediate/", mode:'copy', overwrite: true

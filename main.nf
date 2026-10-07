@@ -184,20 +184,26 @@ workflow {
       def all_hints = CONCAT_HINTS(pe.prot_hints, re.hints, ie.hints)
       hints = all_hints.hints
 
-      def train_final
+      // The HC genes are evidence-backed gene models that MERGE_GENEFINDER_TRAIN
+      // below merges into the final annotation; they are not a training set.
+      // No gene finder is trained in this pipeline: Tiberius takes
+      // tiberius.model_cfg and Vipsania downloads a pretrained model. The
+      // 'TRAIN' of the process name, and training.gff of the HC flow, are
+      // inherited from BRAKER, where the HC genes do train AUGUSTUS.
+      def hc_gff
       def genefinder_final = pe.genefinder_gff
       if( useDrusilla ) {
         def dr = DRUSILLA_HC(asm_gtf, inp.genome, genefinder, pe.genefinder_gff, pe.scored_gff, pe.prot_hc_hints)
-        train_final      = dr.orfs
+        hc_gff           = dr.orfs
         genefinder_final = dr.genefinder
       } else if( MODE in ['mixed','rnaseq','isoseq'] ) {
-        train_final = HC_GENES(asm_gtf, inp.genome, pe.proteindb)
+        hc_gff = HC_GENES(asm_gtf, inp.genome, pe.proteindb)
       } else {
-        train_final = HC_FORMAT_FILTER(pe.prot_traingff, inp.genome)
+        hc_gff = HC_FORMAT_FILTER(pe.prot_traingff, inp.genome)
       }
 
       if( genefinderRun ) {
-        final_gff = MERGE_GENEFINDER_TRAIN(genefinder, genefinder_final, train_final).merged
+        final_gff = MERGE_GENEFINDER_TRAIN(genefinder, genefinder_final, hc_gff).merged
       }
     }
 
