@@ -238,7 +238,8 @@ proteins and GO terms by similarity to the FANTASIA lookup table.
 Outputs: `<stem>_go.gff3` (and `<stem>_with_ncRNA_go.gff3` with `ncrna.run`)
 with `Ontology_term` on mRNAs and genes, `qc/fantasia/results.csv`,
 `qc/fantasia/failed_sequences.csv`, `qc/fantasia/fantasia_summary.txt`,
-`qc/fantasia/fantasia_go_terms.tsv`, `qc/fantasia/fantasia_go_categories.png`.
+`qc/fantasia/fantasia_go_terms.tsv`, `qc/fantasia/fantasia_go_categories.png`
+(a placeholder figure when no GO term reaches `fantasia.min_score`).
 The FANTASIA-Lite image is run by Nextflow; `conf/base.config` binds
 `bin/fantasia_generate_embeddings.py` (BRAKER4's patched embedding script)
 over the image's copy. FANTASIA-Lite was validated by BRAKER4 on A100 GPUs

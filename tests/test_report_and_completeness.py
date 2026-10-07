@@ -232,6 +232,8 @@ def full_staged_dir(tmp_path: Path) -> Path:
     (staged / f"{stem}_cds.fa").write_text(">g1.t1\nATGAAAGTT\n")
     for suffix in ("_with_ncRNA.gff3", "_go.gff3", "_with_ncRNA_go.gff3"):
         (staged / f"{stem}{suffix}").write_text(gff)
+    (staged / "hintsfile.gff").write_text("c1\tProtHint\tintron\t10\t20\t1\t+\t.\tsrc=P;pri=4\n")
+    (staged / "params.yaml").write_text("genome: /abs/genome.fa\nmode: rnaseq\n")
     (staged / "citations.md").write_text(
         "# References of this Paludamentum run\n\nPaludamentum 0.5.0, mode `rnaseq`, gene finder: tiberius.\n\n"
         "This file lists the software <and> data.\nPlease cite them.\n\n"
@@ -301,8 +303,15 @@ def test_report_with_every_file(tmp_path: Path):
     # escaping of free text
     assert "Mean exons/transcript:      5.33" in text
     assert "287 &lt;x&gt;" in text and "software &lt;and&gt; data" in text
-    # run summary, output files
+    # run summary, output files: the staged files, and the chart the report wrote (published to qc/)
     assert "<td>drusilla</td>" in text and "<td>tiberius_evidence_with_ncRNA_go.gff3</td>" in text
+    files = text.split('id="output-files"')[1].split("</section>")[0]
+    listed = re.findall(r"<tr><td>([^<]+)</td>", files)
+    assert listed[:4] == ["tiberius_evidence.gff3", "tiberius_evidence.gtf", "tiberius_evidence_proteins.fa",
+                          "tiberius_evidence_cds.fa"]
+    assert {"hintsfile.gff", "params.yaml", "qc/completeness.png", "qc/completeness.tsv"} <= set(listed)
+    size = load("paludamentum_report").human_size((out.parent / "completeness.png").stat().st_size)
+    assert f'<td>qc/completeness.png</td><td>completeness chart</td><td class="num">{size}</td>' in files
     # sanity filter count table
     assert "<td>removed</td><td>internal_stop</td><td class=\"num\">2</td>" in text
     # UTRs: 2 of 3 matched, mean 5' UTR (100 + 50) / 2, mean 3' UTR (200 + 0) / 2
@@ -343,6 +352,25 @@ def test_completeness_png_path_option(tmp_path: Path):
     assert proc.returncode == 0, proc.stderr
     assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     assert not (tmp_path / "completeness.png").exists()
+    # the output files list the chart under its published name, with the size of the written file
+    text = (tmp_path / "r.html").read_text()
+    files = text.split('id="output-files"')[1].split("</section>")[0]
+    assert "<td>qc/completeness.png</td><td>completeness chart</td>" in files
+    assert "<td>qc/completeness.tsv</td>" in files
+
+
+def test_output_files_without_chart(tmp_path: Path):
+    """No completeness.tsv rows: no chart, and no qc/completeness.png row."""
+    staged = tmp_path / "staged"
+    (staged / "qc").mkdir(parents=True)
+    (staged / "qc" / "completeness.tsv").write_text("# nothing assessed\n")
+    (staged / "hintsfile.gff").write_text("")
+    proc = run("paludamentum_report.py", "--dir", str(staged), "--out", str(tmp_path / "r.html"))
+    assert proc.returncode == 0, proc.stderr
+    text = (tmp_path / "r.html").read_text()
+    assert re.findall(r'<section id="([^"]+)"', text) == ["output-files"]
+    assert "qc/completeness.png" not in text and "<td>hintsfile.gff</td>" in text
+    assert not (tmp_path / "completeness.png").exists()
 
 
 def test_citations_rendering():
@@ -350,3 +378,40 @@ def test_citations_rendering():
     html = rep.render_citations("- **A** (x). Some *ab initio* ref. https://example.org/a_b.\n")
     assert html == ('<ul class="refs"><li><strong>A</strong> (x). Some <em>ab initio</em> ref. '
                     '<a href="https://example.org/a_b">https://example.org/a_b</a>.</li></ul>')
+
+
+# ---------------------------------------------------------------- fantasia_summary.py
+
+FANTASIA_HEADER = "query_accession,go_id,reliability_index,distance,go_description,category\n"
+
+
+@pytest.mark.parametrize("rows", [
+    "",                                                          # results.csv with a header only
+    "g1.t1,GO:0005524,0.21,0.9,ATP binding,molecular_function\n"  # one term below the cutoff
+    "g2.t1,GO:0005634,0.40,0.8,nucleus,cellular_component\n",
+], ids=["no-rows", "all-below-cutoff"])
+def test_fantasia_summary_writes_a_placeholder_png_when_no_go_term_passes(tmp_path: Path, rows: str):
+    """fantasia_go_categories.png is a required output of FANTASIA_SUMMARY; it must exist
+    even when nothing survives --min-score (a placeholder figure, not a crash)."""
+    results = tmp_path / "results.csv"
+    results.write_text(FANTASIA_HEADER + rows)
+    out = tmp_path / "out"
+    proc = run("fantasia_summary.py", "--results", str(results), "--out-dir", str(out), "--min-score", "0.5")
+    assert proc.returncode == 0, proc.stderr
+    png = out / "fantasia_go_categories.png"
+    assert png.is_file() and png.stat().st_size > 0
+    assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert (out / "fantasia_go_terms.tsv").read_text() == "transcript_id\tgo_id\tgo_name\tgo_namespace\treliability_index\n"
+    assert "... above cutoff:                 0" in (out / "fantasia_summary.txt").read_text()
+
+
+def test_fantasia_summary_pie_when_terms_pass(tmp_path: Path):
+    results = tmp_path / "results.csv"
+    results.write_text(FANTASIA_HEADER
+                       + "g1.t1,GO:0005524,0.91,0.1,ATP binding,molecular_function\n"
+                       + "g2.t1,GO:0005634,0.77,0.2,nucleus,cellular_component\n")
+    out = tmp_path / "out"
+    proc = run("fantasia_summary.py", "--results", str(results), "--out-dir", str(out))
+    assert proc.returncode == 0, proc.stderr
+    assert (out / "fantasia_go_categories.png").stat().st_size > 0
+    assert len((out / "fantasia_go_terms.tsv").read_text().splitlines()) == 3
