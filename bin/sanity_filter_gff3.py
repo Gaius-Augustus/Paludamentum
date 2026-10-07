@@ -11,8 +11,10 @@ Per transcript, in this order:
   d. a stop codon before the last codon of the translated CDS: removed, internal_stop
   e. the CDS ends without a stop codon, and the next three bases are one:
      the last CDS segment (and its exon) is extended by 3 bp, kept, extended_stop;
-     neither: kept, no_stop (a 3' partial gene). A stop codon that an intron
-     would split is not added.
+     neither: kept, no_stop (a 3' partial gene). The three bases must lie in
+     the exon of the CDS end when another exon follows it: a codon that reaches
+     into the intron is not added (it would be split, and the GT donor site
+     fakes TA|G).
   f. the first codon is not ATG: kept, non_atg_start (a note only)
 
 A gene whose transcripts are all removed is removed. The result is
@@ -64,8 +66,11 @@ def structure_problem(tx: Transcript) -> Optional[str]:
 def stop_extension(tx: Transcript, genome: Dict[str, str]) -> Optional[Tuple[int, int]]:
     """
     Genomic interval of the stop codon that follows a CDS without one, or None.
-    A CDS that ends at the end of an exon followed by another exon is not
-    extended: its stop codon would be split by the intron.
+    When another exon follows the one that holds the CDS end, all three bases
+    must lie inside that exon: a codon reaching into the intron would be split
+    by it, and the intron's GT donor completes TA|G to a stop that is not there.
+    A CDS whose exon is the last one may extend past the exon end (the exon
+    grows with it).
     """
     cds = tx.cds
     strand = tx.feature.strand
@@ -76,13 +81,17 @@ def stop_extension(tx: Transcript, genome: Dict[str, str]) -> Optional[Tuple[int
         start, end = last.end + 1, last.end + 3
         if end > len(seq):
             return None
-        split = any(e.end == last.end for e in exons) and any(e.start > last.end for e in exons)
+        holder = [e for e in exons if e.start <= last.end <= e.end]
+        followed = any(e.start > last.end for e in exons)
+        split = followed and any(e.end < end for e in holder)
     else:
         last = cds[0]
         start, end = last.start - 3, last.start - 1
         if start < 1:
             return None
-        split = any(e.start == last.start for e in exons) and any(e.end < last.start for e in exons)
+        holder = [e for e in exons if e.start <= last.start <= e.end]
+        followed = any(e.end < last.start for e in exons)
+        split = followed and any(e.start > start for e in holder)
     if split:
         return None
     return (start, end) if subseq(genome, tx.feature.seqid, start, end, strand) in STOP_CODONS else None

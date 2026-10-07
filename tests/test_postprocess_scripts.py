@@ -294,6 +294,45 @@ def test_stop_codon_split_by_an_intron_is_not_added(tmp_path: Path):
     assert report(tmp_path / "r.tsv") == {("g.t1", "no_stop"): "kept"}
 
 
+@pytest.mark.parametrize("strand", ["+", "-"])
+@pytest.mark.parametrize("slack, extended", [(1, False), (2, False), (3, True)])
+def test_stop_codon_reaching_into_an_intron_is_not_added(tmp_path: Path, strand: str, slack: int, extended: bool):
+    """The exon holds `slack` bases after the CDS end and another exon follows.
+    The stop codon read across the exon end is only added when all three bases
+    are in the exon (slack 3). With slack 1 or 2 the codon is TA|G or T|GA with
+    the intron's first bases, a stop that is not in the transcript."""
+    rng = random.Random(slack)
+    seq = list("".join(rng.choice("ACGT") for _ in range(400)))
+    seq[100:160] = list(orf(rng, 19, stop=""))        # CDS 101..160, no stop
+    seq[160:163] = list("TAG" if slack != 1 else "TGA")  # exon end 160+slack, then the intron
+    seq[163:165] = list("GT")
+    plus = "".join(seq)
+    exon1 = (101, 160 + slack)
+    cds = (101, 160)
+    exon2 = (251, 300)
+    if strand == "-":
+        plus = gff3_lib.revcomp(plus)
+        exon1, cds, exon2 = [(401 - b, 401 - a) for a, b in (exon1, cds, exon2)]
+    (tmp_path / "genome.fa").write_text(">c1\n" + plus + "\n")
+    (tmp_path / "in.gff3").write_text(
+        f"c1\tx\tgene\t101\t300\t.\t{strand}\t.\tID=g\nc1\tx\tmRNA\t101\t300\t.\t{strand}\t.\tID=g.t1;Parent=g\n"
+        f"c1\tx\texon\t{exon1[0]}\t{exon1[1]}\t.\t{strand}\t.\tParent=g.t1\n"
+        f"c1\tx\texon\t{exon2[0]}\t{exon2[1]}\t.\t{strand}\t.\tParent=g.t1\n"
+        f"c1\tx\tCDS\t{cds[0]}\t{cds[1]}\t.\t{strand}\t0\tParent=g.t1\n")
+    proc = run("sanity_filter_gff3.py", "--gff3", "in.gff3", "--genome", "genome.fa",
+               "--out", "out.gff3", "--report", "r.tsv", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    out = {(r[2], r[3], r[4]) for r in rows(tmp_path / "out.gff3")}
+    if extended:
+        assert report(tmp_path / "r.tsv") == {("g.t1", "extended_stop"): "kept"}
+        new_cds = (cds[0], cds[1] + 3) if strand == "+" else (cds[0] - 3, cds[1])
+        assert ("CDS", str(new_cds[0]), str(new_cds[1])) in out
+    else:
+        assert report(tmp_path / "r.tsv") == {("g.t1", "no_stop"): "kept"}
+        assert ("CDS", str(cds[0]), str(cds[1])) in out
+    assert ("exon", str(exon1[0]), str(exon1[1])) in out   # the exon never grows into the intron
+
+
 def test_extended_stop_shortens_the_three_prime_utr(tmp_path: Path):
     rng = random.Random(2)
     seq = list("".join(rng.choice("ACGT") for _ in range(400)))
