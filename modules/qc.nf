@@ -114,11 +114,18 @@ process GFFCOMPARE {
 
   script:
   """
-  case "${reference}" in
-      *.gtf|*.gtf.gz) ref=${reference} ;;
-      *) gffread ${reference} -T -o reference.gtf; ref=reference.gtf ;;
+  # decompress first (a gzipped GFF3 must not reach gffread), then decide the
+  # format on the name without .gz: GTF is used as is, anything else is converted
+  ref="${reference}"
+  name="\${ref%.gz}"
+  if [[ "\$ref" == *.gz ]]; then
+      gunzip -c "\$ref" > "reference.\${name##*.}"
+      ref="reference.\${name##*.}"
+  fi
+  case "\$name" in
+      *.gtf) ;;
+      *) gffread "\$ref" -T -o reference.gtf; ref=reference.gtf ;;
   esac
-  if [[ "\$ref" == *.gz ]]; then gunzip -c "\$ref" > reference.unzipped.gtf; ref=reference.unzipped.gtf; fi
   awk -F'\\t' '\$3 == "CDS"' "\$ref" > reference.CDS.gtf
   awk -F'\\t' '\$3 == "CDS"' ${gtf} > prediction.CDS.gtf
   gffcompare --strict-match -e 3 -T -r reference.CDS.gtf -o gffcompare prediction.CDS.gtf

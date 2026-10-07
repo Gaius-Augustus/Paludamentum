@@ -195,7 +195,7 @@ which needs internet on the compute node.
 
 ## gffcompare
 
-With `qc.reference_annotation` (GFF3 or GTF), the CDS of the final annotation
+With `qc.reference_annotation` (GFF3 or GTF, gzipped or not), the CDS of the final annotation
 are compared with the CDS of the reference, as the benchmarks of this pipeline
 and BRAKER4 do: `gffcompare --strict-match -e 3 -T` on CDS lines.
 `qc/gffcompare.stats` has sensitivity and precision at base, exon, intron,

@@ -116,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
                       help="BUSCO/compleasm lineage (e.g. eukaryota_odb12) for the completeness of genome and "
                            "proteome; without it, no completeness assessment.")
     post.add_argument("--reference_annotation",
-                      help="Reference annotation (GFF3 or GTF): the final annotation is compared with it (gffcompare).")
+                      help="Reference annotation (GFF3 or GTF, gzipped or not): the final annotation is compared with it (gffcompare).")
     post.add_argument("--ncrna", action="store_true",
                       help="Annotate rRNA, tRNA, Rfam families and lncRNA: <stem>_with_ncRNA.gff3.")
     post.add_argument("--fantasia", action="store_true",
