@@ -15,12 +15,13 @@ bisect, bins) instead of intervaltree; the CDS includes the stop codon, so the
 --stringtie and --longread files; StringTie transcripts are told apart by
 transcript_id, sequence and strand (IDs from per-scaffold runs may collide);
 spliced length (sum of the exons) instead of exon plus intron length picks
-the longest match; a StringTie exon that starts inside the CDS of a
-single-exon gene no longer becomes a UTR that overlaps the CDS; UTR pieces
-on a side of the CDS are used only if a StringTie exon that is used contains
-that end of the CDS (the original joins the exons further out to the CDS by
-an intron StringTie does not have when the exon over the outermost CDS
-segment is dropped as shorter than the segment).
+the longest match; transcripts that already have UTRs (the HC genes) stop a
+neighbour's UTR, as a matched neighbour does; a StringTie exon that starts
+inside the CDS of a single-exon gene no longer becomes a UTR that overlaps
+the CDS; UTR pieces on a side of the CDS are used only if a StringTie exon
+that is used contains that end of the CDS (the original joins the exons
+further out to the CDS by an intron StringTie does not have when the exon
+over the outermost CDS segment is dropped as shorter than the segment).
 
 Rules (as in the original):
   - multi-exon transcript (CDS with introns): matches every StringTie
@@ -33,10 +34,12 @@ Rules (as in the original):
     match. StringTie transcripts with strand "." are ignored.
   - StringTie exons are clipped to CDS start - max_utr_extension and CDS end +
     max_utr_extension (0: no UTRs), and at the nearest same-strand transcript
-    of another gene that has a match itself (ab initio neighbours without a
-    match do not stop a UTR); for a single-exon transcript only StringTie
-    exons that overlap its CDS are used; a StringTie exon that overlaps a CDS
-    segment but is shorter than it is not used
+    of another gene that is a barrier: one that has a match itself, or one
+    that already has UTRs (the HC genes; the latter not in the original, an
+    ab initio neighbour without a match still does not stop a UTR); for a
+    single-exon transcript only StringTie exons that overlap its CDS are
+    used; a StringTie exon that overlaps a CDS segment but is shorter than it
+    is not used
   - the parts of the remaining StringTie exons outside the CDS span become
     five_prime_UTR (upstream in transcription direction) or three_prime_UTR
     (source stringtie2utr), on each side only if one of the remaining exons
@@ -220,17 +223,23 @@ def find_matches(cands: List[Candidate], st: Assemblies) -> Dict[int, int]:
     return best
 
 
-def neighbour_bounds(cands: List[Candidate], matched: List[int]) -> Dict[int, Tuple[Optional[int], Optional[int]]]:
+def neighbour_bounds(cands: List[Candidate], matched: List[int],
+                     fixed: List[Tuple[str, str, int, int, str]]
+                     ) -> Dict[int, Tuple[Optional[int], Optional[int]]]:
     """
     Region the UTRs of each matched candidate may occupy without running into
-    a matched transcript of another gene on the same sequence and strand
-    (neighbour_bounds of the original): (lo, hi), None where no such
-    neighbour lies on that side. Overlapping transcripts are ignored.
+    a barrier transcript of another gene on the same sequence and strand:
+    a matched candidate (neighbour_bounds of the original) or one of the
+    transcripts in `fixed` that already have UTRs (the HC genes, as
+    (seqid, strand, start, end, gene_id)). (lo, hi), None where no barrier
+    lies on that side. Overlapping transcripts are ignored.
     """
     by_locus: Dict[Tuple[str, str], List[Tuple[int, int, str]]] = defaultdict(list)
     for k in matched:
         c = cands[k]
         by_locus[(c.seqid, c.strand)].append((c.span_start, c.span_end, c.gene_id))
+    for seqid, strand, start, end, gene_id in fixed:
+        by_locus[(seqid, strand)].append((start, end, gene_id))
     index = {}
     for key, items in by_locus.items():
         by_end = sorted(items, key=lambda x: x[1])
@@ -325,11 +334,16 @@ def add_utrs(ann: Annotation, st: Assemblies, max_ext: int) -> Tuple[Dict[str, s
     matched_by: Dict[str, str] = {}
     cands: List[Candidate] = []
     gene_of: Dict[int, object] = {}
+    fixed: List[Tuple[str, str, int, int, str]] = []
     for gene, tx in ann.transcripts():
         if not tx.is_coding:
             continue
         if any(ch.type in UTR_TYPES for ch in tx.children):
             matched_by[tx.id] = "has_utr"
+            if tx.feature.strand in ("+", "-") and tx.children:
+                fixed.append((tx.feature.seqid, tx.feature.strand,
+                              min(ch.start for ch in tx.children), max(ch.end for ch in tx.children),
+                              gene.id))
             continue
         matched_by[tx.id] = "none"
         if tx.feature.strand in ("+", "-"):
@@ -338,7 +352,7 @@ def add_utrs(ann: Annotation, st: Assemblies, max_ext: int) -> Tuple[Dict[str, s
 
     best = find_matches(cands, st) if len(st) else {}
     matched = sorted(best)
-    bounds = neighbour_bounds(cands, matched)
+    bounds = neighbour_bounds(cands, matched, fixed)
     counts = {"stopped": 0, "utr_added": 0}
     touched = {}
     for k in matched:
@@ -366,7 +380,7 @@ def write_report(path: str, ann: Annotation, matched_by: Dict[str, str], counts:
         out.write(f"# matched long: {tally['long']}\n")
         out.write(f"# none: {tally['none']}\n")
         out.write(f"# UTR added: {counts['utr_added']}\n")
-        out.write(f"# UTR stopped at a matched neighbour gene: {counts['stopped']}\n")
+        out.write(f"# UTR stopped at a neighbour gene: {counts['stopped']}\n")
         out.write("transcript_id\tmatched_by\tfive_prime_utr_bp\tthree_prime_utr_bp\n")
         for _gene, tx in ann.transcripts():
             if tx.id in matched_by:
@@ -411,7 +425,7 @@ def main(argv=None) -> int:
     tally = Counter(matched_by.values())
     print(f"add_utrs_from_stringtie.py: {len(matched_by)} coding transcripts, {tally['has_utr']} with UTR before, "
           f"{tally['short']} matched short, {tally['long']} matched long, {tally['none']} none; "
-          f"UTRs added to {counts['utr_added']} ({counts['stopped']} stopped at a matched neighbour gene); "
+          f"UTRs added to {counts['utr_added']} ({counts['stopped']} stopped at a neighbour gene); "
           f"{len(st)} StringTie transcripts", file=sys.stderr)
     return 0
 

@@ -198,7 +198,7 @@ def test_same_strand_matched_neighbour_clips_the_extension(tmp_path: Path):
     assert res.spans("g1.t1", "three_prime_UTR") == [(1501, 1999)]    # stops before g2
     assert res.spans("g2.t1", "five_prime_UTR") == [(1501, 1999)]     # starts after g1
     assert res.spans("g2.t1", "three_prime_UTR") == [(2501, 2600)]
-    assert any("stopped at a matched neighbour gene: 2" in line for line in res.comments)
+    assert any("stopped at a neighbour gene: 2" in line for line in res.comments)
 
 
 def test_unmatched_neighbour_does_not_clip(tmp_path: Path):
@@ -208,6 +208,20 @@ def test_unmatched_neighbour_does_not_clip(tmp_path: Path):
     res = annotate(tmp_path, gff, short=[st])
     assert res.report["g2.t1"][0] == "none"
     assert res.spans("g1.t1", "three_prime_UTR") == [(1501, 2600)]
+
+
+def test_gene_with_utrs_clips_the_extension_on_both_sides(tmp_path: Path):
+    # the HC genes g1 and g3 already have UTRs: they are no candidates, but they are barriers
+    st = stringtie("MSTRG.1.1", "+", [(200, 2400)])
+    gff = (gene("g1", "+", [(100, 400)], utr3=[(401, 500)])
+           + gene("g2", "+", [(1000, 1500)])
+           + gene("g3", "+", [(2100, 2500)], utr5=[(2000, 2099)]))
+    res = annotate(tmp_path, gff, short=[st])
+    assert res.report["g1.t1"][0] == "has_utr" and res.report["g3.t1"][0] == "has_utr"
+    assert res.spans("g2.t1", "five_prime_UTR") == [(501, 999)]        # starts after g1's UTR
+    assert res.spans("g2.t1", "three_prime_UTR") == [(1501, 1999)]     # stops before g3's UTR
+    assert res.spans("g2.t1", "exon") == [(501, 1999)]
+    assert any("stopped at a neighbour gene: 1" in line for line in res.comments)
 
 
 def test_max_utr_extension_clips(tmp_path: Path):
