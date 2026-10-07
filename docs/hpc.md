@@ -89,8 +89,16 @@ On a cluster put it on a shared file system that the compute nodes can read.
 | `postprocess`, `busco`, `feelnc`, `omark`, `fantasia` | post-processing images: compleasm, gffcompare, tRNAscan-SE, Infernal, pybarrnap, the report; BUSCO; FEELnc; OMArk; FANTASIA-Lite (see [postprocessing.md](postprocessing.md)) |
 | `gpu` | needs a GPU; gets `containerOptions = '--nv'` (FANTASIA_ANNOTATE: `--nv` and a bind, set by `withName` in `base.config`) |
 | `bigmem` | high memory task, 100 GB by default (also compleasm and BUSCO on the genome, cmscan) |
-| `download` | downloads of SRA reads, OrthoDB partitions, model weights, BUSCO lineages and Rfam; runs on the submitting host, which needs internet access (4 CPUs, or all of the host's CPUs when it has fewer; 8 GB). The BUSCO and Rfam downloads also carry the image label `postprocess`. |
+| `download` | downloads of SRA reads, OrthoDB partitions, model weights, BUSCO lineages, Rfam and the NCBI taxonomy; runs on the submitting host, which needs internet access (4 CPUs, or all of the host's CPUs when it has fewer; 8 GB). The BUSCO and Rfam downloads also carry the image label `postprocess`, the NCBI taxonomy (built with ete3 for OMArk) the image label `omark`. |
 | `local_only` | tiny task that runs on the submitting host |
+
+Tasks get `params.threads` CPUs (48) unless the site config sets
+`process.cpus`, with these exceptions in `base.config`: the single-threaded
+post-processing tasks (sanity filter, UTRs, final files, statistics, report,
+summaries, GFF3 conversions) and the NCBI taxonomy download get one CPU,
+FANTASIA_ANNOTATE gets 8. These are `withName` settings, which beat
+`process.cpus` and `withLabel:` of a site config; change them with a
+`withName:` of your own.
 
 Override resources per label (`withLabel:`) or per process (`withName:`) in
 your config. Memory is a closure of `task.attempt` in `base.config`: a task

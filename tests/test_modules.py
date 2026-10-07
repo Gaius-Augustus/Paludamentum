@@ -45,3 +45,33 @@ def test_every_diamond_call_sets_threads():
 def test_base_config_reserves_params_threads_by_default():
     text = (ROOT / "conf" / "base.config").read_text()
     assert re.search(r"^\s*cpus\s*=\s*\{\s*params\.threads", text, re.MULTILINE)
+
+
+POSTPROCESS_MODULES = ("finalize.nf", "qc.nf", "completeness.nf", "ncrna.nf", "fantasia.nf")
+
+
+def base_config_cpus_by_name():
+    """Process names of the withName selectors of base.config that set cpus."""
+    text = (ROOT / "conf" / "base.config").read_text()
+    names = set()
+    for match in re.finditer(r"withName:\s*'([^']+)'\s*\{([^}]*)\}", text):
+        if re.search(r"^\s*cpus\s*=", match.group(2), re.MULTILINE):
+            names.update(match.group(1).split("|"))
+    return names
+
+
+def test_postprocess_tasks_do_not_reserve_the_default_cpus():
+    """A post-processing task whose tools do not run with task.cpus threads
+    sets its cpus in base.config; otherwise it reserves the 48 of the default
+    (a single-threaded report on 48 CPUs, FANTASIA with 48 CPUs on a GPU node)."""
+    with_cpus = base_config_cpus_by_name()
+    missing = []
+    for name in POSTPROCESS_MODULES:
+        text = (ROOT / "modules" / name).read_text()
+        for match in re.finditer(r"^process\s+(\w+)\s*\{(.*?)^\}", text, re.MULTILINE | re.DOTALL):
+            process, body = match.groups()
+            if "label 'download'" in body or "${task.cpus}" in body:
+                continue
+            if process not in with_cpus:
+                missing.append(f"{name}: {process}")
+    assert not missing, missing
