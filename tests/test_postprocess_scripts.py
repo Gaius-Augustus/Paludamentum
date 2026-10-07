@@ -276,6 +276,33 @@ def test_sanity_filter_output_passes_the_validator(toy: Path):
     assert gt.returncode == 0, gt.stderr
 
 
+def test_five_prime_partial_phase_counts_in_the_mod3_check(tmp_path: Path):
+    """A 5' partial transcript starts mid-codon: the phase of the first CDS is
+    not coding sequence (spliced_cds strips it) and must not fail check a."""
+    rng = random.Random(3)
+    coding = "".join(rng.choice(SENSE) for _ in range(19)) + "TAA"   # 60 nt, in-frame stop
+    plus = "GG" + coding + "ACGT" * 5                                # CDS 1-62, phase 2
+    minus = "ACGT" * 5 + gff3_lib.revcomp("GG" + coding)             # CDS 21-82, phase 2
+    (tmp_path / "genome.fa").write_text(f">c1\n{plus}\n>c2\n{minus}\n")
+    (tmp_path / "in.gff3").write_text(
+        "##gff-version 3\n"
+        "c1\tx\tgene\t1\t62\t.\t+\t.\tID=gP\n"
+        "c1\tx\tmRNA\t1\t62\t.\t+\t.\tID=gP.t1;Parent=gP\n"
+        "c1\tx\tCDS\t1\t62\t.\t+\t2\tParent=gP.t1\n"
+        "c2\tx\tgene\t21\t82\t.\t-\t.\tID=gM\n"
+        "c2\tx\tmRNA\t21\t82\t.\t-\t.\tID=gM.t1;Parent=gM\n"
+        "c2\tx\tCDS\t21\t82\t.\t-\t2\tParent=gM.t1\n"
+        "c1\tx\tgene\t101\t162\t.\t+\t.\tID=gQ\n"                    # 62 - phase 1 = 61 nt: out of frame
+        "c1\tx\tmRNA\t101\t162\t.\t+\t.\tID=gQ.t1;Parent=gQ\n"
+        "c1\tx\tCDS\t101\t162\t.\t+\t1\tParent=gQ.t1\n")
+    proc = run("sanity_filter_gff3.py", "--gff3", "in.gff3", "--genome", "genome.fa",
+               "--out", "out.gff3", "--report", "r.tsv", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert report(tmp_path / "r.tsv") == {("gQ.t1", "cds_length_mod3"): "removed"}
+    out = rows(tmp_path / "out.gff3")
+    assert [r[8].split(";")[0] for r in out if r[2] == "mRNA"] == ["ID=gP.t1", "ID=gM.t1"]
+
+
 def test_stop_codon_split_by_an_intron_is_not_added(tmp_path: Path):
     """A CDS that ends at an exon end followed by another exon keeps no_stop."""
     rng = random.Random(1)

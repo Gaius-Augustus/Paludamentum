@@ -4,7 +4,8 @@ Sanity filter of the final protein-coding annotation.
 
 Per transcript, in this order:
   g. a transcript without CDS (`transcript`, or `mRNA` without CDS): removed, no_cds
-  a. sum of the CDS lengths not a multiple of 3: removed, cds_length_mod3
+  a. sum of the CDS lengths, less the phase of the first CDS (a 5' partial
+     transcript starts mid-codon), not a multiple of 3: removed, cds_length_mod3
   b. CDS segments that overlap, or lie on different strands or sequences:
      removed, cds_structure
   c. a CDS segment outside the exons of its transcript: removed, cds_outside_exon
@@ -50,7 +51,7 @@ def structure_problem(tx: Transcript) -> Optional[str]:
     cds = tx.cds
     if not cds:
         return "no_cds"
-    if sum(c.length for c in cds) % 3:
+    if (sum(c.length for c in cds) - phase_of(tx.cds_in_transcription_order()[0])) % 3:
         return "cds_length_mod3"
     if len({c.seqid for c in cds}) > 1 or len({c.strand for c in cds}) > 1 or cds[0].strand not in "+-" \
             or cds[0].seqid != tx.feature.seqid or cds[0].strand != tx.feature.strand:

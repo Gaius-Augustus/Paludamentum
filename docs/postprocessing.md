@@ -38,7 +38,7 @@ reason`, counts in `#` lines on top):
 | Reason | Action |
 | --- | --- |
 | `no_cds`: a transcript without CDS | removed |
-| `cds_length_mod3`: CDS length not a multiple of 3 | removed |
+| `cds_length_mod3`: CDS length, less the phase of the first CDS (a 5' partial transcript starts mid-codon), not a multiple of 3 | removed |
 | `cds_structure`: CDS segments overlap or lie on different strands or sequences | removed |
 | `cds_outside_exon`: a CDS segment outside the exons of its transcript | removed |
 | `internal_stop`: a stop codon before the last codon | removed |
@@ -191,9 +191,20 @@ BRAKER4's `gene_set_statistics.py`, PNG only).
 `qc.omark: true` with `qc.omamer_db` (the OMAmer database, e.g. `LUCA.h5` of
 <https://omabrowser.org/All/>, about 15 GB, downloaded by you): OMAmer places
 the proteins of all isoforms, OMArk reads them grouped per gene and writes
-`qc/omark_summary.txt`. OMArk needs the NCBI taxonomy (ete3): give a
-directory with `taxdump.tar.gz` as `qc.ete_taxa_path`, else ete3 downloads it,
-which needs internet on the compute node.
+`qc/omark_summary.txt`.
+
+OMArk reads the NCBI taxonomy through ete3, which needs it as a database
+(`taxa.sqlite`). The pipeline builds it once on the submitting host (label
+`download`, image `omark`) in `qc.ete_taxa_path`, by default
+`~/.cache/paludamentum/ncbi_taxonomy`, from `taxdump.tar.gz` of
+<https://ftp.ncbi.nih.gov/pub/taxonomy/>, which is downloaded there (md5
+checked) unless the directory already holds it: for a submitting host without
+internet, put the tarball there. The OMArk task gets the database staged
+(`omark -e`) and needs no internet. The database stays as built; delete
+`taxa.sqlite` to rebuild it from a newer tarball. (ete3 itself never reads a
+tarball from `~/.etetoolkit`: without a database it fetches the md5 and the
+tarball from NCBI, which is why the task cannot build it on a node without
+internet.)
 
 ## gffcompare
 
