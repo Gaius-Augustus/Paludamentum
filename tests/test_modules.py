@@ -103,3 +103,14 @@ def test_every_configured_tool_is_called_through_its_override():
             if pattern.search(line):
                 offenders.append(f"{name}:{number}: {defaults[key]} (params.tools.{key})")
     assert not offenders, offenders
+
+
+def test_cmscan_annotates_overlaps_within_clans():
+    """bin/infernal_to_gff3.py reads the olp field (--fmt 2) and keeps the best
+    hit of an overlapping set. --oclan restricts the overlap annotation to the
+    families of one Rfam clan and needs --clanin and --fmt 2 (cmscan(1))."""
+    text = (ROOT / "modules" / "ncrna.nf").read_text()
+    call = re.search(r"\$\{params\.tools\.cmscan\}(.*?)> /dev/null", text, re.S)
+    assert call, "no cmscan call in modules/ncrna.nf"
+    for option in ("--clanin", "--oclan", "--fmt 2"):
+        assert option in call.group(1), option

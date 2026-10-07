@@ -147,7 +147,11 @@ process TRNASCAN {
 }
 
 // One task per genome chunk (SPLIT_GENOME); chunks hold whole sequences, so
-// the --cut_ga hits and the clan overlap filter are those of the whole genome.
+// the --cut_ga hits and the overlap annotation are those of the whole genome.
+// --oclan counts two hits as overlapping only when their families are in the
+// same Rfam clan, so that infernal_to_gff3.py drops a hit only where a related
+// family annotates the same locus better (480 of the 4228 families are in a
+// clan; without --oclan the rest compete against unrelated families).
 process CMSCAN {
   tag "${chunk.baseName}"
   label 'postprocess', 'bigmem'
@@ -168,8 +172,8 @@ process CMSCAN {
       ${params.tools.cmpress} Rfam.cm
       cm=Rfam.cm
   fi
-  ${params.tools.cmscan} --cut_ga --rfam --nohmmonly --clanin ${rfam}/Rfam.clanin --fmt 2 \\
-      --cpu ${task.cpus} --tblout ${chunk.baseName}.tblout "\$cm" ${chunk} > /dev/null
+  ${params.tools.cmscan} --cut_ga --rfam --nohmmonly --clanin ${rfam}/Rfam.clanin --oclan \\
+      --fmt 2 --cpu ${task.cpus} --tblout ${chunk.baseName}.tblout "\$cm" ${chunk} > /dev/null
   """
 
   stub:

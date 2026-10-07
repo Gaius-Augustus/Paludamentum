@@ -109,7 +109,10 @@ def parse_tblout(tblout_file):
             # scores better (the winner), '$' it overlaps a better hit but no
             # better hit is marked '^', '=' it overlaps a better hit that is
             # itself '^'. Only '=' is a hit whose locus another hit annotates
-            # better, which is what --oskip would have left out.
+            # better, which is what --oskip would have left out. Which hits
+            # count as overlapping is cmscan's call: with --oclan only hits to
+            # families of one Rfam clan do, without it any two hits on the same
+            # strand.
             if fields[19] == '=':
                 continue
 
