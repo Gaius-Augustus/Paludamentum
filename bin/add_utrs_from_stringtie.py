@@ -16,7 +16,11 @@ bisect, bins) instead of intervaltree; the CDS includes the stop codon, so the
 transcript_id, sequence and strand (IDs from per-scaffold runs may collide);
 spliced length (sum of the exons) instead of exon plus intron length picks
 the longest match; a StringTie exon that starts inside the CDS of a
-single-exon gene no longer becomes a UTR that overlaps the CDS.
+single-exon gene no longer becomes a UTR that overlaps the CDS; UTR pieces
+on a side of the CDS are used only if a StringTie exon that is used contains
+that end of the CDS (the original joins the exons further out to the CDS by
+an intron StringTie does not have when the exon over the outermost CDS
+segment is dropped as shorter than the segment).
 
 Rules (as in the original):
   - multi-exon transcript (CDS with introns): matches every StringTie
@@ -35,8 +39,10 @@ Rules (as in the original):
     segment but is shorter than it is not used
   - the parts of the remaining StringTie exons outside the CDS span become
     five_prime_UTR (upstream in transcription direction) or three_prime_UTR
-    (source stringtie2utr); the exons of the transcript become the union of
-    CDS and UTRs. The CDS never changes. Gene and transcript spans follow.
+    (source stringtie2utr), on each side only if one of the remaining exons
+    contains that end of the CDS (not in the original); the exons of the
+    transcript become the union of CDS and UTRs. The CDS never changes. Gene
+    and transcript spans follow.
 
 Transcripts that already have UTRs, non-coding transcripts and transcripts
 without a match are written unchanged. With neither --stringtie nor
@@ -273,13 +279,15 @@ def utr_pieces(c: Candidate, exons: List[Interval], max_ext: int,
     # a StringTie exon shorter than a CDS segment it overlaps is not used
     exons = [(s, e) for s, e in exons
              if not any(overlaps(s, e, cs, ce) and e - s < ce - cs for cs, ce in c.cds)]
+    # UTR pieces on a side are used only if a remaining exon contains that end of the CDS;
+    # otherwise the pieces further out would be joined to the CDS by an intron StringTie
+    # does not have (the exon over the outermost CDS segment was dropped above)
     left: List[Interval] = []
     right: List[Interval] = []
-    for s, e in exons:
-        if s < c.cds_start:
-            left.append((s, min(e, c.cds_start - 1)))
-        if e > c.cds_end:
-            right.append((max(s, c.cds_end + 1), e))
+    if any(s <= c.cds_start <= e for s, e in exons):
+        left = [(s, min(e, c.cds_start - 1)) for s, e in exons if s < c.cds_start]
+    if any(s <= c.cds_end <= e for s, e in exons):
+        right = [(max(s, c.cds_end + 1), e) for s, e in exons if e > c.cds_end]
     return (left, right) if c.strand == "+" else (right, left)
 
 

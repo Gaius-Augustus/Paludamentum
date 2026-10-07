@@ -43,7 +43,7 @@ reason`, counts in `#` lines on top):
 | `cds_outside_exon`: a CDS segment outside the exons of its transcript | removed |
 | `internal_stop`: a stop codon before the last codon | removed |
 | `extended_stop`: the CDS ends without a stop codon and the next three bases are one; the CDS (and its exon) is extended by 3 bp | kept |
-| `no_stop`: the CDS ends without a stop codon (3' partial; a stop codon that an intron would split is not added) | kept |
+| `no_stop`: the CDS ends without a stop codon (3' partial; a stop codon is only added when all three bases lie in the exon of the CDS end, unless no exon follows; one that reaches into the intron is not, as the GT donor site fakes TA\|G) | kept |
 | `non_atg_start`: the first codon is not ATG | kept |
 
 A gene without transcripts is removed. Unlike BRAKER4, broken transcripts are
@@ -82,10 +82,12 @@ nearest same-strand gene that has its own StringTie match.
 Limitations: transcripts that already have UTRs (the HC genes) are left
 alone and do not stop a neighbour's UTR; neighbours without a match do not
 stop a UTR either, so a read-through StringTie transcript can extend a UTR
-over them; there is no check that the CDS start and end lie in StringTie
-exons. Differences to BRAKER4: all StringTie transcripts of an intron are
+over them. Differences to BRAKER4: all StringTie transcripts of an intron are
 used (the original kept one per intron), StringTie transcript IDs are unique
-per sequence and strand, the standard library replaces intervaltree.
+per sequence and strand, the standard library replaces intervaltree, and a
+UTR is added on a side of the CDS only if a StringTie exon contains that end
+of the CDS (the original can join a UTR to the CDS by an intron StringTie
+does not have).
 
 ## Final files and the GFF3 contract
 

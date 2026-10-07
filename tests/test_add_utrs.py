@@ -172,6 +172,22 @@ def test_stringtie_exon_shorter_than_overlapped_cds_segment_is_not_used(tmp_path
     assert res.report["g1.t1"] == ("short", 0, 300)
 
 
+def test_utr_beyond_a_dropped_stringtie_exon_is_not_used(tmp_path: Path):
+    # the StringTie exon over the first CDS segment is shorter than it and dropped; the exon
+    # further upstream would be joined to the CDS by an intron (701-999) StringTie does not have
+    st = stringtie("MSTRG.1.1", "+", [(500, 700), (1100, 1200), (1500, 1700), (2000, 2400)])
+    res = annotate(tmp_path, gene("g1", "+", MULTI), short=[st])
+    assert res.report["g1.t1"] == ("short", 0, 300)
+    assert res.spans("g1.t1", "five_prime_UTR") == []
+    assert res.spans("g1.t1", "exon") == [(1000, 1200), (1500, 1700), (2000, 2400)]
+    # same on the other side, minus strand: the 5' side of the transcript is the CDS end
+    st = stringtie("MSTRG.2.1", "-", [(500, 900), (1000, 1200), (1500, 1700), (2000, 2050), (2300, 2400)])
+    res = annotate(tmp_path, gene("g2", "-", MULTI), short=[st])
+    assert res.report["g2.t1"] == ("short", 0, 401)
+    assert res.spans("g2.t1", "three_prime_UTR") == [(500, 900)]
+    assert res.spans("g2.t1", "exon") == [(500, 900), (1000, 1200), (1500, 1700), (2000, 2100)]
+
+
 # ---------------------------------------------------------------- clipping
 
 def test_same_strand_matched_neighbour_clips_the_extension(tmp_path: Path):
