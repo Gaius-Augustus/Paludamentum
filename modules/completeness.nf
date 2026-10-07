@@ -28,14 +28,27 @@ process DOWNLOAD_BUSCO_LINEAGE {
   def odb  = lineage.tokenize('_')[1]
   """
   set -euo pipefail
-  mkdir -p ${cache}/lineages
-  compleasm_wrapper.py "\$(command -v ${params.tools.compleasm})" download ${name} --odb ${odb} -L ${cache}/lineages
-  for tarball in ${cache}/lineages/${lineage}.*.tar.gz; do
-      [ -e "\$tarball" ] || continue
-      tar -xzf "\$tarball" -C ${cache}/lineages
-      rm -f "\$tarball"
-  done
-  rm -f ${cache}/lineages/eukaryota_${odb}.*.tar.gz
+  lib=${cache}/lineages
+  mkdir -p \$lib
+  # One download at a time per cache directory: runs that start together
+  # share it, and compleasm stops when another process downloads ("<file>.tmp
+  # exists"). A run that waited here finds the lineage complete.
+  exec 9> \$lib/.paludamentum_download.lock
+  flock 9
+  if [ -f \$lib/${lineage}/dataset.cfg ] && [ -f \$lib/${lineage}.done ] && [ -f \$lib/eukaryota_${odb}.done ] \\
+     && [ -f \$lib/placement_files.done ] && [ -f \$lib/file_versions.tsv.done ]; then
+      echo "${lineage} is already in \$lib"
+  else
+      # under the lock, a .tmp marker is left over from an interrupted download
+      rm -f \$lib/*.tmp
+      compleasm_wrapper.py "\$(command -v ${params.tools.compleasm})" download ${name} --odb ${odb} -L \$lib
+      for tarball in \$lib/${lineage}.*.tar.gz; do
+          [ -e "\$tarball" ] || continue
+          tar -xzf "\$tarball" -C \$lib
+          rm -f "\$tarball"
+      done
+      rm -f \$lib/eukaryota_${odb}.*.tar.gz
+  fi
   if [ ! -f ${cache}/lineages/${lineage}/dataset.cfg ]; then
       echo "No ${cache}/lineages/${lineage}/dataset.cfg after the download of ${lineage}." >&2
       exit 1
@@ -145,11 +158,11 @@ process BUSCO_GENOME {
 
   script:
   """
-  busco -i ${genome} -o genome --out_path . -l ${lineage} -m genome -c ${task.cpus} \\
+  ${params.tools.busco} -i ${genome} -o genome --out_path . -l ${lineage} -m genome -c ${task.cpus} \\
       --download_path ${cache} --offline
   cp genome/short_summary*.txt busco_genome_short_summary.txt
   rm -rf genome
-  printf 'BUSCO\\t%s\\t%s\\n' "\$(busco --version 2>&1 | head -n 1 | awk '{print \$NF}')" "${task.container ?: 'none'}" > versions.tsv
+  printf 'BUSCO\\t%s\\t%s\\n' "\$(${params.tools.busco} --version 2>&1 | head -n 1 | awk '{print \$NF}')" "${task.container ?: 'none'}" > versions.tsv
   """
 
   stub:
@@ -172,7 +185,7 @@ process BUSCO_PROTEINS {
 
   script:
   """
-  busco -i ${proteins} -o proteins --out_path . -l ${lineage} -m proteins -c ${task.cpus} \\
+  ${params.tools.busco} -i ${proteins} -o proteins --out_path . -l ${lineage} -m proteins -c ${task.cpus} \\
       --download_path ${cache} --offline
   cp proteins/short_summary*.txt busco_proteins_short_summary.txt
   rm -rf proteins
