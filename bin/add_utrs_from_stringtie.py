@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Port of BRAKER4 scripts/stringtie2utr.py (commit 3535ed3), see the docstring.
+# Copyright (c) 2025 Katharina Hoff. MIT License, see LICENSE-BRAKER4.
 """
 Add UTRs from StringTie transcript assemblies to the coding transcripts of a
 GFF3 that have none.

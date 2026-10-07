@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-# Copied from BRAKER4 scripts/generate_embeddings.py at commit 3535ed3; changes: the model path variable is PALUDAMENTUM_HF_MODEL_PATH instead of BRAKER4_HF_MODEL_PATH (bound over /opt/fantasia-lite/src/generate_embeddings.py of the FANTASIA-Lite image by FANTASIA_ANNOTATE)
+# Derived from FANTASIA-Lite src/generate_embeddings.py (https://github.com/CBBIO/FANTASIA-Lite),
+# Copyright (c) the FANTASIA-Lite authors (CBBIO). GNU Affero General Public License v3.0,
+# see LICENSE-FANTASIA-Lite. This file is NOT under the Artistic License of Paludamentum.
+# Modified in BRAKER4 (scripts/generate_embeddings.py, commit 3535ed3, 2026-09-03; Copyright (c) 2025
+# Katharina Hoff, see LICENSE-BRAKER4): batched inference, model-specific pooling, pre-embedding
+# length filtering, per-layer embeddings.
+# Modified in Paludamentum (2026-10-07): the model path variable is PALUDAMENTUM_HF_MODEL_PATH
+# instead of BRAKER4_HF_MODEL_PATH (bound over /opt/fantasia-lite/src/generate_embeddings.py of
+# the FANTASIA-Lite image by FANTASIA_ANNOTATE).
 """
 generate_embeddings.py
 ----------------------

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# Copied from BRAKER4 scripts/compleasm_wrapper.py at commit 3535ed3; changes: none
+# Copied from BRAKER4 scripts/compleasm_wrapper.py at commit 3535ed3.
+# Copyright (c) 2025 Katharina Hoff. MIT License, see LICENSE-BRAKER4.
+# Changes: none
 """
 Run compleasm.py with two workarounds for compleasm 0.2.8.
 

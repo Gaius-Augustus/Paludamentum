@@ -377,9 +377,18 @@ Running without containers, and other setups for experts, are described in
 
 ## License
 
-Artistic License 1.0, see [LICENSE](LICENSE). Scripts in `bin/` copied from
-Tiberius say so in their header and stay under its MIT License, see
-[LICENSE-Tiberius](LICENSE-Tiberius).
+Artistic License 1.0, see [LICENSE](LICENSE), with three exceptions, each
+marked in the header of the file:
+
+- Scripts in `bin/` copied from Tiberius stay under its MIT License, see
+  [LICENSE-Tiberius](LICENSE-Tiberius).
+- Scripts in `bin/` copied or ported from BRAKER4 stay under its MIT License,
+  see [LICENSE-BRAKER4](LICENSE-BRAKER4).
+- `bin/fantasia_generate_embeddings.py` is derived from
+  [FANTASIA-Lite](https://github.com/CBBIO/FANTASIA-Lite) and is under the GNU
+  Affero General Public License v3.0, see
+  [LICENSE-FANTASIA-Lite](LICENSE-FANTASIA-Lite). It is only used when
+  `--fantasia` is on, where it is bound into the FANTASIA-Lite container.
 
 ## Citation
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# Copied from BRAKER4 scripts/fantasia_decorate_gff3.py at commit 3535ed3; changes: none
+# Copied from BRAKER4 scripts/fantasia_decorate_gff3.py at commit 3535ed3.
+# Copyright (c) 2025 Katharina Hoff. MIT License, see LICENSE-BRAKER4.
+# Changes: none
 """
 Decorate a BRAKER GFF3 file with GO term annotations from FANTASIA-Lite.
 

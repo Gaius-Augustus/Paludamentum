@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# Copied from BRAKER4 scripts/merge_ncrna_gff3.py at commit 3535ed3; changes: IntervalIndex
+# Copied from BRAKER4 scripts/merge_ncrna_gff3.py at commit 3535ed3.
+# Copyright (c) 2025 Katharina Hoff. MIT License, see LICENSE-BRAKER4.
+# Changes: IntervalIndex
 # queries by bisection on merged intervals instead of a linear scan (was quadratic)
 """
 Merge ncRNA annotations into a protein-coding GFF3.

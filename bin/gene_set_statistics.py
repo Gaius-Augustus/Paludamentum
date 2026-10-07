@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Port of BRAKER4 scripts/gene_set_statistics.py (commit 3535ed3), see the docstring.
+# Copyright (c) 2025 Katharina Hoff. MIT License, see LICENSE-BRAKER4.
 """
 Gene set statistics and plots of a GFF3 gene set.
 
