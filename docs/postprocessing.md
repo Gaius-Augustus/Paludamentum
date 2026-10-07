@@ -200,8 +200,9 @@ OMArk reads the NCBI taxonomy through ete3, which needs it as a database
 <https://ftp.ncbi.nih.gov/pub/taxonomy/>, which is downloaded there (md5
 checked) unless the directory already holds it: for a submitting host without
 internet, put the tarball there. The OMArk task gets the database staged
-(`omark -e`) and needs no internet. The database stays as built; delete
-`taxa.sqlite` to rebuild it from a newer tarball. (ete3 itself never reads a
+(`omark -e`) and needs no internet. The build takes about six minutes and
+3 GB of memory (`taxa.sqlite` is about 0.8 GB). The database stays as built;
+delete `taxa.sqlite` to rebuild it from a newer tarball. (ete3 itself never reads a
 tarball from `~/.etetoolkit`: without a database it fetches the md5 and the
 tarball from NCBI, which is why the task cannot build it on a node without
 internet.)
@@ -223,7 +224,7 @@ transcript and gene (locus) level.
 | `ncrna/rRNA.gff3` | pybarrnap 0.5.1 (`--kingdom euk`) |
 | `ncrna/tRNAs.gff3`, `ncrna/tRNAs.txt` | tRNAscan-SE 2.0.12 (`-E`; with `ncrna.trnascan_high_confidence` the EukHighConfidenceFilter) |
 | `ncrna/infernal.tblout`, `ncrna/ncRNAs_infernal.gff3` | Infernal 1.1.5 `cmscan --cut_ga --rfam --nohmmonly` against Rfam 15.1, one task per genome chunk; `bin/infernal_to_gff3.py` types each hit by its Rfam family |
-| `ncrna/lncRNAs.gff3`, `ncrna/feelnc_classifier.txt` | FEELnc 0.2 on the merged StringTie assemblies (modes with transcripts, `ncrna.lncrna`) |
+| `ncrna/lncRNAs.gff3`, `ncrna/feelnc_classifier.txt` | FEELnc 0.2 on the merged StringTie assemblies (modes with transcripts, `ncrna.lncrna`; see below) |
 | `<stem>_with_ncRNA.gff3` | the final annotation plus the ncRNA genes (`bin/merge_ncrna_gff3.py`; priority rRNA > tRNA > Rfam > lncRNA; an ncRNA that overlaps coding exons is dropped) |
 
 Rfam 15.1 (`Rfam.cm`, `Rfam.clanin`, the `cmpress` index) is read from
@@ -232,6 +233,19 @@ the submitting host and checked against its SHA-256. A `rfam_dir` without the
 `cmpress` index is pressed in each task. cmscan is the slowest step on large
 genomes; it runs on the genome chunks of the gene finder split (20 Mb, at
 most 20 chunks).
+
+FEELnc (`bin/feelnc_to_gff3.py` for the GFF3): `FEELnc_filter.pl` keeps the
+assembled transcripts of at least 200 bp with more than one exon that do not
+overlap the final annotation (the candidates); `FEELnc_codpot.pl --mode=shuffle`
+trains a random forest on the annotated mRNAs and on shuffled copies of them
+and keeps the candidates without coding potential; `FEELnc_classifier.pl`
+lists the coding genes next to each lncRNA (`feelnc_classifier.txt`, by
+StringTie transcript ID, which the `lnc_RNA` features carry as `Alias`).
+FEELnc cannot train on fewer than 100 candidates or fewer than 100 annotated
+transcripts: `lncRNAs.gff3` is then empty but for a comment line that says so
+(also in the task log), as when no candidate is without coding potential. Any
+other FEELnc error fails the task and the run; `ncrna.lncrna: false` skips
+the step.
 
 ## GO terms with FANTASIA-Lite
 

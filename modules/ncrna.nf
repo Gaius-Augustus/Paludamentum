@@ -23,16 +23,24 @@ process DOWNLOAD_RFAM {
   script:
   """
   set -euo pipefail
-  base=https://ftp.ebi.ac.uk/pub/databases/Rfam/15.1
-  curl -fsSL -o ${rfam}/Rfam.cm.gz \$base/Rfam.cm.gz
-  curl -fsSL -o ${rfam}/Rfam.clanin \$base/Rfam.clanin
-  ( cd ${rfam} && printf '%s\\n' \\
-      'e2e636e9ce138dae506769aa74d067ce35466e94002818cfe125ea2a3cab8168  Rfam.cm.gz' \\
-      '8055b3aec9be36004663b7b7643ea128b906e6c9656266189afd30fc0da34a1d  Rfam.clanin' \\
-      | sha256sum -c - )
-  gunzip -f ${rfam}/Rfam.cm.gz
-  rm -f ${rfam}/Rfam.cm.i1?
-  ${params.tools.cmpress} ${rfam}/Rfam.cm
+  # one download at a time per cache directory (runs that start together);
+  # a run that waited here finds Rfam complete
+  exec 9> ${rfam}/.paludamentum_download.lock
+  flock 9
+  if [ -f ${rfam}/Rfam.cm.i1m ] && [ -f ${rfam}/Rfam.clanin ]; then
+      echo "Rfam is already in ${rfam}"
+  else
+      base=https://ftp.ebi.ac.uk/pub/databases/Rfam/15.1
+      curl -fsSL -o ${rfam}/Rfam.cm.gz \$base/Rfam.cm.gz
+      curl -fsSL -o ${rfam}/Rfam.clanin \$base/Rfam.clanin
+      ( cd ${rfam} && printf '%s\\n' \\
+          'e2e636e9ce138dae506769aa74d067ce35466e94002818cfe125ea2a3cab8168  Rfam.cm.gz' \\
+          '8055b3aec9be36004663b7b7643ea128b906e6c9656266189afd30fc0da34a1d  Rfam.clanin' \\
+          | sha256sum -c - )
+      gunzip -f ${rfam}/Rfam.cm.gz
+      rm -f ${rfam}/Rfam.cm.i1?
+      ${params.tools.cmpress} ${rfam}/Rfam.cm
+  fi
   echo "Rfam 15.1" > downloaded.txt
   """
 
@@ -196,11 +204,20 @@ process INFERNAL_TO_GFF3 {
   """
 }
 
-// lncRNA candidates of the StringTie assemblies (merged) that do not overlap
-// the final annotation and have no coding potential (FEELnc)
+// lncRNA transcripts of the merged StringTie assemblies (FEELnc): candidates
+// are the assembled transcripts of at least 200 bp with more than one exon
+// that do not overlap the final annotation; FEELnc_codpot.pl keeps the ones
+// without coding potential (a random forest trained on the annotated mRNAs
+// and shuffled copies of them), FEELnc_classifier.pl lists the coding genes
+// next to each. lncRNAs.gtf has FEELnc's exon lines (FEELnc writes no
+// transcript lines); FEELNC_TO_GFF3 turns it into lncRNAs.gff3.
+// FEELnc cannot train on fewer than 100 candidates or fewer than 100
+// annotated transcripts: the files are then empty but for a comment line that
+// says so (also in the task log), as when no candidate is without coding
+// potential. Every other FEELnc error fails the task; nothing is swallowed.
 process FEELNC {
   label 'feelnc'
-  publishDir "${params.outdir}/ncrna", mode:'copy', overwrite: true, pattern: '{lncRNAs.gff3,feelnc_classifier.txt}'
+  publishDir "${params.outdir}/ncrna", mode:'copy', overwrite: true, pattern: 'feelnc_classifier.txt'
 
   input:
     val stem
@@ -209,43 +226,75 @@ process FEELNC {
     path genome
 
   output:
-    path "lncRNAs.gff3", emit: gff
+    path "lncRNAs.gtf", emit: gtf
     path "feelnc_classifier.txt", emit: classifier
 
   script:
   """
-  FEELnc_filter.pl -i ${assembly} -a ${gtf} --monoex=-1 --size=200 -p ${task.cpus} > candidate_lncrna.gtf || true
-  n=\$(awk -F'\\t' '\$3 == "transcript"' candidate_lncrna.gtf | wc -l)
-  echo "##gff-version 3" > lncRNAs.gff3
-  echo "# No lncRNA candidates" > feelnc_classifier.txt
-  if [ "\$n" -gt 0 ]; then
-      FEELnc_codpot.pl -i candidate_lncrna.gtf -a ${gtf} -g ${genome} --mode=shuffle --outdir=codpot_out -p ${task.cpus} || true
-      lnc=\$(find codpot_out -name '*_lncRNA.gtf' 2>/dev/null | head -n 1)
-      if [ -n "\$lnc" ] && [ -s "\$lnc" ]; then
-          FEELnc_classifier.pl -i "\$lnc" -a ${gtf} > feelnc_classifier.txt || true
-          # lnc_RNA + exons, IDs <stem>-lncRNA_<n>
-          awk -F'\\t' -v OFS='\\t' -v p="${stem}" '
-              function tx_id(attrs) {
-                  if( match(attrs, /transcript_id "[^"]+"/) ) return substr(attrs, RSTART + 15, RLENGTH - 16)
-                  return ""
-              }
-              function new_id(tid) {
-                  if( !(tid in id) ) { id[tid] = p "-lncRNA_" n; n++ }
-                  return id[tid]
-              }
-              BEGIN { print "##gff-version 3"; n = 1 }
-              /^#/ { next }
-              \$3 == "transcript" { lid = new_id(tx_id(\$9)); \$3 = "lnc_RNA"; \$9 = "ID=" lid ";Name=" lid ";biotype=lncRNA"; print }
-              \$3 == "exon" { lid = new_id(tx_id(\$9)); k[lid]++; \$9 = "ID=" lid ".exon" k[lid] ";Parent=" lid; print }
-          ' "\$lnc" > lncRNAs.gff3
-      fi
+  # The BioContainers image sets no FEELNCPATH; FEELnc_codpot.pl dies without it.
+  export FEELNCPATH=\${FEELNCPATH:-/usr/local}
+  export LC_ALL=C
+  # transcripts of a GTF, by the transcript_id of its exon lines
+  count_tx() { awk -F'\\t' '\$3 == "exon" && match(\$9, /transcript_id "[^"]+"/) { id = substr(\$9, RSTART, RLENGTH); if( !(id in seen) ) { seen[id] = 1; n++ } } END { print n + 0 }' "\$1"; }
+  note() { echo "FEELnc: \$1" >&2; echo "# FEELnc: \$1" >> lncRNAs.gtf; echo "# FEELnc: \$1" >> feelnc_classifier.txt; }
+  : > lncRNAs.gtf
+  : > feelnc_classifier.txt
+
+  # 1. candidates
+  FEELnc_filter.pl -i ${assembly} -a ${gtf} --monoex=-1 --size=200 -p ${task.cpus} > candidate_lncrna.gtf
+  n_cand=\$(count_tx candidate_lncrna.gtf)
+  n_mrna=\$(count_tx ${gtf})
+  if [ "\$n_cand" -lt 100 ] || [ "\$n_mrna" -lt 100 ]; then
+      note "\$n_cand candidate transcripts, \$n_mrna annotated transcripts; FEELnc_codpot.pl needs at least 100 of each to train, no lncRNA called"
+      exit 0
   fi
+
+  # 2. coding potential
+  FEELnc_codpot.pl -i candidate_lncrna.gtf -a ${gtf} -g ${genome} --mode=shuffle --outdir=codpot_out -p ${task.cpus}
+  lnc=codpot_out/candidate_lncrna.gtf.lncRNA.gtf
+  if [ ! -f "\$lnc" ]; then
+      echo "FEELnc_codpot.pl exited 0 but did not write \$lnc" >&2
+      exit 1
+  fi
+  n_lnc=\$(count_tx "\$lnc")
+  if [ "\$n_lnc" -eq 0 ]; then
+      note "none of the \$n_cand candidate transcripts is without coding potential, no lncRNA called"
+      exit 0
+  fi
+  cp "\$lnc" lncRNAs.gtf
+
+  # 3. the coding genes next to each lncRNA
+  FEELnc_classifier.pl -i lncRNAs.gtf -a ${gtf} > feelnc_classifier.txt
+  echo "FEELnc: \$n_lnc of \$n_cand candidate transcripts are lncRNAs" >&2
+  """
+
+  stub:
+  """
+  touch lncRNAs.gtf feelnc_classifier.txt
+  """
+}
+
+// lncRNAs.gff3: the FEELnc transcripts as lnc_RNA -> exon, IDs <stem>-lncRNA_<n>
+// in genome order, the StringTie transcript ID as Alias (bin/feelnc_to_gff3.py)
+process FEELNC_TO_GFF3 {
+  label 'container'
+  publishDir "${params.outdir}/ncrna", mode:'copy', overwrite: true
+
+  input:
+    val stem
+    path gtf
+
+  output:
+    path "lncRNAs.gff3", emit: gff
+
+  script:
+  """
+  feelnc_to_gff3.py --stem ${stem} ${gtf} -o lncRNAs.gff3
   """
 
   stub:
   """
   echo "##gff-version 3" > lncRNAs.gff3
-  touch feelnc_classifier.txt
   """
 }
 

@@ -16,8 +16,9 @@ include { EMPTY_FILE as EMPTY_PLACEHOLDER } from '../modules/util.nf'
 include { SANITY_FILTER; ADD_UTRS; FINALIZE_ANNOTATION; LONGEST_ISOFORM } from '../modules/finalize.nf'
 include { DOWNLOAD_BUSCO_LINEAGE; FILTER_BUSCO_PROTEINS; COMPLEASM_GENOME; COMPLEASM_PROTEINS;
           BUSCO_GENOME; BUSCO_PROTEINS; COMPLETENESS_SUMMARY } from '../modules/completeness.nf'
-include { GENE_SUPPORT; GENE_SET_STATISTICS; OMARK; GFFCOMPARE; SOFTWARE_VERSIONS; REPORT } from '../modules/qc.nf'
-include { DOWNLOAD_RFAM; BARRNAP; TRNASCAN; CMSCAN; INFERNAL_TO_GFF3; FEELNC; MERGE_NCRNA } from '../modules/ncrna.nf'
+include { GENE_SUPPORT; GENE_SET_STATISTICS; DOWNLOAD_NCBI_TAXONOMY; OMARK; GFFCOMPARE; SOFTWARE_VERSIONS;
+          REPORT } from '../modules/qc.nf'
+include { DOWNLOAD_RFAM; BARRNAP; TRNASCAN; CMSCAN; INFERNAL_TO_GFF3; FEELNC; FEELNC_TO_GFF3; MERGE_NCRNA } from '../modules/ncrna.nf'
 include { STRINGTIE_MERGE as STRINGTIE_MERGE_ALL } from '../modules/assembly.nf'
 include { SPLIT_GENOME as SPLIT_GENOME_NCRNA } from '../modules/genefinder.nf'
 include { FANTASIA_ANNOTATE; FANTASIA_SUMMARY; FANTASIA_DECORATE as FANTASIA_DECORATE_CODING;
@@ -122,9 +123,12 @@ workflow POSTPROCESS {
         if( !params.qc.omamer_db ) error "qc.omark = true needs the OMAmer database: qc.omamer_db (e.g. LUCA.h5 of https://omabrowser.org/All/)."
         def db = file(params.qc.omamer_db.toString())
         if( !db.exists() ) error "qc.omamer_db: no such file: ${db}"
-        def taxdump = params.qc.ete_taxa_path ? file("${params.qc.ete_taxa_path}/taxdump.tar.gz") : []
-        if( taxdump && !taxdump.exists() ) error "qc.ete_taxa_path: no taxdump.tar.gz in ${params.qc.ete_taxa_path}"
-        def omark = OMARK(proteins, final_gff3, db, taxdump)
+        // the NCBI taxonomy as ete3's taxa.sqlite in the cache directory, built
+        // once on the submitting host from taxdump.tar.gz (downloaded unless present)
+        def taxaDir = cacheDir(params.qc.ete_taxa_path, 'ncbi_taxonomy')
+        def taxa = taxaDir.resolve('taxa.sqlite').exists() ? channel.value(taxaDir) :
+            DOWNLOAD_NCBI_TAXONOMY(taxaDir).done.map { _d -> taxaDir }.first()
+        def omark = OMARK(proteins, final_gff3, db, taxa)
         qc_files = qc_files.mix(omark.summary)
         versions = versions.mix(omark.versions)
     }
@@ -152,7 +156,8 @@ workflow POSTPROCESS {
         def lnc = channel.value([])
         if( transcripts && truthy(params.ncrna.lncrna) ) {
             def assemblies = asm_short.mix(asm_long).collect()
-            lnc = FEELNC(stem, STRINGTIE_MERGE_ALL(assemblies).gtf, final_gtf, genome).gff
+            def feelnc = FEELNC(stem, STRINGTIE_MERGE_ALL(assemblies).gtf, final_gtf, genome)
+            lnc = FEELNC_TO_GFF3(stem, feelnc.gtf).gff
             ncrna_files = ncrna_files.mix(lnc)
         }
         ncrna_gff3 = MERGE_NCRNA(stem, final_gff3, rrna.gff, trna.gff, infernal.gff, lnc).gff3.first()
