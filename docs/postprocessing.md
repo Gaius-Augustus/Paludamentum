@@ -57,8 +57,13 @@ the TransDecoder flow (2026-10-07): 41,297 of 41,299 Tiberius transcripts and
 41,125 of 41,150 Vipsania transcripts end with a stop codon inside the CDS.
 The sanity filter on these files removed 0 Tiberius transcripts and 17
 Vipsania transcripts (all `cds_length_mod3`), extended none and noted
-`no_stop` for 2 and 8 transcripts. (`gffread -y` drops the terminal stop
-codon from the protein sequences, so the proteins end without `*`.)
+`no_stop` for 2 and 8 transcripts. The 17 were re-checked against the
+phase-aware form of check a (commit 39e27cd) on the two files the merge is
+made of: the first CDS of every transcript of `hc.gff3` (17,362) and of
+`vipsania_ab_initio.gff3` (23,788) is at phase 0, so all 17 are genuinely out
+of frame and none of the numbers above changes with that fix. (`gffread -y`
+drops the terminal stop codon from the protein sequences, so the proteins end
+without `*`.)
 
 ## UTRs
 
