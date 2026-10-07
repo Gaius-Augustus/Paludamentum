@@ -11,7 +11,7 @@
 | BUSCO | `docker://ezlabgva/busco:v6.1.0_cv2` | the BUSCO project |
 | FEELnc (lncRNA) | `docker://quay.io/biocontainers/feelnc:0.2--pl526_0` | BioContainers |
 | OMArk and OMAmer | `docker://quay.io/biocontainers/omark:0.4.1--pyh7e72e81_0` | BioContainers |
-| FANTASIA-Lite (GO terms, GPU) | `docker://katharinahoff/fantasia_for_brain:lite.v1.0.0` | the FANTASIA-Lite image of BRAKER4 |
+| FANTASIA-Lite (GO terms, GPU) | `docker://gaiusaugustus/fantasia-lite:1.0.1` | the FANTASIA-Lite image of BRAKER4 and BOUDICCA |
 
 The evidence image is Ubuntu 24.04 with every tool pinned: Ubuntu packages
 at fixed versions, release archives checked against their SHA-256, and tools
