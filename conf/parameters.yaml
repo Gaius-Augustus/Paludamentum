@@ -151,7 +151,7 @@ tiberius:
 #   busco: true
 #   omark: false                 # needs omamer_db
 #   omamer_db: /abs/path/LUCA.h5
-#   ete_taxa_path: null          # directory with taxdump.tar.gz for OMArk
+#   ete_taxa_path: null          # NCBI taxonomy cache for OMArk; null = ~/.cache/paludamentum/ncbi_taxonomy
 #   reference_annotation: /abs/path/reference.gff3   # gffcompare at CDS level
 #   gene_support: true
 #   statistics: true

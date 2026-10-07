@@ -52,6 +52,66 @@ process GENE_SET_STATISTICS {
   """
 }
 
+// The NCBI taxonomy for OMArk, once, on the submitting host (label
+// 'download'): ete3's taxa.sqlite in the cache directory
+// (params.qc.ete_taxa_path, else ~/.cache/paludamentum/ncbi_taxonomy), built
+// from taxdump.tar.gz, which is downloaded there unless the directory holds
+// it. ete3 (3.1.3) never reads a tarball from ~/.etetoolkit: without a
+// database it fetches the md5 and the tarball from NCBI, so the OMArk task
+// gets the built database (omark -e) and needs no internet.
+process DOWNLOAD_NCBI_TAXONOMY {
+  label 'download', 'omark'
+
+  input:
+    path cache
+
+  output:
+    path "downloaded.txt", emit: done
+
+  script:
+  """
+  set -euo pipefail
+  # one build at a time per cache directory (runs that start together); a run
+  # that waited here finds taxa.sqlite complete
+  exec 9> ${cache}/.paludamentum_download.lock
+  flock 9
+  if [ -s ${cache}/taxa.sqlite ]; then
+      echo "taxa.sqlite is already in ${cache}"
+      echo "NCBI taxonomy" > downloaded.txt
+      exit 0
+  fi
+  if [ ! -f ${cache}/taxdump.tar.gz ]; then
+      python - <<'END_DOWNLOAD'
+import hashlib, os, shutil, urllib.request
+url = "https://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz"
+part = "${cache}/taxdump.tar.gz.part"
+with urllib.request.urlopen(url + ".md5") as response:
+    md5 = response.read().decode().split()[0]
+with urllib.request.urlopen(url) as response, open(part, "wb") as out:
+    shutil.copyfileobj(response, out)
+with open(part, "rb") as tarball:
+    if hashlib.md5(tarball.read()).hexdigest() != md5:
+        raise SystemExit("taxdump.tar.gz: md5 mismatch after the download")
+os.replace(part, "${cache}/taxdump.tar.gz")
+END_DOWNLOAD
+  fi
+  # ete3 builds the database (and <db>.traverse.pkl next to it) from the
+  # tarball and writes its temporary tables into the working directory. Built
+  # under a temporary name: a killed build must not leave a taxa.sqlite behind.
+  rm -f ${cache}/taxa.sqlite.part ${cache}/taxa.sqlite.part.traverse.pkl
+  python -c "from ete3 import NCBITaxa; NCBITaxa(dbfile='${cache}/taxa.sqlite.part', taxdump_file='${cache}/taxdump.tar.gz')"
+  [ -s ${cache}/taxa.sqlite.part ] || { echo "ete3 built no ${cache}/taxa.sqlite" >&2; exit 1; }
+  mv ${cache}/taxa.sqlite.part.traverse.pkl ${cache}/taxa.sqlite.traverse.pkl
+  mv ${cache}/taxa.sqlite.part ${cache}/taxa.sqlite
+  echo "NCBI taxonomy" > downloaded.txt
+  """
+
+  stub:
+  """
+  echo "NCBI taxonomy" > downloaded.txt
+  """
+}
+
 // OMArk on the proteins of all isoforms, grouped per gene (isoforms.splice)
 process OMARK {
   label 'omark'
@@ -61,7 +121,7 @@ process OMARK {
     path proteins
     path gff3
     path omamer_db
-    path taxdump, stageAs: 'taxdump/*'
+    path taxa          // directory with taxa.sqlite (DOWNLOAD_NCBI_TAXONOMY)
 
   output:
     path "omark_summary.txt", emit: summary
@@ -78,12 +138,11 @@ process OMARK {
       if( !(parent in tx) ) order[++k] = parent;
       tx[parent] = (parent in tx) ? tx[parent] ";" id : id }
       END { for( i = 1; i <= k; i++ ) print tx[order[i]] }' ${gff3} > isoforms.splice
-  # ete3 keeps the NCBI taxonomy in ~/.etetoolkit; HOME is the task directory
-  # in the container. Without taxdump.tar.gz, ete3 downloads it (internet).
+  # HOME is the task directory in the container, so that the caches of the
+  # tools (matplotlib) stay there. The NCBI taxonomy is the staged taxa.sqlite
+  # (-e); ete3 does not touch ~/.etetoolkit or the internet with it.
   export HOME=\$PWD
-  mkdir -p .etetoolkit
-  if [ -f taxdump/taxdump.tar.gz ]; then cp taxdump/taxdump.tar.gz .etetoolkit/; fi
-  ${params.tools.omark} -f proteome.omamer -d ${omamer_db} -i isoforms.splice -o omark
+  ${params.tools.omark} -f proteome.omamer -d ${omamer_db} -i isoforms.splice -o omark -e ${taxa}/taxa.sqlite
   summary=\$(find omark -name '*_detailed_summary.txt' | head -n 1)
   [ -n "\$summary" ] || summary=\$(find omark -name '*.sum' | head -n 1)
   [ -n "\$summary" ] || { echo "OMArk wrote no summary" >&2; exit 1; }

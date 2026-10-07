@@ -355,7 +355,8 @@ for SLURM. For your own cluster, copy
 [conf/user_hpc_template.config](conf/user_hpc_template.config) and set your
 queues, GPU options and scratch paths, see [docs/hpc.md](docs/hpc.md).
 Downloads (SRA reads, OrthoDB partitions, model weights, BUSCO lineages,
-Rfam) run on the submitting host, which needs internet access.
+Rfam, the NCBI taxonomy for OMArk) run on the submitting host, which needs
+internet access.
 
 Running without containers, and other setups for experts, are described in
 [docs/advanced_setup.md](docs/advanced_setup.md).

@@ -297,7 +297,7 @@ Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
 | `qc.compleasm`, `qc.busco` | `true` | compleasm and BUSCO on genome and proteome (with `qc.busco_lineage`). |
 | `qc.omark` | `false` | OMArk on the proteome; needs `qc.omamer_db`. |
 | `qc.omamer_db` | none | OMAmer database (e.g. `LUCA.h5`, about 15 GB). |
-| `qc.ete_taxa_path` | none | Directory with NCBI `taxdump.tar.gz` for OMArk; without it ete3 downloads it on the compute node. |
+| `qc.ete_taxa_path` | `~/.cache/paludamentum/ncbi_taxonomy` | NCBI taxonomy for OMArk: ete3's `taxa.sqlite`, built once on the submitting host from `taxdump.tar.gz`, which is downloaded there unless the directory holds it. |
 | `qc.reference_annotation` | none | Reference annotation (GFF3 or GTF, gzipped or not): `gffcompare` at CDS level, `qc/gffcompare.stats`. |
 | `qc.gene_support` | `true` | Hint support per transcript, `qc/gene_support.tsv` (evidence modes). |
 | `qc.statistics` | `true` | Gene set statistics and plots. |
