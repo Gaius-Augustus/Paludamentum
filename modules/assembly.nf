@@ -65,7 +65,7 @@ process STRINGTIE_MERGE {
             ${gtfs} > merged.gff3
 
         # convert to GTF for TD_ALL
-        gffread merged.gff3 -T -o stringtie.gtf
+        ${params.tools.gffread} merged.gff3 -T -o stringtie.gtf
     fi
 
     # in both cases we now have stringtie.gtf

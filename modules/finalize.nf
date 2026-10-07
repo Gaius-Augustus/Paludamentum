@@ -98,10 +98,10 @@ process FINALIZE_ANNOTATION {
   """
   cp ${gff} ${stem}.gff3
   validate_gff3.sh ${stem}.gff3
-  gffread ${stem}.gff3 -T -o ${stem}.gtf
-  gffread ${stem}.gff3 -g ${genome} -y ${stem}_proteins.fa -S
-  gffread ${stem}.gff3 -g ${genome} -x ${stem}_cds.fa
-  printf 'GffRead\\t%s\\t%s\\n' "\$(gffread --version 2>&1)" "${task.container ?: 'none'}" > versions.tsv
+  ${params.tools.gffread} ${stem}.gff3 -T -o ${stem}.gtf
+  ${params.tools.gffread} ${stem}.gff3 -g ${genome} -y ${stem}_proteins.fa -S
+  ${params.tools.gffread} ${stem}.gff3 -g ${genome} -x ${stem}_cds.fa
+  printf 'GffRead\\t%s\\t%s\\n' "\$(${params.tools.gffread} --version 2>&1)" "${task.container ?: 'none'}" > versions.tsv
   printf 'GenomeTools\\t%s\\t%s\\n' "\$(gt --version 2>&1 | head -n 1 | awk '{print \$NF}')" "${task.container ?: 'none'}" >> versions.tsv
   """
 
@@ -129,7 +129,7 @@ process LONGEST_ISOFORM {
   """
   longest_isoform.py --gff3 ${gff} --out ${stem}_longest_isoform.gff3
   validate_gff3.sh ${stem}_longest_isoform.gff3
-  gffread ${stem}_longest_isoform.gff3 -g ${genome} -y ${stem}_longest_isoform_proteins.fa -S
+  ${params.tools.gffread} ${stem}_longest_isoform.gff3 -g ${genome} -y ${stem}_longest_isoform_proteins.fa -S
   """
 
   stub:

@@ -75,3 +75,31 @@ def test_postprocess_tasks_do_not_reserve_the_default_cpus():
             if process not in with_cpus:
                 missing.append(f"{name}: {process}")
     assert not missing, missing
+
+
+def base_config_tool_defaults():
+    """{params.tools key: default executable name} from the tools block of base.config."""
+    text = (ROOT / "conf" / "base.config").read_text()
+    block = re.search(r"^  tools \{(.*?)^  \}", text, re.MULTILINE | re.DOTALL)
+    assert block, "conf/base.config has no tools block"
+    return dict(re.findall(r"^\s*(\w+)\s*=\s*\"([^\"]+)\"", block.group(1), re.MULTILINE))
+
+
+def test_every_configured_tool_is_called_through_its_override():
+    """A tool with a params.tools key must be called as ${params.tools.<key>}:
+    a bare name in a script block silently ignores the override (which
+    --check_tools does check and docs/parameters.md does document)."""
+    defaults = base_config_tool_defaults()
+    assert "gffread" in defaults and "omark" in defaults, sorted(defaults)
+    # the executable at command position: start of line, or after a pipe, a
+    # command separator, a $( or the ) of a case branch
+    patterns = {
+        key: re.compile(r"(?:^|[|;&)]|\$\()\s*" + re.escape(name) + r"(?=\s)")
+        for key, name in defaults.items()
+    }
+    offenders = []
+    for name, number, line in script_lines():
+        for key, pattern in patterns.items():
+            if pattern.search(line):
+                offenders.append(f"{name}:{number}: {defaults[key]} (params.tools.{key})")
+    assert not offenders, offenders

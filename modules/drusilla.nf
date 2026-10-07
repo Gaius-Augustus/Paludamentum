@@ -295,7 +295,7 @@ process HINT_RESCUE_LOCI {
   mkdir -p rescue
   if python3 "${tiberius}" --help 2>&1 | grep -q -- '--hints'; then
       HINTS_OK=true
-      samtools faidx ${genome}
+      ${params.tools.samtools} faidx ${genome}
       chainedHints.py ${hints_gff} ${miniprot_gff} --output chained_hints.gff
       prepare_hint_rescue_loci.py \\
           --partial_gtf ${partial_gtf} \\
