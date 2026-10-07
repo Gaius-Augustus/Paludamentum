@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Copied from BRAKER4 scripts/infernal_to_gff3.py at commit 3535ed3.
 # Copyright (c) 2025 Katharina Hoff. MIT License, see LICENSE-BRAKER4.
-# Changes: none
+# Changes: only the hits marked '=' in the olp field are dropped, not every hit
+# that is not marked '*' (that dropped the best hit of an overlapping set).
 """
 Convert Infernal cmscan --tblout output to GFF3 format.
 
@@ -84,7 +85,10 @@ def parse_tblout(tblout_file):
     6: mdl, 7: mdl from, 8: mdl to, 9: seq from, 10: seq to,
     11: strand, 12: trunc, 13: pass, 14: gc, 15: bias, 16: score,
     17: E-value, 18: inc, 19: olp, 20: anyidx, 21: apts1, 22: apts2,
-    23: winidx, 24: wpts1, 25: wpts2, 26: description of target
+    23: winidx, 24: wpts1, 25: wpts2, 26: mdl len, 27: seq len,
+    28: description of target. Infernal before 1.1.5 writes no mdl len
+    and no seq len, so the description is field 26 there; the fields this
+    function reads are the same in both.
     """
     hits = []
     with open(tblout_file) as fh:
@@ -99,8 +103,14 @@ def parse_tblout(tblout_file):
             if fields[18] != '!':
                 continue
 
-            # Only keep non-overlapping winners (olp == '*')
-            if fields[19] != '*':
+            # Drop the losers of an overlapping set, keep the winners. The
+            # olp field of --fmt 2 has four values (user guide, p. 61): '*' the
+            # hit overlaps nothing, '^' it overlaps others but none of them
+            # scores better (the winner), '$' it overlaps a better hit but no
+            # better hit is marked '^', '=' it overlaps a better hit that is
+            # itself '^'. Only '=' is a hit whose locus another hit annotates
+            # better, which is what --oskip would have left out.
+            if fields[19] == '=':
                 continue
 
             seqid = fields[3]        # query name = genome sequence (scaffold)
