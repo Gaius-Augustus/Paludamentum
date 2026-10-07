@@ -21,7 +21,7 @@ include { GENE_SUPPORT; GENE_SET_STATISTICS; DOWNLOAD_NCBI_TAXONOMY; OMARK; GFFC
 include { DOWNLOAD_RFAM; BARRNAP; TRNASCAN; CMSCAN; INFERNAL_TO_GFF3; FEELNC; FEELNC_TO_GFF3; MERGE_NCRNA } from '../modules/ncrna.nf'
 include { STRINGTIE_MERGE as STRINGTIE_MERGE_ALL } from '../modules/assembly.nf'
 include { SPLIT_GENOME as SPLIT_GENOME_NCRNA } from '../modules/genefinder.nf'
-include { FANTASIA_ANNOTATE; FANTASIA_SUMMARY; FANTASIA_DECORATE as FANTASIA_DECORATE_CODING;
+include { FANTASIA_GPU_CHECK; FANTASIA_ANNOTATE; FANTASIA_SUMMARY; FANTASIA_DECORATE as FANTASIA_DECORATE_CODING;
           FANTASIA_DECORATE as FANTASIA_DECORATE_NCRNA } from '../modules/fantasia.nf'
 
 // BUSCO lineage with its OrthoDB version (eukaryota -> eukaryota_odb12), or null
@@ -173,6 +173,10 @@ workflow POSTPROCESS {
             if( !params.fantasia[key] ) error "fantasia.run = true needs fantasia.${key} (see docs/postprocessing.md)."
             if( !file(params.fantasia[key].toString()).isDirectory() ) error "fantasia.${key}: not a directory: ${params.fantasia[key]}"
         }
+        // probes the GPU at the start of the run; without it a missing GPU
+        // killed the run only hours in, in FANTASIA_ANNOTATE, and report.html
+        // was never written
+        FANTASIA_GPU_CHECK()
         def results = FANTASIA_ANNOTATE(proteins, file(params.fantasia.hf_cache_dir.toString()),
                                         file(params.fantasia.lookup_dir.toString())).results.first()
         def summary = FANTASIA_SUMMARY(results)

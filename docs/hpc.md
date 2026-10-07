@@ -96,7 +96,9 @@ Tasks get `params.threads` CPUs (48) unless the site config sets
 `process.cpus`, with these exceptions in `base.config`: the single-threaded
 post-processing tasks (sanity filter, UTRs, final files, statistics, report,
 summaries, GFF3 conversions) and the NCBI taxonomy download get one CPU,
-FANTASIA_ANNOTATE gets 8. These are `withName` settings, which beat
+FANTASIA_ANNOTATE gets 8 and the GPU probe FANTASIA_GPU_CHECK one CPU, 2 GB
+and 1 h (so it is scheduled quickly at the start of the run; keep it on the
+same queue as FANTASIA_ANNOTATE). These are `withName` settings, which beat
 `process.cpus` and `withLabel:` of a site config; change them with a
 `withName:` of your own.
 

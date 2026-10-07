@@ -41,6 +41,8 @@ def test_postprocess_abinitio_publishes_proteins(tmp_path: Path) -> None:
             "tiberius_ab_initio_cds.fa", "intermediate/tiberius_ab_initio.gff3"} <= published
     # no hints, no transcripts: neither gene support nor UTRs
     assert "GENE_SUPPORT" not in proc.stdout and "ADD_UTRS" not in proc.stdout
+    # without fantasia.run there is no GPU probe
+    assert "FANTASIA_GPU_CHECK" not in proc.stdout
     assert "Completeness assessment off (no qc.busco_lineage)" in proc.stdout
 
 
@@ -138,6 +140,8 @@ def test_fantasia(ncrna: bool, tmp_path: Path) -> None:
     assert {"tiberius_evidence_go.gff3", "qc/fantasia/results.csv", "qc/fantasia/fantasia_summary.txt",
             "qc/fantasia/fantasia_go_terms.tsv", "qc/fantasia/fantasia_go_categories.png"} <= published
     assert ("tiberius_evidence_with_ncRNA_go.gff3" in published) == ncrna
+    # the GPU probe that fails a run without a usable GPU at the start
+    assert "FANTASIA_GPU_CHECK" in proc.stdout
     assert "**FANTASIA" in citations(tmp_path)
 
 
@@ -147,14 +151,21 @@ def test_fantasia_needs_its_directories(tmp_path: Path) -> None:
     assert "fantasia.run = true needs fantasia.hf_cache_dir" in proc.stdout + proc.stderr
 
 
-def test_omark_and_gffcompare(tmp_path: Path) -> None:
+@pytest.mark.parametrize("ready", [True, False], ids=["cached", "download"])
+def test_omark_and_gffcompare(ready: bool, tmp_path: Path) -> None:
+    """The NCBI taxonomy (ete3's taxa.sqlite) is built once on the submitting host."""
     db = tmp_path / "LUCA.h5"
     db.write_text("")
     reference = tmp_path / "reference.gff3"
     reference.write_text("##gff-version 3\n")
-    qc = {"omark": True, "omamer_db": str(db), "reference_annotation": str(reference)}
+    taxa = tmp_path / "ncbi_taxonomy"
+    taxa.mkdir()
+    if ready:
+        (taxa / "taxa.sqlite").write_text("")
+    qc = {"omark": True, "omamer_db": str(db), "reference_annotation": str(reference), "ete_taxa_path": str(taxa)}
     proc, published = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "qc": qc})
     assert_ok(proc)
+    assert ("DOWNLOAD_NCBI_TAXONOMY" in proc.stdout) != ready
     assert {"qc/omark_summary.txt", "qc/gffcompare.stats"} <= published
     text = citations(tmp_path)
     assert "**OMArk**" in text and "GffCompare" in text

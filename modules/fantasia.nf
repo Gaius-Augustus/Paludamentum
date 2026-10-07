@@ -6,6 +6,25 @@ nextflow.enable.dsl=2
 // conf/base.config binds bin/fantasia_generate_embeddings.py over the image's
 // generate_embeddings.py, which loads ProtT5 from PALUDAMENTUM_HF_MODEL_PATH.
 
+// The GPU probe of bin/fantasia_gpu_check.sh in the environment where
+// FANTASIA_ANNOTATE will run (same labels, so the same image, queue and
+// clusterOptions). No inputs: Nextflow submits it at the start of the run, so
+// a missing GPU stops the run in the first minutes instead of after hours,
+// when the finished annotation finally reaches FANTASIA_ANNOTATE.
+process FANTASIA_GPU_CHECK {
+  label 'fantasia', 'gpu'
+
+  script:
+  """
+  fantasia_gpu_check.sh
+  """
+
+  stub:
+  """
+  true
+  """
+}
+
 process FANTASIA_ANNOTATE {
   label 'fantasia', 'gpu'
   publishDir "${params.outdir}/qc", mode:'copy', overwrite: true, pattern: 'fantasia/{results.csv,failed_sequences.csv}'
@@ -22,18 +41,8 @@ process FANTASIA_ANNOTATE {
   script:
   def extra = params.fantasia.additional_params ?: ''
   """
-  if ! command -v nvidia-smi > /dev/null 2>&1 || ! nvidia-smi -L > /dev/null 2>&1; then
-      echo "FANTASIA-Lite needs a CUDA GPU, but no GPU is visible on \$(hostname). Give the label gpu a GPU queue in your config, or set fantasia.run = false." >&2
-      exit 1
-  fi
-  # ProtT5-XL needs about 14 GB of GPU memory
-  gpu=\${CUDA_VISIBLE_DEVICES:-0}
-  gpu=\${gpu%%,*}
-  free=\$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i "\$gpu" 2>/dev/null | tr -d ' ' || echo 0)
-  if [ "\${free:-0}" -lt 15000 ] 2>/dev/null; then
-      echo "GPU \$gpu has \$free MiB free; ProtT5-XL needs at least 15000 MiB." >&2
-      exit 1
-  fi
+  # a GPU with enough free memory, checked again on this node
+  fantasia_gpu_check.sh
   # The snapshot with pytorch_model.bin: torch.load reads it into memory,
   # the safetensors mmap of the other snapshot fails with SIGBUS in
   # Singularity on some clusters

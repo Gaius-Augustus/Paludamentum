@@ -74,15 +74,16 @@ transcript without an intron inside the CDS; of several matches the longest
 become `five_prime_UTR`/`three_prime_UTR` (source `stringtie2utr`), and the
 exons become the union of CDS and UTRs. The CDS never changes. UTRs reach at
 most `postprocess.max_utr_extension` bp (5000) beyond the CDS and stop at the
-nearest same-strand gene that has its own StringTie match.
+nearest same-strand gene that is a barrier: one that has its own StringTie
+match, or one that already has UTRs (the HC genes).
 `qc/utr_report.tsv` lists per coding transcript `matched_by` (`short`, `long`,
 `none`, `has_utr`) and the UTR lengths. The annotation before the UTRs is
 `intermediate/<stem>_sanity_filtered.gff3`.
 
-Limitations: transcripts that already have UTRs (the HC genes) are left
-alone and do not stop a neighbour's UTR; neighbours without a match do not
-stop a UTR either, so a read-through StringTie transcript can extend a UTR
-over them. Differences to BRAKER4: all StringTie transcripts of an intron are
+Limitations: a neighbour without a StringTie match and without UTRs does not
+stop a UTR, so a read-through StringTie transcript can extend a UTR over it.
+Differences to BRAKER4: the HC genes stop a neighbour's UTR (the original
+only stops at a matched neighbour), all StringTie transcripts of an intron are
 used (the original kept one per intron), StringTie transcript IDs are unique
 per sequence and strand, the standard library replaces intervaltree, and a
 UTR is added on a side of the CDS only if a StringTie exon contains that end
@@ -223,7 +224,7 @@ transcript and gene (locus) level.
 | --- | --- |
 | `ncrna/rRNA.gff3` | pybarrnap 0.5.1 (`--kingdom euk`) |
 | `ncrna/tRNAs.gff3`, `ncrna/tRNAs.txt` | tRNAscan-SE 2.0.12 (`-E`; with `ncrna.trnascan_high_confidence` the EukHighConfidenceFilter) |
-| `ncrna/infernal.tblout`, `ncrna/ncRNAs_infernal.gff3` | Infernal 1.1.5 `cmscan --cut_ga --rfam --nohmmonly` against Rfam 15.1, one task per genome chunk; `bin/infernal_to_gff3.py` types each hit by its Rfam family |
+| `ncrna/infernal.tblout`, `ncrna/ncRNAs_infernal.gff3` | Infernal 1.1.5 `cmscan --cut_ga --rfam --nohmmonly` against Rfam 15.1, one task per genome chunk; `bin/infernal_to_gff3.py` keeps the hits above the gathering threshold and, of a set of overlapping hits, the best-scoring one (`olp` other than `=`), and types each by its Rfam family |
 | `ncrna/lncRNAs.gff3`, `ncrna/feelnc_classifier.txt` | FEELnc 0.2 on the merged StringTie assemblies (modes with transcripts, `ncrna.lncrna`; see below) |
 | `<stem>_with_ncRNA.gff3` | the final annotation plus the ncRNA genes (`bin/merge_ncrna_gff3.py`; priority rRNA > tRNA > Rfam > lncRNA; an ncRNA that overlaps coding exons is dropped) |
 
@@ -270,6 +271,13 @@ The FANTASIA-Lite image is run by Nextflow; `conf/base.config` binds
 over the image's copy. FANTASIA-Lite was validated by BRAKER4 on A100 GPUs
 only. Give the process a suitable queue in your config (see
 [conf/user_hpc_template.config](../conf/user_hpc_template.config)).
+
+`FANTASIA_GPU_CHECK` (`bin/fantasia_gpu_check.sh`, same labels and so the
+same image and queue as `FANTASIA_ANNOTATE`) probes for a CUDA GPU with at
+least 15 GB free memory at the start of the run: a run whose `gpu` label
+gives no usable GPU stops in the first minutes, instead of failing in
+`FANTASIA_ANNOTATE` after hours, with the report never written. The same
+probe runs again in `FANTASIA_ANNOTATE` before the model loads.
 
 ## Report
 
