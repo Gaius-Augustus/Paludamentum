@@ -147,7 +147,8 @@ process OMARK {
   [ -n "\$summary" ] || summary=\$(find omark -name '*.sum' | head -n 1)
   [ -n "\$summary" ] || { echo "OMArk wrote no summary" >&2; exit 1; }
   cp "\$summary" omark_summary.txt
-  printf 'OMArk\\t%s\\t%s\\n' "\$(${params.tools.omark} --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" > versions.tsv
+  # omark has no --version (it prints its usage); the version of the package
+  printf 'OMArk\\t%s\\t%s\\n' "\$(python -c 'import importlib.metadata as m; print(m.version("omark"))' 2>/dev/null || echo unknown)" "${task.container ?: 'none'}" > versions.tsv
   printf 'OMAmer\\t%s\\t%s\\n' "\$(${params.tools.omamer} --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" >> versions.tsv
   """
 
@@ -198,7 +199,7 @@ process GFFCOMPARE {
 }
 
 // qc/software_versions.tsv: the version lines of the post-processing tasks,
-// sorted and without duplicates, after the pipeline and gene finder lines
+// sorted and without duplicates, after the pipeline line
 process SOFTWARE_VERSIONS {
   label 'container'
   publishDir "${params.outdir}/qc", mode:'copy', overwrite: true
