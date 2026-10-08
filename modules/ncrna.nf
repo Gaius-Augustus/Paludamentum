@@ -219,6 +219,15 @@ process INFERNAL_TO_GFF3 {
 // annotated transcripts: the files are then empty but for a comment line that
 // says so (also in the task log), as when no candidate is without coding
 // potential. Every other FEELnc error fails the task; nothing is swallowed.
+// --keeptmp: FEELnc_codpot.pl writes its training files (shuffled copies of
+// every annotated mRNA) to /tmp otherwise, which in a Singularity container
+// with --contain is the session directory of at most 64 MB: on a full
+// annotation (31,375 mRNAs of T. rubripes) the shuffled FASTA stayed empty and
+// FEELnc stopped ('contains only *0* sequences'). --verbosity=0: the progress
+// bars of the three scripts made a task log of 264 MB. fasta_ushuffle, which
+// shuffles the mRNAs, accepts A, C, G, T and N only and stopped on the IUPAC
+// codes of the A. thaliana genome (Y, M, K, S in 4 mRNAs): FEELnc_codpot.pl
+// gets a copy of the genome with every other letter as N.
 process FEELNC {
   label 'feelnc'
   publishDir "${params.outdir}/ncrna", mode:'copy', overwrite: true, pattern: 'feelnc_classifier.txt'
@@ -245,7 +254,7 @@ process FEELNC {
   : > feelnc_classifier.txt
 
   # 1. candidates
-  FEELnc_filter.pl -i ${assembly} -a ${gtf} --monoex=-1 --size=200 -p ${task.cpus} > candidate_lncrna.gtf
+  FEELnc_filter.pl -i ${assembly} -a ${gtf} --monoex=-1 --size=200 -p ${task.cpus} --verbosity=0 > candidate_lncrna.gtf
   n_cand=\$(count_tx candidate_lncrna.gtf)
   n_mrna=\$(count_tx ${gtf})
   if [ "\$n_cand" -lt 100 ] || [ "\$n_mrna" -lt 100 ]; then
@@ -254,7 +263,10 @@ process FEELNC {
   fi
 
   # 2. coding potential
-  FEELnc_codpot.pl -i candidate_lncrna.gtf -a ${gtf} -g ${genome} --mode=shuffle --outdir=codpot_out -p ${task.cpus}
+  awk '/^>/ { print; next } { gsub(/[^ACGTNacgtn]/, "N"); print }' ${genome} > genome_acgtn.fa
+  FEELnc_codpot.pl -i candidate_lncrna.gtf -a ${gtf} -g genome_acgtn.fa --mode=shuffle --outdir=codpot_out -p ${task.cpus} \\
+      --keeptmp --verbosity=0
+  rm -rf codpot_out/tmp genome_acgtn.fa genome_acgtn.fa.index
   lnc=codpot_out/candidate_lncrna.gtf.lncRNA.gtf
   if [ ! -f "\$lnc" ]; then
       echo "FEELnc_codpot.pl exited 0 but did not write \$lnc" >&2
@@ -268,7 +280,7 @@ process FEELNC {
   cp "\$lnc" lncRNAs.gtf
 
   # 3. the coding genes next to each lncRNA
-  FEELnc_classifier.pl -i lncRNAs.gtf -a ${gtf} > feelnc_classifier.txt
+  FEELnc_classifier.pl -i lncRNAs.gtf -a ${gtf} --verbosity=0 > feelnc_classifier.txt
   echo "FEELnc: \$n_lnc of \$n_cand candidate transcripts are lncRNAs" >&2
   """
 

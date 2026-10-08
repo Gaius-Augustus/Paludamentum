@@ -251,7 +251,10 @@ FEELnc cannot train on fewer than 100 candidates or fewer than 100 annotated
 transcripts: `lncRNAs.gff3` is then empty but for a comment line that says so
 (also in the task log), as when no candidate is without coding potential. Any
 other FEELnc error fails the task and the run; `ncrna.lncrna: false` skips
-the step.
+the step. `FEELnc_codpot.pl` keeps its training files in the task directory
+(`--keeptmp`; in a contained Singularity container `/tmp` holds at most
+64 MB), and it reads a copy of the genome in which IUPAC codes are `N`, the
+only other letter its `fasta_ushuffle` accepts.
 
 ## GO terms with FANTASIA-Lite
 

@@ -114,3 +114,16 @@ def test_cmscan_annotates_overlaps_within_clans():
     assert call, "no cmscan call in modules/ncrna.nf"
     for option in ("--clanin", "--oclan", "--fmt 2"):
         assert option in call.group(1), option
+
+
+def test_feelnc_codpot_trains_in_the_task_directory():
+    """FEELnc_codpot.pl writes its shuffled training sequences to /tmp, the
+    64 MB session directory of a contained Singularity container, unless
+    --keeptmp; fasta_ushuffle accepts only A, C, G, T and N, so it gets the
+    genome copy with IUPAC codes as N."""
+    text = (ROOT / "modules" / "ncrna.nf").read_text()
+    call = re.search(r"FEELnc_codpot\.pl(.*?)\n\s*rm -rf", text, re.S)
+    assert call, "no FEELnc_codpot.pl call in modules/ncrna.nf"
+    for option in ("--keeptmp", "--verbosity=0", "-g genome_acgtn.fa"):
+        assert option in call.group(1), option
+    assert "gsub(/[^ACGTNacgtn]/, \"N\")" in text
