@@ -44,10 +44,12 @@ def write_bam(path: Path, sort_order: str | None) -> str:
     return str(path)
 
 
-def tasks(stdout: str, process: str) -> int:
-    """Number of tasks of a process (its last name component) in the log."""
-    return sum(1 for line in stdout.splitlines()
-               if "process >" in line and line.split("process >")[1].split()[0].split(":")[-1] == process)
+def tasks(tmp_path: Path, process: str) -> int:
+    """Number of tasks of a process (its last name component) in the trace file
+    of run_pipeline; the console log differs between Nextflow versions."""
+    rows = (tmp_path / "trace.txt").read_text().splitlines()
+    column = rows[0].split("\t").index("name")
+    return sum(1 for row in rows[1:] if row.split("\t")[column].split()[0].split(":")[-1] == process)
 
 
 @pytest.mark.parametrize("sort_order,sorted_by_pipeline", [
@@ -58,9 +60,9 @@ def test_one_user_bam_is_sorted_by_its_header_and_not_merged(sort_order, sorted_
     bam = write_bam(tmp_path / "lib.bam", sort_order)
     proc, published = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS, "rnaseq_bam": [bam]})
     assert_ok(proc)
-    assert tasks(proc.stdout, "SAMTOOLS_SORT") == int(sorted_by_pipeline), proc.stdout
-    assert tasks(proc.stdout, "SAMTOOLS_MERGE") == 0, proc.stdout
-    assert tasks(proc.stdout, "BAM2HINTS_RNA") == 1, proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_SORT") == int(sorted_by_pipeline), proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_MERGE") == 0, proc.stdout
+    assert tasks(tmp_path, "BAM2HINTS_RNA") == 1, proc.stdout
     assert "hintsfile.gff" in published
 
 
@@ -69,15 +71,15 @@ def test_an_empty_file_counts_as_unsorted(tmp_path: Path) -> None:
     bam.write_bytes(b"")
     proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS, "rnaseq_bam": [str(bam)]})
     assert_ok(proc)
-    assert tasks(proc.stdout, "SAMTOOLS_SORT") == 1, proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_SORT") == 1, proc.stdout
 
 
 def test_two_user_bams_only_the_unsorted_one_is_sorted(tmp_path: Path) -> None:
     bams = [write_bam(tmp_path / "a.bam", "coordinate"), write_bam(tmp_path / "b.bam", "unsorted")]
     proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS, "rnaseq_bam": bams})
     assert_ok(proc)
-    assert tasks(proc.stdout, "SAMTOOLS_SORT") == 1, proc.stdout
-    assert tasks(proc.stdout, "SAMTOOLS_MERGE") == 1, proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_SORT") == 1, proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_MERGE") == 1, proc.stdout
 
 
 def test_bam_and_reads_are_merged(tmp_path: Path) -> None:
@@ -85,8 +87,8 @@ def test_bam_and_reads_are_merged(tmp_path: Path) -> None:
               "rnaseq_bam": [write_bam(tmp_path / "a.bam", "coordinate")]}
     proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    assert tasks(proc.stdout, "SAMTOOLS_SORT") == 0, proc.stdout
-    assert tasks(proc.stdout, "SAMTOOLS_MERGE") == 1, proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_SORT") == 0, proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_MERGE") == 1, proc.stdout
 
 
 @pytest.mark.parametrize("flow", ["transdecoder", "drusilla"])
@@ -96,8 +98,8 @@ def test_one_library_per_read_type_is_not_merged(flow: str, tmp_path: Path) -> N
     base = drusilla_params(tmp_path, "tiberius") if flow == "drusilla" else GENEFINDER["tiberius"]
     proc, published = run_pipeline(tmp_path, {**base, **PROTEINS, **SHORT_READS, **ISOSEQ})
     assert_ok(proc)
-    assert tasks(proc.stdout, "SAMTOOLS_MERGE") == 0, proc.stdout
-    assert tasks(proc.stdout, "SAMTOOLS_SORT") == 0, proc.stdout
-    assert tasks(proc.stdout, "BAM2HINTS_RNA") == 1 and tasks(proc.stdout, "BAM2HINTS_ISO") == 1, proc.stdout
-    assert (tasks(proc.stdout, "STRINGTIE_ASSEMBLE_MIX") == 1) == (flow == "drusilla"), proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_MERGE") == 0, proc.stdout
+    assert tasks(tmp_path, "SAMTOOLS_SORT") == 0, proc.stdout
+    assert tasks(tmp_path, "BAM2HINTS_RNA") == 1 and tasks(tmp_path, "BAM2HINTS_ISO") == 1, proc.stdout
+    assert (tasks(tmp_path, "STRINGTIE_ASSEMBLE_MIX") == 1) == (flow == "drusilla"), proc.stdout
     assert "tiberius_evidence.gff3" in published

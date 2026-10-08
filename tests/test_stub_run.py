@@ -85,6 +85,7 @@ def run_pipeline(tmp_path: Path, params: dict) -> tuple[subprocess.CompletedProc
             "-params-file", str(params_file),
             "-c", str(ROOT / "tests" / "stub.config"),
             "-work-dir", str(tmp_path / "work"),
+            "-with-trace", str(tmp_path / "trace.txt"),
         ],
         cwd=tmp_path, env=dict(os.environ, NXF_ANSI_LOG="false"),
         capture_output=True, text=True,
