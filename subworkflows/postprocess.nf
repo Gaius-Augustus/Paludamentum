@@ -69,9 +69,12 @@ workflow POSTPROCESS {
     }
     def fin = FINALIZE_ANNOTATION(stem, pre_final, genome)
     versions = versions.mix(fin.versions)
-    def final_gff3 = fin.gff3.first()
-    def final_gtf  = fin.gtf.first()
-    def proteins   = fin.proteins.first()
+    // value channels, like the outputs of every process below: their inputs
+    // are value channels (these, the genome, the cache directories), and a
+    // .first() on a value channel only makes Nextflow warn
+    def final_gff3 = fin.gff3
+    def final_gtf  = fin.gtf
+    def proteins   = fin.proteins
 
     // ---- completeness
     def lineage = buscoLineage(params.qc.busco_lineage)
@@ -86,9 +89,9 @@ workflow POSTPROCESS {
         def ready = ["${lineage}/dataset.cfg", "${lineage}.done", "eukaryota_${odb}.done",
                      'placement_files.done', 'file_versions.tsv.done'].every { f -> lineages.resolve(f).exists() }
         def busco_dir = ready ? channel.value(cache) :
-            DOWNLOAD_BUSCO_LINEAGE(lineage, cache).done.map { _d -> cache }.first()
+            DOWNLOAD_BUSCO_LINEAGE(lineage, cache).done.map { _d -> cache }
         def longest = LONGEST_ISOFORM(stem, final_gff3, genome)
-        def busco_proteins = FILTER_BUSCO_PROTEINS(longest.proteins).proteins.first()
+        def busco_proteins = FILTER_BUSCO_PROTEINS(longest.proteins).proteins
         def summaries = [busco_genome: empty, busco_proteins: empty, compleasm_genome: empty, compleasm_proteins: empty]
         if( doCompleasm ) {
             def cg = COMPLEASM_GENOME(genome, lineage, busco_dir)
@@ -127,7 +130,7 @@ workflow POSTPROCESS {
         // once on the submitting host from taxdump.tar.gz (downloaded unless present)
         def taxaDir = cacheDir(params.qc.ete_taxa_path, 'ncbi_taxonomy')
         def taxa = taxaDir.resolve('taxa.sqlite').exists() ? channel.value(taxaDir) :
-            DOWNLOAD_NCBI_TAXONOMY(taxaDir).done.map { _d -> taxaDir }.first()
+            DOWNLOAD_NCBI_TAXONOMY(taxaDir).done.map { _d -> taxaDir }
         def omark = OMARK(proteins, final_gff3, db, taxa)
         qc_files = qc_files.mix(omark.summary)
         versions = versions.mix(omark.versions)
@@ -148,7 +151,7 @@ workflow POSTPROCESS {
         def rfamReady = ['Rfam.cm', 'Rfam.clanin'].every { f -> rfamDir.resolve(f).exists() }
         if( params.ncrna.rfam_dir && !rfamReady )
             error "ncrna.rfam_dir: no Rfam.cm and Rfam.clanin in ${rfamDir}; leave ncrna.rfam_dir unset to download Rfam 15.1."
-        def rfam = rfamReady ? channel.value(rfamDir) : DOWNLOAD_RFAM(rfamDir).done.map { _d -> rfamDir }.first()
+        def rfam = rfamReady ? channel.value(rfamDir) : DOWNLOAD_RFAM(rfamDir).done.map { _d -> rfamDir }
         def rrna = BARRNAP(stem, genome)
         def trna = TRNASCAN(stem, genome)
         def chunks = SPLIT_GENOME_NCRNA(genome, 20000000, 20).chunks.flatten()
@@ -160,7 +163,7 @@ workflow POSTPROCESS {
             lnc = FEELNC_TO_GFF3(stem, feelnc.gtf).gff
             ncrna_files = ncrna_files.mix(lnc)
         }
-        ncrna_gff3 = MERGE_NCRNA(stem, final_gff3, rrna.gff, trna.gff, infernal.gff, lnc).gff3.first()
+        ncrna_gff3 = MERGE_NCRNA(stem, final_gff3, rrna.gff, trna.gff, infernal.gff, lnc).gff3
         ncrna_files = ncrna_files.mix(rrna.gff, trna.gff, infernal.gff)
         versions = versions.mix(rrna.versions, trna.versions)
     }
@@ -178,7 +181,7 @@ workflow POSTPROCESS {
         // was never written
         FANTASIA_GPU_CHECK()
         def results = FANTASIA_ANNOTATE(proteins, file(params.fantasia.hf_cache_dir.toString()),
-                                        file(params.fantasia.lookup_dir.toString())).results.first()
+                                        file(params.fantasia.lookup_dir.toString())).results
         def summary = FANTASIA_SUMMARY(results)
         fantasia_files = fantasia_files.mix(summary.summary, summary.plot)
         go_files = go_files.mix(FANTASIA_DECORATE_CODING(stem, final_gff3, results).gff3)
