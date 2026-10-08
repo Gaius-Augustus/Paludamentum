@@ -132,16 +132,19 @@ workflow {
     def asm_long  = nextflow.Channel.empty()   // StringTie assemblies of Iso-Seq reads (UTRs)
     def hints     = nextflow.Channel.empty()   // hintsfile.gff (gene support)
     def genome_chunks = nextflow.Channel.empty()   // genome chunks of the gene finder (cmscan)
+    def genefinder_versions = nextflow.Channel.empty()   // version line of the gene finder
 
     if( MODE == 'abinitio' ) {
       def ab = AB_INITIO(inp.genome, params)
       final_gff = ab.gff
       genome_chunks = ab.chunks
+      genefinder_versions = ab.versions
 
     } else {
 
       def pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, params)
       genome_chunks = pe.genome_chunks
+      genefinder_versions = pe.genefinder_versions
 
       def empty_file = EMPTY_FILE()
 
@@ -221,6 +224,7 @@ workflow {
                                           : params.vipsania?.model,
           hc: MODE in ['abinitio', 'proteins'] ? null : hc.method,
       ]
-      POSTPROCESS(final_gff, inp.genome, genome_chunks, genefinder, MODE, asm_short, asm_long, hints, runInfo)
+      POSTPROCESS(final_gff, inp.genome, genome_chunks, genefinder, genefinder_versions, MODE, asm_short, asm_long,
+                  hints, runInfo)
     }
 }

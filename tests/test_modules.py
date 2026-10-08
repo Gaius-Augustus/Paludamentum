@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 MODULES = sorted((ROOT / "modules").glob("*.nf"))
 
@@ -127,3 +129,15 @@ def test_feelnc_codpot_trains_in_the_task_directory():
     for option in ("--keeptmp", "--verbosity=0", "-g genome_acgtn.fa"):
         assert option in call.group(1), option
     assert "gsub(/[^ACGTNacgtn]/, \"N\")" in text
+
+
+@pytest.mark.parametrize("module,process,tool", [
+    ("genefinder.nf", "RUN_TIBERIUS", "Tiberius"),
+    ("vipsania.nf", "RUN_VIPSANIA", "Vipsania"),
+])
+def test_gene_finder_tasks_write_their_version_line(module, process, tool):
+    """qc/software_versions.tsv gets its gene finder line from these tasks."""
+    text = (ROOT / "modules" / module).read_text()
+    body = text.split(f"process {process} {{", 1)[1].split("\n}", 1)[0]
+    assert re.search(r'path "versions.tsv",\s+emit: versions', body), body
+    assert rf"printf '{tool}\\t" in body, body

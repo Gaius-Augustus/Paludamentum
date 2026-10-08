@@ -56,6 +56,7 @@ process RUN_VIPSANIA {
         path "vipsania.${genome.name}.gtf", emit: gtf
         path "vipsania.${genome.name}.log", emit: log, optional: true
         path "finetuning_*",               emit: checkpoint, optional: true
+        path "versions.tsv",               emit: versions
 
     script:
     def v = params.vipsania ?: [:]
@@ -74,10 +75,11 @@ process RUN_VIPSANIA {
     vipsania annotate "${model}" ${genome} \\
         --model_dir vip_models \\
         -o "vipsania.${genome.name}.gtf"${extra}
+    printf 'Vipsania\\t%s\\t%s\\n' "\$(python3 -c 'import importlib.metadata as m; print(m.version("vipsania"))' 2>/dev/null || echo unknown)" "${task.container ?: 'none'}" > versions.tsv
     """
 
     stub:
     """
-    touch "vipsania.${genome.name}.gtf" "vipsania.${genome.name}.log"
+    touch "vipsania.${genome.name}.gtf" "vipsania.${genome.name}.log" versions.tsv
     """
 }

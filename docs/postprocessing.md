@@ -313,7 +313,7 @@ without data are left out.
   qc/
     sanity_filter.tsv, utr_report.tsv
     gene_support.tsv, gene_set_statistics.txt, *.png
-    software_versions.tsv
+    software_versions.tsv                      gene finder and post-processing tools
     compleasm_genome/summary.txt, compleasm_proteins/summary.txt,
     busco_genome_short_summary.txt, busco_proteins_short_summary.txt,
     completeness.tsv, completeness.png,

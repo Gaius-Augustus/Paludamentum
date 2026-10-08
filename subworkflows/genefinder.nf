@@ -5,6 +5,8 @@ nextflow.enable.dsl=2
 // 'vipsania'. Each has its own params block (params.tiberius, params.vipsania).
 // The genome chunks are emitted too: cmscan of the ncRNA annotation
 // (subworkflows/postprocess.nf) runs on them instead of a second split.
+// The version line of the gene finder (versions) is that of its first task;
+// all tasks run the same image. A reused result (<tool>.result) has none.
 
 include { truthy; resolveGenefinder; tiberiusModelValue } from '../lib_nf/functions.nf'
 include { RUN_TIBERIUS; DOWNLOAD_TIBERIUS_WEIGHTS; SPLIT_GENOME; MERGE_GENEFINDER;
@@ -22,6 +24,7 @@ workflow GENEFINDER {
     def tool = resolveGenefinder(params_map)
     def cfg  = params_map[tool] ?: [:]
     def predictions
+    def versions = channel.empty()
     if( cfg.result && !file(cfg.result).exists() )
         error "params.${tool}.result is set, but the file does not exist: ${cfg.result}"
     def useResult = cfg.result as boolean
@@ -56,11 +59,15 @@ workflow GENEFINDER {
 
     } else if( finetune ) {
         // Vipsania finetunes on the FASTA it annotates, so the genome is not split.
-        predictions = RUN_VIPSANIA(CH_GENOME, models, cfg.model).gtf.toList()
+        def run = RUN_VIPSANIA(CH_GENOME, models, cfg.model)
+        predictions = run.gtf.toList()
+        versions = run.versions
 
     } else {
         if( tool == 'vipsania' ) {
-            predictions = RUN_VIPSANIA(genome_chunks.flatten(), models, cfg.model).gtf.toList()
+            def run = RUN_VIPSANIA(genome_chunks.flatten(), models, cfg.model)
+            predictions = run.gtf.toList()
+            versions = run.versions
         } else {
             if( !cfg.model_cfg ) error "params.tiberius.model_cfg is required."
             if( !file(cfg.model_cfg).exists() ) error "params.tiberius.model_cfg is not a file: ${cfg.model_cfg}"
@@ -78,7 +85,9 @@ workflow GENEFINDER {
                 if( url ) weights = DOWNLOAD_TIBERIUS_WEIGHTS(url).collect()
                 else      useWeights = false
             }
-            predictions = RUN_TIBERIUS(genome_chunks.flatten(), cfg.model_cfg, useWeights, weights).toList()
+            def run = RUN_TIBERIUS(genome_chunks.flatten(), cfg.model_cfg, useWeights, weights)
+            predictions = run.gtf.toList()
+            versions = run.versions
         }
     }
 
@@ -89,4 +98,5 @@ workflow GENEFINDER {
     emit:
     gff    = publish_top ? MERGE_GENEFINDER.out : MERGE_GENEFINDER_EVI.out
     chunks = genome_chunks   // the genome chunks (one list), or empty without a split
+    versions = versions.take(1)   // versions.tsv of the gene finder, or empty with a reused result
 }

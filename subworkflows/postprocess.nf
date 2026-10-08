@@ -45,6 +45,7 @@ workflow POSTPROCESS {
     genome      // channel: genome FASTA (value)
     genome_chunks // channel: the genome chunks of the gene finder split (one list; cmscan)
     prefix      // value: name of the gene finder, 'tiberius' or 'vipsania'
+    genefinder_versions // channel: versions.tsv of the gene finder (empty with a reused result)
     mode        // value: pipeline mode
     asm_short   // channel: StringTie assemblies of short reads (may be empty)
     asm_long    // channel: StringTie assemblies of Iso-Seq reads (may be empty)
@@ -55,7 +56,7 @@ workflow POSTPROCESS {
     def stem = mode == 'abinitio' ? "${prefix}_ab_initio" : "${prefix}_evidence"
     def transcripts = mode in ['rnaseq', 'isoseq', 'mixed']
     def empty = EMPTY_PLACEHOLDER()
-    def versions = channel.empty()
+    def versions = genefinder_versions
     def qc_files = channel.empty()
 
     // ---- the final annotation
@@ -192,6 +193,10 @@ workflow POSTPROCESS {
 
     // ---- software versions and report
     def pipeline_lines = ["Paludamentum\t${run_info.version}\t-"]
+    // a reused gene finder result (<tool>.result) was not predicted in this run
+    def reused = params[prefix]?.result
+    if( reused )
+        pipeline_lines << "${prefix.capitalize()}\tnot run, ${prefix}.result: ${file(reused.toString()).name}\t-"
     def sv = SOFTWARE_VERSIONS(pipeline_lines, versions.collect().ifEmpty([]))
     qc_files = qc_files.mix(sv.tsv)
     if( truthy(params.qc.report) ) {

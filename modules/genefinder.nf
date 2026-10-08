@@ -20,7 +20,8 @@ process RUN_TIBERIUS {
         path weights
 
     output:
-        path "tiberius.${genome.name}.gtf"
+        path "tiberius.${genome.name}.gtf", emit: gtf
+        path "versions.tsv",                emit: versions
 
     script:
     def extra = ''
@@ -47,11 +48,12 @@ process RUN_TIBERIUS {
         --genome ${genome} \\
         "\${MODEL_ARGS[@]}" \\
         --out "tiberius.${genome.name}.gtf"${extra} \${BATCH_ARG:-}
+    printf 'Tiberius\\t%s\\t%s\\n' "\$(python3 -c 'import importlib.metadata as m; print(m.version("tiberius"))' 2>/dev/null || echo unknown)" "${task.container ?: 'none'}" > versions.tsv
     """
 
     stub:
     """
-    touch "tiberius.${genome.name}.gtf"
+    touch "tiberius.${genome.name}.gtf" versions.tsv
     """
 }
 

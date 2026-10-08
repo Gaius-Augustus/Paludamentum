@@ -17,6 +17,7 @@ workflow PROTEIN_EVIDENCE {
     def proteindb_ch
     def genefinder_gff_ch = channel.empty()
     def genome_chunks_ch = channel.empty()
+    def genefinder_versions_ch = channel.empty()
     def scored_ch
     def prot_gtf_ch
     def prot_hints_ch
@@ -30,6 +31,7 @@ workflow PROTEIN_EVIDENCE {
         def gf = GENEFINDER(CH_GENOME, params_map, false)
         genefinder_gff_ch = gf.gff
         genome_chunks_ch = gf.chunks
+        genefinder_versions_ch = gf.versions
 
         // the ab initio proteins help to select source species in large protein databases
         def ab_initio_prot = PROTEIN_FROM_GFF(resolveGenefinder(params_map), genefinder_gff_ch, CH_GENOME)
@@ -47,6 +49,7 @@ workflow PROTEIN_EVIDENCE {
     proteindb     = proteindb_ch
     genefinder_gff = genefinder_gff_ch
     genome_chunks = genome_chunks_ch   // of the gene finder, for cmscan in POSTPROCESS
+    genefinder_versions = genefinder_versions_ch   // version line of the gene finder, for POSTPROCESS
     scored_gff    = scored_ch.gff
     prot_gtf      = prot_gtf_ch.gtf
     prot_traingff = prot_gtf_ch.traingff
