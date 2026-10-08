@@ -90,7 +90,7 @@
 <text x="758" y="586" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="start">GO terms</text>
 <rect x="1003.0" y="570" width="87.0" height="22" rx="11" fill="#ffffff" stroke="#8a63a8" stroke-width="1.2"/>
 <text x="1046.5" y="585.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">--fantasia</text>
-<text x="758" y="610" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#52606d"><tspan fill="#52606d">FANTASIA-Lite; needs a GPU with 15 GB free</tspan></text>
+<text x="758" y="610" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#52606d"><tspan fill="#52606d">FANTASIA-Lite: GO terms by ProtT5 embeddings</tspan></text>
 <path d="M812.0,654 q0,-6 6,-6 h208 q6,0 6,6 V729 q-55.0,-15 -110.0,0 t-110.0,0 Z" fill="#eceff3" stroke="#5b6675" stroke-width="1.6" stroke-linejoin="round"/>
 <text x="922.0" y="679" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">report.html</text>
 <text x="922.0" y="700" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="middle">all steps in one page</text>

@@ -255,7 +255,7 @@ def postprocess():
               [("rRNA, tRNA, Rfam families;\u00a0", SUB),
                ("lncRNA with transcripts", COL["orange"][1])]),
              ("purple", "GO terms", "--fantasia",
-              [("FANTASIA-Lite; needs a GPU with 15 GB free", SUB)]))
+              [("FANTASIA-Lite: GO terms by ProtT5 embeddings", SUB)]))
     hs, ys = 64, [80 + 80 * i for i in range(len(steps))]
     for (color, title, pill, parts), y in zip(steps, ys):
         fill, stroke = COL[color]
