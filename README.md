@@ -146,7 +146,9 @@ runs on, `slurm_generic` needs your GPU partition (see
 in the params file; command line values override the file. Useful options:
 `--dry_run` writes the params file and validates inputs and executables
 without starting Nextflow, `--resume` continues a previous run, `--work_dir`
-sets the Nextflow work directory. Arguments after `--` go to Nextflow.
+sets the Nextflow work directory, `--cleanup` deletes the task directories of
+the run from the work directory once it has finished successfully (see
+[docs/hpc.md](docs/hpc.md#work-directory)). Arguments after `--` go to Nextflow.
 `paludamentum --help` lists everything.
 
 ### Params file

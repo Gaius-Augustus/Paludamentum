@@ -861,6 +861,7 @@ def run_nextflow(
     resume: bool,
     work_dir: str | None,
     extra_args: Sequence[str],
+    cleanup: bool = False,
 ) -> int:
     launch_cwd = Path.cwd()
     cmd = [
@@ -875,6 +876,8 @@ def run_nextflow(
     # The user config is layered on top of base.config. Skip it if it is base.config itself.
     if Path(config_path).resolve() != Path(base_config_path).resolve():
         cmd.extend(["-c", str(config_path)])
+    if cleanup:
+        cmd.extend(["-c", str(Path(base_config_path).parent / "cleanup.config")])
     if profile:
         cmd.extend(["-profile", profile])
     if resume:
@@ -903,7 +906,7 @@ def run_nextflow_pipeline(
     ``args`` is an argparse-like namespace. Required attributes: ``params_yaml``
     (a complete params file, see ``build_params``), ``nf_config``. Optional:
     ``nextflow_args``, ``work_dir``, ``profile``, ``nextflow_bin``, ``resume``,
-    ``check_tools``, ``skip_singularity_check``, ``dry_run``. ``genefinder`` is
+    ``cleanup``, ``check_tools``, ``skip_singularity_check``, ``dry_run``. ``genefinder`` is
     the gene finder of the run; the pipeline itself selects it from the params.
 
     ``params`` are merged params (see ``merge_run_params``) instead of
@@ -990,6 +993,7 @@ def run_nextflow_pipeline(
         resume=bool(getattr(args, "resume", False)),
         work_dir=str(work_dir) if work_dir else None,
         extra_args=extra_args,
+        cleanup=bool(getattr(args, "cleanup", False)),
     )
     if returncode != 0:
         raise SystemExit(returncode)

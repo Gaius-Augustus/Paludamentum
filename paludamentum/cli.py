@@ -50,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     nextflow.add_argument("--nextflow_bin", default="nextflow", help="Nextflow executable.")
     nextflow.add_argument("--resume", action="store_true", help="Pass -resume to Nextflow.")
     nextflow.add_argument("--work_dir", help="Nextflow work directory (-work-dir).")
+    nextflow.add_argument("--cleanup", action="store_true",
+                          help="Delete the task directories of this run from the work directory after it "
+                               "completed successfully (conf/cleanup.config); -resume of this run is then "
+                               "no longer possible.")
     nextflow.add_argument("--check_tools", action="store_true",
                           help="Check that all tool binaries are available (for runs without containers).")
     nextflow.add_argument("--skip_singularity_check", action="store_true",

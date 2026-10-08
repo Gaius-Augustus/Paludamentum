@@ -365,6 +365,28 @@ def test_command_assembly(tmp_path: Path, fake_path: Path, monkeypatch):
     assert cmd[-7:] == ["-profile", "test", "-resume", "-work-dir", str(tmp_path / "w"), "-with-dag", "dag.html"]
 
 
+
+def test_cleanup_adds_cleanup_config(tmp_path: Path, fake_path: Path, monkeypatch):
+    calls = []
+    real_run = launcher.subprocess.run
+
+    def spy(cmd, *a, **kw):
+        if Path(str(cmd[0])).name == "nextflow":
+            calls.append(list(cmd))
+            return SimpleNamespace(returncode=0)
+        return real_run(cmd, *a, **kw)  # the java -version probe
+
+    monkeypatch.setattr(launcher.subprocess, "run", spy)
+    for cleanup in (False, True):
+        launcher.run_nextflow_pipeline(make_args(tmp_path, {"genome": str(DATA / "tiny.fa")}, cleanup=cleanup),
+                                       genefinder="tiberius")
+
+    configs = [[cmd[i + 1] for i, part in enumerate(cmd) if part == "-c"] for cmd in calls]
+    assert configs[0] == [str(ROOT / "conf" / "base.config"), str(ROOT / "conf" / "local.config")]
+    assert configs[1] == configs[0] + [str(ROOT / "conf" / "cleanup.config")]
+    lines = [line.strip() for line in (ROOT / "conf" / "cleanup.config").read_text().splitlines()]
+    assert "cleanup = true" in lines
+
 def test_base_config_is_not_passed_twice(tmp_path: Path, fake_path: Path, monkeypatch):
     calls = []
     real_run = launcher.subprocess.run

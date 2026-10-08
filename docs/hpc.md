@@ -80,6 +80,18 @@ Images are pulled once into `singularity.cacheDir`
 (`~/.cache/paludamentum/singularity` by default, or `NXF_SINGULARITY_CACHEDIR`).
 On a cluster put it on a shared file system that the compute nodes can read.
 
+### Work directory
+
+Nextflow does not delete the task directories in `work/` (or `--work_dir`)
+after a run. All final outputs are copied to `outdir`, so the work
+directory of a finished run only serves `-resume`, and it grows to hundreds of
+GB on a large genome. `paludamentum --cleanup` adds `conf/cleanup.config`
+(Nextflow's `cleanup = true`): once the run has completed successfully, its
+task directories are deleted. A failed run keeps them for `--resume`; a
+cleaned run cannot be resumed. Without the launcher, pass
+`-c conf/cleanup.config` to `nextflow run`. Nextflow deletes nothing during
+the run, so the work directory still needs the peak space of the whole run.
+
 ## Process labels
 
 | Label | Meaning |
