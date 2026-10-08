@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes figures/overview.svg and figures/drusilla_flow.svg."""
+"""Writes figures/overview.svg, figures/drusilla_flow.svg and figures/postprocess_flow.svg."""
 import re
 import sys
 from xml.sax.saxutils import escape
@@ -198,7 +198,114 @@ def drusilla():
     return f
 
 
+def postprocess():
+    f = Fig(1160, 764, "Post-processing and quality control of Paludamentum",
+            "The final annotation of step 5 (or the ab initio genes) runs through the sanity filter, "
+            "gets UTRs from the StringTie assemblies when there are transcripts, and is written as GFF3, "
+            "GTF, proteins and CDS. Gene set statistics always run, evidence support in evidence modes; "
+            "completeness, OMArk, gffcompare, ncRNA and GO terms are switched on by options. "
+            "report.html sums up all steps.")
+    A, wA = 24, 180
+    B, wB = 236, 220
+    C, wC = 488, 200
+    D, wD = 744, 356
+    xl, xr = 718, 1126  # bus into and out of the QC steps
+    h, r = 88, [80, 196, 312, 428]
+    for x, w, s in ((A, wA, "INPUTS"), (B, wB, "POST-PROCESSING"), (C, wC, "OUTPUTS"),
+                    (D, wD, "QUALITY CONTROL AND ANNOTATION")):
+        f.text(x, 52, s, 13, "bold", SUB, style=' letter-spacing="1.5"')
+        f.add(f'<path d="M{x},62 h{w}" stroke="#d9dee4" stroke-width="1.5"/>')
+
+    f.doc(A, r[0], wA, h, "grey", "Annotation", "from step 5", tag="or the ab initio genes")
+    f.doc(A, r[1], wA, h, "orange", "StringTie", "assembled transcripts", tag="modes with transcripts")
+    f.doc(A, r[2], wA, h, "green", "Genome", "FASTA")
+
+    f.box(B, r[0], wB, h, "grey", "Sanity filter",
+          ["internal stop or broken CDS:", "transcript removed"], 1)
+    f.box(B, r[1], wB, h, "orange", "UTRs",
+          ["from the StringTie assemblies,", "the CDS stays as it is"], 2)
+    f.box(B, r[2], wB, h, "grey", "Final files",
+          ["GFF3 checked with GenomeTools;", "GTF, proteins, CDS"], 3)
+
+    y0, hy = r[0], r[1] + h - r[0]
+    f.add(f'<rect x="{C}" y="{y0}" width="{wC}" height="{hy}" rx="10" fill="#fafbfc" '
+          f'stroke="#b6bec8" stroke-width="1.4" stroke-dasharray="5 4"/>')
+    f.text(C + 14, y0 + 28, "Also written", 14, "bold", INK)
+    for i, (name, what) in enumerate((("<stem>_with_ncRNA.gff3", "plus ncRNA genes"),
+                                      ("<stem>_go.gff3", "plus GO terms"),
+                                      ("qc/", "tables and plots of the QC"),
+                                      ("intermediate/", "before filter and UTRs"))):
+        f.text(C + 14, y0 + 54 + 42 * i, name, 11.5, fill=INK, mono=True)
+        f.text(C + 14, y0 + 70 + 42 * i, what)
+    f.doc(C, r[2], wC, h, "grey", "Final annotation", "<stem>.gff3", mono=True)
+    f.doc(C, r[3], wC, h, "grey", "GTF and sequences", "GTF, proteins, CDS")
+
+    # QC and annotation steps; color: what the step needs, pill: what switches it on
+    steps = (("grey", "Gene set statistics", "always",
+              [("genes, isoforms, exons, introns, lengths", SUB)]),
+             ("blue", "Evidence support", "evidence modes",
+              [("introns and CDS backed by protein or RNA-Seq hints", SUB)]),
+             ("purple", "Completeness", "--busco_lineage",
+              [("compleasm and BUSCO on genome and proteome", SUB)]),
+             ("purple", "OMArk", "qc.omark",
+              [("proteome consistency; needs an OMAmer database", SUB)]),
+             ("purple", "gffcompare", "--reference_annotation",
+              [("CDS compared with a reference annotation", SUB)]),
+             ("purple", "ncRNA", "--ncrna",
+              [("rRNA, tRNA, Rfam families;\u00a0", SUB),
+               ("lncRNA with transcripts", COL["orange"][1])]),
+             ("purple", "GO terms", "--fantasia",
+              [("FANTASIA-Lite; needs a GPU with 15 GB free", SUB)]))
+    hs, ys = 64, [80 + 80 * i for i in range(len(steps))]
+    for (color, title, pill, parts), y in zip(steps, ys):
+        fill, stroke = COL[color]
+        f.add(f'<rect x="{D}" y="{y}" width="{wD}" height="{hs}" rx="10" fill="{fill}" stroke="{stroke}" stroke-width="1.6"/>')
+        f.text(D + 14, y + 26, title, 15, "bold", INK)
+        pw = 7.1 * len(pill) + 16
+        f.add(f'<rect x="{D + wD - 10 - pw}" y="{y + 10}" width="{pw}" height="22" rx="11" fill="#ffffff" '
+              f'stroke="{stroke}" stroke-width="1.2"/>')
+        f.text(D + wD - 10 - pw / 2, y + 25.5, pill, 11.5, fill=INK, anchor="middle", mono=pill.startswith(("-", "qc.")))
+        spans = "".join(f'<tspan fill="{c}">{italic(escape(t))}</tspan>' for t, c in parts)
+        f.add(f'<text x="{D + 14}" y="{y + 50}" font-family="{SANS}" font-size="12.5" fill="{SUB}">{spans}</text>')
+    yr = ys[-1] + hs + 24
+    f.doc(D + (wD - 220) / 2, yr, 220, h, "grey", "report.html", "all steps in one page")
+
+    cy = lambda y: y + h / 2
+    f.arrow([(A + wA, cy(r[0])), (B, cy(r[0]))], "grey")
+    f.arrow([(A + wA, cy(r[1])), (B, cy(r[1]))], "orange")
+    f.arrow([(A + wA, cy(r[2])), (B, cy(r[2]))], "green")
+    f.arrow([(B + wB / 2, r[0] + h), (B + wB / 2, r[1])], "grey")
+    f.arrow([(B + wB / 2, r[1] + h), (B + wB / 2, r[2])], "grey")
+    f.arrow([(B + wB, cy(r[2])), (C, cy(r[2]))], "grey")
+    f.arrow([(C + wC / 2, r[2] + h - 4), (C + wC / 2, r[3])], "grey")
+    # final annotation into the QC steps, QC steps into the report
+    f.arrow([(C + wC, cy(r[2])), (xl, cy(r[2]))], "grey", head=False)
+    f.dot(xl, cy(r[2]), "grey")
+    f.arrow([(xl, ys[0] + hs / 2), (xl, ys[-1] + hs / 2)], "grey", head=False)
+    for y in ys:
+        f.arrow([(xl, y + hs / 2), (D, y + hs / 2)], "grey")
+        f.arrow([(D + wD, y + hs / 2), (xr, y + hs / 2)], "grey", head=False)
+    f.arrow([(xr, ys[0] + hs / 2), (xr, cy(yr)), (D + (wD + 220) / 2, cy(yr))], "grey")
+
+    # legend: what a step needs
+    yl = r[3] + 20
+    f.text(A, yl, "The color of a step says what it needs:", 13, "bold", INK)
+    for i, (c, s) in enumerate((("grey", "the annotation, always runs"),
+                                ("orange", "transcripts: reads, Iso-Seq or --stringtie"),
+                                ("blue", "hints: proteins and/or transcripts"),
+                                ("purple", "the option on the step and the data it names"))):
+        fill, stroke = COL[c]
+        yy = yl + 22 + 24 * i
+        f.add(f'<rect x="{A}" y="{yy - 12}" width="22" height="16" rx="4" fill="{fill}" stroke="{stroke}" stroke-width="1.4"/>')
+        f.text(A + 32, yy + 1, s)
+
+    f.text(A, yr + 50, "<stem> is <tool>_evidence, or <tool>_ab_initio in mode abinitio;", fill=SUB)
+    f.text(A, yr + 71, "<tool> is tiberius or vipsania. Evidence runs without a gene finder skip post-processing.")
+    return f
+
+
 out = sys.argv[1]
-for name, fig in (("overview", overview()), ("drusilla_flow", drusilla())):
+for name, fig in (("overview", overview()), ("drusilla_flow", drusilla()),
+                  ("postprocess_flow", postprocess())):
     with open(f"{out}/{name}.svg", "w") as fh:
         fh.write(fig.svg())

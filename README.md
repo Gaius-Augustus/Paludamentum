@@ -80,6 +80,13 @@ which flow is set in [conf/hc_genes.yaml](conf/hc_genes.yaml).
 Without any evidence input the pipeline runs steps 1 and 6 only. That is
 useful to parallelize a gene finder over several GPUs.
 
+Step 6 in detail: the color of a step says which data it needs, the label on
+it which option switches it on.
+
+<p align="center">
+  <img src="figures/postprocess_flow.svg" alt="Post-processing and quality control: the annotation runs through the sanity filter, gets UTRs from the StringTie assemblies in modes with transcripts, and is written as GFF3, GTF, proteins and CDS; gene set statistics always run, evidence support in evidence modes, completeness, OMArk, gffcompare, ncRNA and GO terms with their options; report.html sums up all steps" width="100%">
+</p>
+
 ## Requirements
 
 The pipeline runs with Singularity (or Apptainer): the gene finders and all
