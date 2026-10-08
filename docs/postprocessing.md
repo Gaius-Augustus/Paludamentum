@@ -237,8 +237,11 @@ Rfam 15.1 (`Rfam.cm`, `Rfam.clanin`, the `cmpress` index) is read from
 `ncrna.rfam_dir`, else downloaded once into `~/.cache/paludamentum/rfam` on
 the submitting host and checked against its SHA-256. A `rfam_dir` without the
 `cmpress` index is pressed in each task. cmscan is the slowest step on large
-genomes; it runs on the genome chunks of the gene finder split (20 Mb, at
-most 20 chunks).
+genomes; it runs on the genome chunks of the gene finder split
+(`min_split_size`, `max_files` of the gene finder block; 20 Mb, at most 20
+chunks by default), one task per chunk, without a second copy of the genome.
+With a reused gene finder `result` or Vipsania finetuning, which read no
+chunks, the genome is split for cmscan alone.
 
 FEELnc (`bin/feelnc_to_gff3.py` for the GFF3): `FEELnc_filter.pl` keeps the
 assembled transcripts of at least 200 bp with more than one exon that do not

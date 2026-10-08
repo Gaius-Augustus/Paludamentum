@@ -106,14 +106,29 @@ def test_ncrna(mode: str, tmp_path: Path) -> None:
     stem = "tiberius_ab_initio" if mode == "abinitio" else "tiberius_evidence"
     assert NCRNA_FILES | {f"{stem}_with_ncRNA.gff3"} <= published
     assert "DOWNLOAD_RFAM" not in proc.stdout
-    # one cmscan task per genome chunk (the stub of SPLIT_GENOME makes two)
+    # one cmscan task per genome chunk (the stub of SPLIT_GENOME makes two),
+    # on the chunks of the gene finder: the genome is split once
     assert proc.stdout.count("CMSCAN") >= 2
+    assert proc.stdout.count("SPLIT_GENOME") == 1, proc.stdout
     lnc = {"ncrna/lncRNAs.gff3", "ncrna/feelnc_classifier.txt"}
     assert (lnc <= published) == (mode == "rnaseq")
     text = citations(tmp_path)
     for tool in ("tRNAscan-SE", "Infernal", "Rfam", "barrnap"):
         assert f"**{tool}" in text, text
     assert ("**FEELnc**" in text) == (mode == "rnaseq")
+
+
+def test_ncrna_with_an_existing_result_splits_the_genome(tmp_path: Path) -> None:
+    """A reused prediction reads no chunks; the genome is split for cmscan alone."""
+    result = tmp_path / "previous.gff3"
+    result.write_text("##gff-version 3\n")
+    params = {"tiberius": {"run": True, "result": str(result)}, "ncrna": {"run": True, "rfam_dir": rfam_dir(tmp_path)}}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "RUN_TIBERIUS" not in proc.stdout
+    assert proc.stdout.count("SPLIT_GENOME") == 1, proc.stdout
+    assert proc.stdout.count("CMSCAN") >= 2
+    assert NCRNA_FILES | {"tiberius_ab_initio_with_ncRNA.gff3"} <= published
 
 
 def test_ncrna_rfam_dir_without_rfam_files(tmp_path: Path) -> None:

@@ -20,7 +20,6 @@ include { GENE_SUPPORT; GENE_SET_STATISTICS; DOWNLOAD_NCBI_TAXONOMY; OMARK; GFFC
           REPORT } from '../modules/qc.nf'
 include { DOWNLOAD_RFAM; BARRNAP; TRNASCAN; CMSCAN; INFERNAL_TO_GFF3; FEELNC; FEELNC_TO_GFF3; MERGE_NCRNA } from '../modules/ncrna.nf'
 include { STRINGTIE_MERGE as STRINGTIE_MERGE_ALL } from '../modules/assembly.nf'
-include { SPLIT_GENOME as SPLIT_GENOME_NCRNA } from '../modules/genefinder.nf'
 include { FANTASIA_GPU_CHECK; FANTASIA_ANNOTATE; FANTASIA_SUMMARY; FANTASIA_DECORATE as FANTASIA_DECORATE_CODING;
           FANTASIA_DECORATE as FANTASIA_DECORATE_NCRNA } from '../modules/fantasia.nf'
 
@@ -44,6 +43,7 @@ workflow POSTPROCESS {
     take:
     gff         // channel: final protein-coding GFF3 (0 or 1 item)
     genome      // channel: genome FASTA (value)
+    genome_chunks // channel: the genome chunks of the gene finder split (one list; cmscan)
     prefix      // value: name of the gene finder, 'tiberius' or 'vipsania'
     mode        // value: pipeline mode
     asm_short   // channel: StringTie assemblies of short reads (may be empty)
@@ -154,8 +154,9 @@ workflow POSTPROCESS {
         def rfam = rfamReady ? channel.value(rfamDir) : DOWNLOAD_RFAM(rfamDir).done.map { _d -> rfamDir }
         def rrna = BARRNAP(stem, genome)
         def trna = TRNASCAN(stem, genome)
-        def chunks = SPLIT_GENOME_NCRNA(genome, 20000000, 20).chunks.flatten()
-        def infernal = INFERNAL_TO_GFF3(stem, CMSCAN(chunks, rfam).tblout.collect())
+        // the chunks of the gene finder split (GENEFINDER splits for ncrna.run
+        // also where the gene finder reads none), not a second genome copy
+        def infernal = INFERNAL_TO_GFF3(stem, CMSCAN(genome_chunks.flatten(), rfam).tblout.collect())
         def lnc = channel.value([])
         if( transcripts && truthy(params.ncrna.lncrna) ) {
             def assemblies = asm_short.mix(asm_long).collect()
