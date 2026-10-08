@@ -24,7 +24,7 @@ workflow GENEFINDER {
     def tool = resolveGenefinder(params_map)
     def cfg  = params_map[tool] ?: [:]
     def predictions
-    def versions = channel.empty()
+    def versions_ch = channel.empty()
     if( cfg.result && !file(cfg.result).exists() )
         error "params.${tool}.result is set, but the file does not exist: ${cfg.result}"
     def useResult = cfg.result as boolean
@@ -59,15 +59,16 @@ workflow GENEFINDER {
 
     } else if( finetune ) {
         // Vipsania finetunes on the FASTA it annotates, so the genome is not split.
+        // One task with value inputs: its outputs are value channels (no take).
         def run = RUN_VIPSANIA(CH_GENOME, models, cfg.model)
         predictions = run.gtf.toList()
-        versions = run.versions
+        versions_ch = run.versions
 
     } else {
         if( tool == 'vipsania' ) {
             def run = RUN_VIPSANIA(genome_chunks.flatten(), models, cfg.model)
             predictions = run.gtf.toList()
-            versions = run.versions
+            versions_ch = run.versions.take(1)
         } else {
             if( !cfg.model_cfg ) error "params.tiberius.model_cfg is required."
             if( !file(cfg.model_cfg).exists() ) error "params.tiberius.model_cfg is not a file: ${cfg.model_cfg}"
@@ -87,7 +88,7 @@ workflow GENEFINDER {
             }
             def run = RUN_TIBERIUS(genome_chunks.flatten(), cfg.model_cfg, useWeights, weights)
             predictions = run.gtf.toList()
-            versions = run.versions
+            versions_ch = run.versions.take(1)
         }
     }
 
@@ -98,5 +99,5 @@ workflow GENEFINDER {
     emit:
     gff    = publish_top ? MERGE_GENEFINDER.out : MERGE_GENEFINDER_EVI.out
     chunks = genome_chunks   // the genome chunks (one list), or empty without a split
-    versions = versions.take(1)   // versions.tsv of the gene finder, or empty with a reused result
+    versions = versions_ch   // versions.tsv of the first gene finder task, or empty with a reused result
 }
