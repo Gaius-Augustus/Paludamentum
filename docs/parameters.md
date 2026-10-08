@@ -313,6 +313,7 @@ Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
 | `fantasia.hf_cache_dir` | none | Hugging Face cache with `Rostlab/prot_t5_xl_uniref50` (required with `fantasia.run`). |
 | `fantasia.lookup_dir` | none | `lookup_table.npz`, `annotations.json`, `accessions.json` of Zenodo record 17720428 (required with `fantasia.run`). |
 | `fantasia.min_score` | `0.5` | Minimum score of a GO term. |
+| `fantasia.device` | `cuda` | `cuda`, or `cpu`: the ProtT5 embeddings on the CPU, no GPU and no GPU probe (much slower; route `FANTASIA_ANNOTATE` to a CPU queue, see [postprocessing.md](postprocessing.md#go-terms-with-fantasia-lite)). |
 | `fantasia.additional_params` | none | Appended to `fantasia_pipeline.py`. |
 | `tools.gffread`, `tools.compleasm`, `tools.busco`, `tools.gffcompare`, `tools.trnascan`, `tools.cmscan`, `tools.cmpress`, `tools.barrnap`, `tools.omamer`, `tools.omark` | the names on `PATH` in the images | Executables of the post-processing (`--check_tools` checks those of the steps that are on). GenomeTools (`gt`, GFF3 validation of the final files) has no override and is called by name. |
 
