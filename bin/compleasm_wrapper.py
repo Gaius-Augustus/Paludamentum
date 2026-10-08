@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # Copied from BRAKER4 scripts/compleasm_wrapper.py at commit 3535ed3.
 # Copyright (c) 2025 Katharina Hoff. MIT License, see LICENSE-BRAKER4.
-# Changes: none
+# Changes: 2026-10-07 Paludamentum: no network access in run and protein mode,
+# lineage members extracted in archive order (workarounds 3 and 4 below).
 """
-Run compleasm.py with two workarounds for compleasm 0.2.8.
+Run compleasm.py with four workarounds for compleasm 0.2.8 and 0.2.9.
 
 1. Offline fallback (issue #105). compleasm defines its own
    `class URLError(OSError)`, which shadows urllib.error.URLError. Its
@@ -20,6 +21,25 @@ Run compleasm.py with two workarounds for compleasm 0.2.8.
    without such sequences. No real protein comes close (titin is ~35,000 aa),
    so no BUSCO is lost.
 
+3. Shared library path (run and protein mode). compleasm downloads
+   file_versions.tsv.hash into --library_path on every run, not only in
+   `download`, and reads it back. Tasks that share one library path (the
+   genome and proteome runs of one pipeline run, or runs that start
+   together) overwrite the file while another reads it, and the reader stops
+   with an IndexError on the empty line (brain, 2026-10-07). In run and
+   protein mode the wrapper therefore lets no download through: compleasm
+   takes its offline path (warning, cached file_versions.tsv) and writes
+   nothing to the library path. The lineage must be complete there; in
+   Paludamentum DOWNLOAD_BUSCO_LINEAGE prepares it under a lock.
+
+4. Slow lineage extraction (download). compleasm extracts the HMMs of a
+   lineage from its .tar.gz in the order of a Python set. tarfile seeks to
+   every member, and each backward seek in a gzip stream decompresses the
+   archive again from the start: hours of CPU for the ~4,000 HMMs of
+   eurotiales_odb12 (150 HMMs: 261 s, in archive order 4 s). The wrapper
+   sorts the members of TarFile.extractall by their offset in the archive,
+   so the archive is read once.
+
 Usage:
     compleasm_wrapper.py [/path/to/compleasm.py] <compleasm arguments>
 
@@ -30,6 +50,7 @@ import os
 import runpy
 import shutil
 import sys
+import tarfile
 import tempfile
 import urllib.error
 import urllib.request
@@ -69,12 +90,19 @@ def filter_long_proteins(in_path, out_path, max_len=MAX_PROTEIN_LEN):
     return dropped
 
 
-def patch_urlretrieve():
-    """Make urllib's URLError catchable by compleasm's `except URLError:`."""
+def patch_urlretrieve(offline=False):
+    """Make urllib's URLError catchable by compleasm's `except URLError:`.
+
+    With offline=True no download is attempted: every call raises that
+    error, as if the server could not be reached.
+    """
     orig = urllib.request.urlretrieve
 
     def urlretrieve(*args, **kwargs):
         try:
+            if offline:
+                raise urllib.error.URLError(
+                    "compleasm_wrapper.py: no downloads in run and protein mode")
             return orig(*args, **kwargs)
         except urllib.error.URLError as e:
             # runpy executes compleasm as the __main__ module, so its own
@@ -85,6 +113,18 @@ def patch_urlretrieve():
             raise own(str(e)) from e
 
     urllib.request.urlretrieve = urlretrieve
+
+
+def patch_tarfile_member_order():
+    """Let TarFile.extractall take its members in archive order."""
+    orig = tarfile.TarFile.extractall
+
+    def extractall(self, path=".", members=None, **kwargs):
+        if members is not None:
+            members = sorted(members, key=lambda m: m.offset)
+        return orig(self, path, members, **kwargs)
+
+    tarfile.TarFile.extractall = extractall
 
 
 def find_compleasm():
@@ -124,7 +164,8 @@ def main():
                         tmp_fasta = None
                 break
 
-    patch_urlretrieve()
+    patch_tarfile_member_order()
+    patch_urlretrieve(offline=bool(cargs) and cargs[0] in ("run", "protein"))
     # compleasm imports _version from its own directory and locates miniprot
     # and hmmsearch relative to __file__, which run_path sets correctly.
     sys.path.insert(0, os.path.dirname(compleasm))
