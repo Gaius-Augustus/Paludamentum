@@ -185,6 +185,7 @@ Paths must not contain spaces. All parameters are documented in
 | `rnaseq_varus`, `isoseq_varus`, `mixed_varus` | [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) output directories, which bring their StringTie assembly and intron hints, see [docs/parameters.md](docs/parameters.md#pyvarus-output-directories) |
 | `isoseq` | Iso-Seq FASTQ files |
 | `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra` | SRA run accessions, downloaded by the pipeline; an accession whose download fails twice is dropped with an `Error is ignored` note, and `-resume` tries it again |
+| `keep_downloads` | copy the reads downloaded from SRA to `sra_downloads/` in `outdir`; default false, they stay in the work directory only |
 | `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80 |
 
 The mode is inferred from the inputs and can be forced with `mode`
@@ -262,7 +263,7 @@ is `tiberius` or `vipsania`.
 | `intermediate/<tool>_lgb_scores.tsv` | LightGBM class probabilities of all *ab initio* transcripts (Drusilla flow) |
 | `intermediate/hint_rescue.gtf` | *ab initio* genes predicted again with protein hints (Drusilla flow; missing if the rescue was skipped) |
 | `hintsfile.gff` | protein, RNA-Seq and Iso-Seq hints |
-| `sra_downloads/` | reads downloaded from SRA |
+| `sra_downloads/` | reads downloaded from SRA, with `keep_downloads: true` only |
 | `params.yaml` | the merged parameters of this run, written by the launcher |
 | `citations.md` | references of the gene finder and the tools that this run used, see [Citation](#citation) |
 

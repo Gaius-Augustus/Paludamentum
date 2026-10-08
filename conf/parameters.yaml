@@ -73,6 +73,7 @@ genome: /path/to/genome.fa
 # rnaseq_sra_paired: [SRRXXXXXXX, SRRYYYYYYY]
 # rnaseq_sra_single: [SRRZZZZZZZ]
 # isoseq_sra: [DRRXXXXXXX]
+# keep_downloads: false         # true copies the downloaded reads to <outdir>/sra_downloads/
 
 # ------------------------------------------------------------
 # Protein evidence (FASTA)

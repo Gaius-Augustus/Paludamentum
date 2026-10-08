@@ -103,7 +103,8 @@ RNA-Seq and Iso-Seq libraries can also be automatically downloaded from the Sequ
 `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra`.  
 An accession whose download fails twice (a network error, or a run that `fasterq-dump` cannot read) is dropped
 with an `Error is ignored` note, as a library below `min_alignment_rate` is dropped; the other libraries go on,
-and `-resume` tries the dropped accession again. The reads are copied to `sra_downloads/` in `outdir`.
+and `-resume` tries the dropped accession again. The reads stay in the Nextflow work directory; with
+`keep_downloads: true` they are also copied to `sra_downloads/` in `outdir`.
 
 
 ## Parameters
@@ -115,6 +116,7 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `outdir`                   | `"results"` (the launcher sets `<genefinder>_results`) | Directory where all final results are written.                                                               |
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
 | `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
+| `keep_downloads`           | `false`                                | Copy the reads downloaded from SRA to `sra_downloads/` in `outdir`. Off, they are kept in the work directory only, which saves a second copy of every library. |
 | `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. |
 | `hc_table`                 | `"conf/hc_genes.yaml"`                 | HC gene step per clade of the gene finder model: `hc: drusilla` (with `drusilla_model`, `lgb_model`, `lgb_model_sha256`) or the TransDecoder flow, and its `orf_finder`. Today Drusilla for `Vertebrata` and `Mammalia`, TD2 for every other clade. |
 | `transdecoder`             | `orf_finder` of `hc_table` (`"td2"`)   | ORF finder of the TransDecoder HC gene flow: `td1` (TransDecoder 5.7.1) or `td2` ([TD2](https://github.com/Markusjsommer/TD2) 1.1.0, in the container image). See [orf_finder_comparison.md](orf_finder_comparison.md). |

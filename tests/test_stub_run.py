@@ -299,11 +299,11 @@ INPUT_FORMS = {
     "paired_pairs_list": ({"rnaseq_paired": [[R1, R2]]}, []),
     "paired_flat_two":   ({"rnaseq_paired": [R1, R2]}, []),
     "single_list":       ({"rnaseq_single": [R1]}, []),
-    "sra_paired_list":   ({"rnaseq_sra_paired": ["SRR0000001"]},
+    # SRA reads are published with keep_downloads only
+    "sra_paired_list":   ({"rnaseq_sra_paired": ["SRR0000001"], "keep_downloads": True},
                           ["sra_downloads/rnaseq_sra_paired/SRR0000001_1.fastq.gz"]),
-    "sra_single_string": ({"rnaseq_sra_single": "SRR0000002"},
-                          ["sra_downloads/rnaseq_sra_single/SRR0000002.fastq.gz"]),
-    "isoseq_sra_list":   ({"isoseq_sra": ["DRR0000003"]},
+    "sra_single_string": ({"rnaseq_sra_single": "SRR0000002"}, []),
+    "isoseq_sra_list":   ({"isoseq_sra": ["DRR0000003"], "keep_downloads": True},
                           ["sra_downloads/isoseq_sra/DRR0000003.fastq.gz"]),
     "two_protein_files": ({"proteins": [str(DATA / "tiny_proteins.faa"), str(DATA / "tiny_proteins.faa")],
                            "rnaseq_paired": str(DATA / "reads_{1,2}.fastq")}, []),
@@ -320,6 +320,8 @@ def test_input_forms(form: str, tmp_path: Path) -> None:
     assert {"tiberius_evidence.gff3", "intermediate/hc.gff3", "hintsfile.gff"} <= published, sorted(published)
     for f in downloads:
         assert f in published, (f, sorted(published))
+    if not extra.get("keep_downloads"):
+        assert not any(f.startswith("sra_downloads/") for f in published), sorted(published)
 
 
 @pytest.mark.parametrize("bam", [[R1], R1], ids=["list", "string"])
