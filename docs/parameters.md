@@ -147,7 +147,8 @@ The location of the required executables is set by default so that they are avai
 
 ### Aligned RNA-Seq reads (BAM)
 Already aligned short reads, for example from VARUS, go to `rnaseq_bam` as a
-list of BAM files. They skip the HISAT2 step.
+list of BAM files. They skip the HISAT2 step. A BAM whose header does not say
+`SO:coordinate` is sorted first; a coordinate-sorted one is used as it is.
 
 ### pyVARUS output directories
 [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) writes `stringtie.gtf`

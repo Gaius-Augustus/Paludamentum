@@ -262,3 +262,22 @@ def varusInputs(value, String key, String mode) {
         return [dir.name, dir.toString(), manifest, gtf, mode == 'mixed' ? [] : hints]
     }
 }
+
+// True if the header of a BAM file says SO:coordinate (@HD, its first line).
+// No @HD line, another sort order, SAM/CRAM or an unreadable file: false.
+// BAM is BGZF, a series of gzip members: magic BAM\1, int32 l_text, header text.
+def bamCoordinateSorted(f) {
+    try {
+        new java.util.zip.GZIPInputStream(f.newInputStream()).withCloseable { s ->
+            def head = new byte[8]
+            if( s.readNBytes(head, 0, 8) < 8 || new String(head, 0, 4, 'ISO-8859-1') != 'BAM\u0001' )
+                return false
+            def lText = java.nio.ByteBuffer.wrap(head, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt()
+            def text = new byte[Math.min(Math.max(lText, 0), 65536)]
+            def first = new String(text, 0, s.readNBytes(text, 0, text.length), 'ISO-8859-1').tokenize('\n')[0] ?: ''
+            return first.startsWith('@HD\t') && first.tokenize('\t').contains('SO:coordinate')
+        }
+    } catch( Exception _e ) {
+        return false
+    }
+}
