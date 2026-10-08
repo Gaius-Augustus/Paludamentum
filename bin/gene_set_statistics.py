@@ -41,6 +41,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 from collections import Counter
@@ -176,121 +177,166 @@ def support_fractions(support_data):
 
 
 def generate_plots(stats, outdir, support_data=None):
-    """All plots as PNG (300 dpi); {name: path}."""
+    """All plots as PNG (plot_style.py: page width, 200 dpi, common font sizes); {name: path}."""
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from matplotlib.ticker import MaxNLocator
+        from matplotlib.ticker import FuncFormatter, LogLocator, MaxNLocator
+        import plot_style as ps
     except ImportError:
         print("gene_set_statistics.py: WARNING: matplotlib not available, skipping plots", file=sys.stderr)
         return {}
 
     plots = {}
-    plt.rcParams.update({
-        "font.size": 10,
-        "axes.titlesize": 12,
-        "axes.labelsize": 10,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
-        "legend.fontsize": 9,
-    })
+    ps.apply(plt)
+    pair = {"figsize": (ps.FIG_WIDTH, 3.6), "gridspec_kw": {"width_ratios": [1.6, 1]}}
+    thousands = FuncFormatter(lambda x, _pos: f"{x:,.0f}")
+
+    def counts_axis(axis):
+        """whole-number ticks with thousands separators (counts)"""
+        axis.set_major_locator(MaxNLocator(integer=True, steps=[1, 2, 5, 10]))
+        axis.set_major_formatter(thousands)
+
+    def short_bp(x, _pos=None):
+        """100, 200, 500, 1k, 2k, 10k, 1M: compact labels of a log axis in bp"""
+        for div, suffix in ((1e6, "M"), (1e3, "k")):
+            if x >= div:
+                return f"{x / div:g}{suffix}"
+        return f"{x:g}"
 
     def no_data(ax, title):
-        ax.text(0.5, 0.5, "no data", ha="center", va="center", transform=ax.transAxes, color="grey")
+        ax.text(0.5, 0.5, "no data", ha="center", va="center", transform=ax.transAxes, color=ps.GREY)
         ax.set_title(title)
         ax.set_xticks([])
         ax.set_yticks([])
 
     def save(fig, name):
-        plt.tight_layout()
+        fig.tight_layout()
         path = os.path.join(outdir, f"{name}.png")
-        fig.savefig(path, dpi=300, bbox_inches="tight")
+        fig.savefig(path, dpi=ps.DPI)
         plt.close(fig)
         plots[name] = path
 
+    def pct(part, total):
+        p = 100 * part / total
+        return "<0.1%" if 0 < p < 0.05 else f"{p:.1f}%"
+
+    def pie(ax, sizes, names, colours):
+        total = sum(sizes)
+        kept = [(s, n, c) for s, n, c in zip(sizes, names, colours) if s > 0]
+        ax.pie([k[0] for k in kept], labels=[f"{n}\n{s:,} ({pct(s, total)})" for s, n, _ in kept],
+               colors=[k[2] for k in kept], startangle=90, counterclock=False, labeldistance=1.12,
+               wedgeprops={"edgecolor": "white", "linewidth": 1.5}, textprops={"fontsize": 10})
+        ax.set_aspect("equal")
+
+    def count_bars(ax, values, cap, colour, annotate):
+        """Bars of the integer values 0/1..cap; a value above cap is counted in the bar 'cap', labelled '>=cap'."""
+        counts = Counter(min(v, cap) for v in values)
+        lo, hi = min(counts), max(counts)
+        xs = list(range(lo, hi + 1))
+        heights = [counts.get(x, 0) for x in xs]
+        bars = ax.bar(xs, heights, width=0.8, color=colour, edgecolor="white")
+        if annotate:
+            total = len(values)
+            for bar, h in zip(bars, heights):
+                if h > 0:
+                    ax.annotate(f"{h:,}\n{pct(h, total)}", (bar.get_x() + bar.get_width() / 2, h),
+                                xytext=(0, 3), textcoords="offset points", ha="center", va="bottom",
+                                fontsize=ps.ANNOTATION_SIZE, color=ps.MUTED)
+            ax.set_ylim(0, max(heights) * 1.25)
+        step = 1 if len(xs) <= 16 else 2
+        ticks = [x for x in xs if (x - lo) % step == 0 or x == hi]
+        if len(ticks) > 1 and ticks[-1] - ticks[-2] < step:
+            ticks.pop(-2)
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([f"\u2265{t}" if t == cap and max(values) > cap else str(t) for t in ticks])
+        counts_axis(ax.yaxis)
+
+    def median_line(ax, median, label):
+        ax.axvline(median, color=ps.MEDIAN, linestyle="--", linewidth=1, label=label)
+        ax.legend(loc="upper right")
+
     # --- 1+2. Isoform distribution + exon structure (side by side) ---
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5))
+    fig, (ax1, ax2) = plt.subplots(1, 2, **pair)
     if stats["tx_per_gene"]:
-        max_tx = min(max(stats["tx_per_gene"]), 15)
-        bins = range(1, max_tx + 2)
-        counts, _edges, patches = ax1.hist(stats["tx_per_gene"], bins=bins, color="#4C72B0",
-                                           edgecolor="white", align="left", rwidth=0.8)
-        total = len(stats["tx_per_gene"])
-        for count, patch in zip(counts, patches):
-            if count > 0:
-                ax1.text(patch.get_x() + patch.get_width() / 2, count + total * 0.01,
-                         f"{int(count)}\n({count / total * 100:.1f}%)", ha="center", va="bottom", fontsize=6.5)
+        count_bars(ax1, stats["tx_per_gene"], 15, ps.BLUE, annotate=True)
         ax1.set_xlabel("Transcripts per gene")
         ax1.set_ylabel("Number of genes")
-        ax1.set_title("Isoform Distribution")
-        ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax1.set_title("Transcripts per gene")
     else:
-        no_data(ax1, "Isoform Distribution")
-    sizes = [stats["single_exon_tx"], stats["multi_exon_tx"]]
+        no_data(ax1, "Transcripts per gene")
+    sizes = [stats["multi_exon_tx"], stats["single_exon_tx"]]
     if sum(sizes) > 0:
-        labels = [f"Single-exon\n({stats['single_exon_tx']})", f"Multi-exon\n({stats['multi_exon_tx']})"]
-        ax2.pie(sizes, labels=labels, colors=["#DD8452", "#4C72B0"], autopct="%1.1f%%",
-                startangle=90, textprops={"fontsize": 9})
-        ax2.set_title(f"Exon Structure ({sum(sizes)} transcripts)")
+        pie(ax2, sizes, ["Multi-exon", "Single-exon"], [ps.BLUE, ps.ORANGE])
+        ax2.set_title(f"Exon structure ({sum(sizes):,} transcripts)")
     else:
-        no_data(ax2, "Exon Structure")
+        no_data(ax2, "Exon structure")
     save(fig, "isoform_and_exon_structure")
 
-    # --- 3. Transcript length distributions (dual histogram) ---
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-    for ax, values, color, xlabel, title in (
-            (ax1, stats["cds_lengths"], "#55A868", "CDS length (bp)", "CDS Length Distribution"),
-            (ax2, stats["genomic_spans"], "#4C72B0", "Genomic span (bp)", "Genomic Span Distribution (incl. introns)")):
+    # --- 3. Transcript length distributions (log-scale histograms) ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(ps.FIG_WIDTH, 3.6))
+    for ax, values, xlabel, title in (
+            (ax1, stats["cds_lengths"], "CDS length (bp, log scale)", "CDS length"),
+            (ax2, stats["genomic_spans"], "Genomic span (bp, log scale)", "Genomic span (incl. introns)")):
+        values = [v for v in values if v > 0]
         if values:
-            ax.hist(values, bins=50, color=color, edgecolor="white", alpha=0.8)
+            lo, hi = min(values), max(values)
+            hi = max(hi, lo * 1.01)
+            edges = [lo * (hi / lo) ** (i / 50) for i in range(51)]
+            ax.hist(values, bins=edges, color=ps.BLUE, edgecolor="white", linewidth=0.5)
+            ax.set_xscale("log")
+            # labels at 1, 2 and 5 of each decade (1 and 3 over more than 3 decades, only 1 over
+            # more than 5), unlabelled minor ticks between
+            decades = math.log10(hi / lo)
+            subs = (1.0, 2.0, 5.0) if decades <= 3 else (1.0, 3.0) if decades <= 5 else (1.0,)
+            ax.xaxis.set_major_locator(LogLocator(base=10, subs=subs))
+            ax.xaxis.set_major_formatter(FuncFormatter(short_bp))
+            ax.xaxis.set_minor_locator(LogLocator(base=10, subs=[k for k in range(1, 10) if k not in subs]))
+            ax.xaxis.set_minor_formatter(FuncFormatter(lambda _x, _pos: ""))
+            counts_axis(ax.yaxis)
             ax.set_xlabel(xlabel)
             ax.set_ylabel("Number of transcripts")
             ax.set_title(title)
             median = upper_median(values)
-            ax.axvline(median, color="red", linestyle="--", linewidth=1, label=f"Median: {median:,} bp")
-            ax.legend()
+            median_line(ax, median, f"median {median:,} bp")
         else:
             no_data(ax, title)
     save(fig, "transcript_lengths")
 
-    # --- 4. Introns per gene histogram (compact) ---
-    fig, ax = plt.subplots(figsize=(5, 3))
+    # --- 4. Introns per gene ---
+    fig, ax = plt.subplots(figsize=(ps.FIG_WIDTH, 3.2))
     if stats["introns_per_gene"]:
-        max_introns = min(max(stats["introns_per_gene"]) + 1, 30)
-        ax.hist(stats["introns_per_gene"], bins=range(0, max_introns + 1), color="#C44E52",
-                edgecolor="white", align="left", rwidth=0.8)
+        count_bars(ax, stats["introns_per_gene"], 30, ps.BLUE, annotate=False)
         ax.set_xlabel("Introns per gene")
         ax.set_ylabel("Number of genes")
-        ax.set_title("Intron Count Distribution")
+        ax.set_title("Introns per gene")
         median = upper_median(stats["introns_per_gene"])
-        ax.axvline(median, color="black", linestyle="--", linewidth=1, label=f"Median: {median}")
-        ax.legend()
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        median_line(ax, median, f"median {median}")
     else:
-        no_data(ax, "Intron Count Distribution")
+        no_data(ax, "Introns per gene")
     save(fig, "introns_per_gene")
 
     # --- 5. Evidence support (intron support of the multi-exon transcripts) ---
     if support_data is not None:
         fractions = support_fractions(support_data)
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+        fig, axes = plt.subplots(1, 2, **pair)
         if fractions:
-            axes[0].hist(fractions, bins=20, color="#4C72B0", edgecolor="white")
+            axes[0].hist(fractions, bins=[i / 20 for i in range(21)], color=ps.BLUE, edgecolor="white")
             axes[0].set_xlabel("Fraction of introns supported")
             axes[0].set_ylabel("Number of transcripts")
-            axes[0].set_title("Intron Evidence Support")
-            axes[0].set_xlim(-0.05, 1.05)
+            axes[0].set_title("Intron evidence support")
+            axes[0].set_xlim(-0.02, 1.02)
+            counts_axis(axes[0].yaxis)
             full = sum(1 for f in fractions if f >= 1.0)
             partial = sum(1 for f in fractions if 0 < f < 1.0)
             none = sum(1 for f in fractions if f == 0)
-            axes[1].pie([full, partial, none],
-                        labels=[f"Full support\n({full:,})", f"Partial\n({partial:,})", f"No support\n({none:,})"],
-                        colors=["#55A868", "#DD8452", "#C44E52"], autopct="%1.1f%%", startangle=90)
-            axes[1].set_title(f"Evidence Support ({len(fractions):,} multi-exon transcripts)")
+            pie(axes[1], [full, partial, none], ["Full support", "Partial", "No support"],
+                [ps.GREEN, ps.ORANGE, ps.RED])
+            axes[1].set_title(f"Evidence support ({len(fractions):,} multi-exon transcripts)")
         else:
-            no_data(axes[0], "Intron Evidence Support")
-            no_data(axes[1], "Evidence Support (no multi-exon transcripts)")
+            no_data(axes[0], "Intron evidence support")
+            no_data(axes[1], "Evidence support (no multi-exon transcripts)")
         save(fig, "evidence_support")
 
     return plots

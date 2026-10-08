@@ -3,6 +3,8 @@
 # Copyright (c) 2025 Katharina Hoff. MIT License, see LICENSE-BRAKER4.
 # Changes (2026-10-07): write_categories_pie writes a placeholder figure when no GO term
 # passes --min-score, so the PNG always exists (it is a required pipeline output).
+# Changes (2026-10-08): the pie chart is a sorted horizontal bar chart
+# (write_categories_chart) in the common style of the report plots (plot_style.py).
 """
 Summarise a FANTASIA-Lite results.csv into a text report and a GO-namespace plot.
 
@@ -15,7 +17,7 @@ cellular_component). `reliability_index` is FANTASIA-Lite's confidence score
 
 Outputs:
     - <out_dir>/fantasia_summary.txt          (plain-text key/value summary)
-    - <out_dir>/fantasia_go_categories.png    (pie chart of broad functional
+    - <out_dir>/fantasia_go_categories.png    (bar chart of broad functional
                                               categories; each protein
                                               contributes once per matching
                                               category; a placeholder figure
@@ -38,6 +40,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import plot_style as ps  # noqa: E402
 
 
 NAMESPACE_LABELS = {
@@ -63,7 +68,7 @@ NAMESPACE_LABELS = {
 # provides this inline as `go_description`).
 #
 # Each protein is counted ONCE per category it matches (multi-category
-# membership allowed); the pie chart therefore shows fraction of category
+# membership allowed); the bar chart therefore shows fraction of category
 # memberships, not fraction of proteins.
 FUNCTIONAL_CATEGORIES = [
     ("Energy / photosynthesis / respiration", {
@@ -191,16 +196,6 @@ _LOCALIZATION_KW = _re.compile(
     r"|integral.component.of.membrane|membrane.raft|cell.cortex)\b",
     _re.IGNORECASE,
 )
-
-# Distinct, mostly-colorblind-friendly palette for the pie wedges. Order is
-# stable so re-runs produce identical figures across samples.
-_CATEGORY_COLORS = [
-    "#3a7d44", "#e07b00", "#2e7da8", "#c46a1c", "#7b3f9e",
-    "#1f77b4", "#d62728", "#bcbd22", "#17becf", "#8c564b",
-    "#e377c2", "#2ca02c", "#ff7f0e", "#9467bd", "#aec7e8",
-    "#ffbb78", "#9e9e9e", "#cccccc",  # Localization, Other
-]
-
 
 def _compile_categories():
     out = []
@@ -337,87 +332,60 @@ def write_summary(stats, min_score, out_path):
                 f.write(f"  {label}: {stats['namespace_counts_hc'][ns]:,}\n")
 
 
-def write_categories_pie(stats, min_score, out_path):
-    """Pie chart of broad functional categories.
+def write_categories_chart(stats, min_score, out_path):
+    """Horizontal bar chart of broad functional categories (plot_style).
 
-    Each protein is counted once per matching curated category, so the pie
-    represents fraction of category memberships rather than fraction of
-    proteins. Proteins matching no category fall into "Other / unclassified".
+    Each protein is counted once per matching curated category, so the bars
+    show category memberships rather than proteins. Proteins matching no
+    category fall into "Other / unclassified". The curated categories are
+    sorted by count; "Subcellular localization only" and "Other" follow in
+    grey.
     """
+    ps.apply(plt)
     counter = classify_proteins(stats["flat_rows"])
     if not counter:
         # No GO term passed the cutoff (or results.csv was empty): the PNG is
         # a required pipeline output, so write a placeholder figure that says
         # so instead of leaving nothing behind.
-        fig, ax = plt.subplots(figsize=(9.5, 6.0))
+        fig, ax = plt.subplots(figsize=(ps.FIG_WIDTH, 2.0))
         ax.axis("off")
         ax.text(
             0.5, 0.5,
-            f"No GO term passed the reliability-index cutoff (RI ≥ {min_score:.2f})\n"
+            f"No GO term passed the reliability-index cutoff (RI \u2265 {min_score:.2f})\n"
             f"({stats['total_rows']:,} GO assignments in results.csv, "
             f"{stats['proteins_total']:,} proteins)",
-            ha="center", va="center", fontsize=12, wrap=True,
+            ha="center", va="center", color=ps.MUTED,
         )
-        ax.set_title("FANTASIA-Lite functional categories", fontsize=12, pad=14)
-        fig.savefig(out_path, dpi=200, bbox_inches="tight")
+        ax.set_title("FANTASIA-Lite functional categories")
+        fig.savefig(out_path, dpi=ps.DPI)
         plt.close(fig)
         return False
 
-    # Stable order: curated functional categories in their declared order,
-    # then the "Localization only" bucket, then the "Other" bucket pinned
-    # to the very end. Drop empty buckets.
-    ordered = []
-    for name, _ in FUNCTIONAL_CATEGORIES:
-        if counter.get(name, 0) > 0:
-            ordered.append((name, counter[name]))
-    if counter.get(_LOC_ONLY_LABEL, 0) > 0:
-        ordered.append((_LOC_ONLY_LABEL, counter[_LOC_ONLY_LABEL]))
-    if counter.get(_OTHER_LABEL, 0) > 0:
-        ordered.append((_OTHER_LABEL, counter[_OTHER_LABEL]))
+    functional = sorted(((name, counter[name]) for name, _ in FUNCTIONAL_CATEGORIES
+                         if counter.get(name, 0) > 0), key=lambda kv: -kv[1])
+    rest = [(name, counter[name]) for name in (_LOC_ONLY_LABEL, _OTHER_LABEL) if counter.get(name, 0) > 0]
+    ordered = functional + rest
+    colours = [ps.BLUE] * len(functional) + [ps.GREY] * len(rest)
+    total = sum(v for _, v in ordered)
 
-    labels = [name for name, _ in ordered]
-    values = [v for _, v in ordered]
-    colors = _CATEGORY_COLORS[: len(labels)]
-    total = sum(values)
-
-    fig, ax = plt.subplots(figsize=(9.5, 6.0))
-    wedges, _texts, autotexts = ax.pie(
-        values,
-        labels=None,
-        colors=colors,
-        startangle=90,
-        counterclock=False,
-        # Only label slices >=2.5% of the pie to keep the figure readable
-        autopct=lambda p: f"{p:.1f}%" if p >= 2.5 else "",
-        pctdistance=0.78,
-        wedgeprops={"edgecolor": "white", "linewidth": 1.0},
-    )
-    for at in autotexts:
-        at.set_fontsize(10)
-        at.set_color("white")
-        at.set_fontweight("bold")
-    legend_labels = [
-        f"{name}  ({count:,}; {100 * count / total:.1f}%)"
-        for name, count in ordered
-    ]
-    ax.legend(
-        wedges,
-        legend_labels,
-        loc="center left",
-        bbox_to_anchor=(1.02, 0.5),
-        fontsize=10,
-        frameon=False,
-        title=f"Category memberships  (RI \u2265 {min_score:.2f})",
-        title_fontsize=11,
-    )
-    ax.set_title(
-        "FANTASIA-Lite functional categories\n"
-        "Each protein contributes once per matching curated category",
-        fontsize=12,
-        pad=14,
-    )
+    fig, ax = plt.subplots(figsize=(ps.FIG_WIDTH, 1.1 + 0.28 * len(ordered)))
+    ys = list(range(len(ordered)))
+    ax.barh(ys, [v for _, v in ordered], height=0.7, color=colours)
+    ax.set_yticks(ys)
+    ax.set_yticklabels([name for name, _ in ordered], color=ps.TEXT)
+    ax.invert_yaxis()
+    ax.tick_params(axis="y", length=0)
+    longest = max(v for _, v in ordered)
+    for y, (_, v) in zip(ys, ordered):
+        ax.annotate(f"{v:,} ({100 * v / total:.1f}%)", (v, y), xytext=(4, 0), textcoords="offset points",
+                    ha="left", va="center", fontsize=ps.ANNOTATION_SIZE, color=ps.MUTED)
+    ax.set_xlim(0, longest * 1.18)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _pos: f"{x:,.0f}"))
+    ax.set_xlabel(f"Proteins per category (GO terms with RI \u2265 {min_score:.2f}; "
+                  "a protein can count in several categories)")
+    ax.set_title("FANTASIA-Lite functional categories")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    fig.savefig(out_path, dpi=ps.DPI)
     plt.close(fig)
     return True
 
@@ -442,7 +410,7 @@ def main():
     tsv_path = os.path.join(args.out_dir, "fantasia_go_terms.tsv")
 
     write_summary(stats, args.min_score, summary_path)
-    write_categories_pie(stats, args.min_score, plot_path)
+    write_categories_chart(stats, args.min_score, plot_path)
     write_go_terms_tsv(stats, tsv_path)
 
     print(f"Wrote {summary_path}")

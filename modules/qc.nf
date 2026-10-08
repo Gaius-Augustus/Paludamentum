@@ -199,7 +199,8 @@ process GFFCOMPARE {
 }
 
 // qc/software_versions.tsv: the version lines of the post-processing tasks,
-// sorted and without duplicates, after the pipeline line
+// sorted and without duplicates, after the pipeline line; a line without
+// exactly tool, version and image is left out
 process SOFTWARE_VERSIONS {
   label 'container'
   publishDir "${params.outdir}/qc", mode:'copy', overwrite: true
@@ -218,7 +219,9 @@ process SOFTWARE_VERSIONS {
 tool	version	image
 ${head}
 END_VERSIONS
-  cat versions/*/* 2>/dev/null | sort -u >> software_versions.tsv || true
+  # tool, version, image: a version over several lines (a tool that printed
+  # its usage) would break the table
+  cat versions/*/* 2>/dev/null | awk -F '\t' 'NF == 3 && \$2 != ""' | sort -u >> software_versions.tsv || true
   """
 
   stub:
@@ -228,8 +231,9 @@ END_VERSIONS
 }
 
 // report.html from the published files, staged as they are published:
-// top-level files (with hintsfile.gff and the launcher's params.yaml), qc/
-// and ncrna/. completeness.png, drawn by the report, is published to qc/.
+// top-level files (with hintsfile.gff, the launcher's params.yaml and
+// methods.md of main.nf), qc/ and ncrna/; the logo is shown above the title.
+// completeness.png, drawn by the report, is published to qc/.
 process REPORT {
   label 'postprocess'
   publishDir "${params.outdir}/", mode:'copy', overwrite: true, pattern: 'report.html'
@@ -243,6 +247,8 @@ process REPORT {
     path citations, stageAs: 'staged/citations.md'
     path hints, stageAs: 'staged/hintsfile.gff'       // [] in mode abinitio
     path params_yaml, stageAs: 'staged/params.yaml'   // [] when Nextflow was run without the launcher
+    path methods, stageAs: 'staged/methods.md'        // [] if main.nf did not write it
+    path logo, stageAs: 'logo.png'                    // docs/img/logo_report.png
     val run_info
 
   output:
@@ -255,7 +261,8 @@ process REPORT {
   cat > run_info.json <<'END_RUN_INFO'
 ${json}
 END_RUN_INFO
-  paludamentum_report.py --dir staged --out report.html --run-info run_info.json --completeness-png completeness.png
+  paludamentum_report.py --dir staged --out report.html --run-info run_info.json --completeness-png completeness.png \\
+      --logo logo.png
   """
 
   stub:

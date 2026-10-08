@@ -8,7 +8,7 @@ STAGED_DIR holds the published files of the run (any of them may be missing;
 the section of a missing or empty file is skipped):
 
     <stem>.gff3 .gtf _proteins.fa _cds.fa _with_ncRNA.gff3 _go.gff3 _with_ncRNA_go.gff3
-    citations.md hintsfile.gff params.yaml
+    methods.md citations.md hintsfile.gff params.yaml
     qc/sanity_filter.tsv qc/utr_report.tsv qc/completeness.tsv qc/gene_set_statistics.txt
     qc/isoform_and_exon_structure.png qc/transcript_lengths.png qc/introns_per_gene.png
     qc/evidence_support.png qc/gene_support.tsv qc/software_versions.tsv
@@ -16,15 +16,24 @@ the section of a missing or empty file is skipped):
     qc/fantasia/fantasia_summary.txt qc/fantasia/fantasia_go_categories.png
     ncrna/rRNA.gff3 ncrna/tRNAs.gff3 ncrna/ncRNAs_infernal.gff3 ncrna/lncRNAs.gff3
 
-Sections, in this order: run summary (--run-info), output files, gene set
-statistics, completeness, evidence support, sanity filter, UTRs, ncRNA,
-OMArk, gffcompare, FANTASIA, software versions, references (citations.md).
+Sections, in this order: run summary (--run-info), methods (methods.md),
+output files, gene set statistics, completeness, evidence support, sanity
+filter, UTRs, ncRNA (bar chart of the ncRNAs per type and tool), OMArk,
+gffcompare, FANTASIA, software versions, references (citations.md).
+
+The logo (--logo, default docs/img/logo_report.png of the checkout) is shown
+above the title, as in the BRAKER4 report. A PNG with a resolution (pHYs
+chunk, as matplotlib writes it) is shown at its physical size, at most the
+page width; the plots share one style (plot_style.py), so their text has the
+same size on the page.
 
 If qc/completeness.tsv has rows, a stacked horizontal bar chart of it
-(complete single-copy, complete duplicated, fragmented, missing; one bar per
-row) is written to --completeness-png (default: completeness.png next to the
-report) and embedded; the output files list it as qc/completeness.png, where
-the pipeline publishes it. Needs matplotlib; without it the chart is skipped.
+(complete single-copy, complete duplicated, fragmented, missing, in the
+colours of the BUSCO plot; one bar per row) is written to --completeness-png
+(default: completeness.png next to the report) and embedded; the output files
+list it as qc/completeness.png, where the pipeline publishes it. Needs
+matplotlib; without it the chart is skipped (the ncRNA counts are then a
+table).
 
 The stem (file prefix, e.g. tiberius_evidence) is the 'stem' of run_info.json,
 else the prefix of the one '<stem>_proteins.fa' or '<stem>.gff3' in STAGED_DIR.
@@ -35,7 +44,7 @@ keys are listed as they are.
 
 Usage:
     paludamentum_report.py --dir STAGED_DIR --out report.html [--run-info run_info.json]
-                           [--completeness-png completeness.png]
+                           [--completeness-png completeness.png] [--logo logo.png]
 """
 from __future__ import annotations
 
@@ -44,11 +53,15 @@ import base64
 import csv
 import glob
 import html
+import io
 import json
 import os
 import re
+import struct
 import sys
 from collections import Counter, OrderedDict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # --------------------------------------------------------------------------- files
 
@@ -62,6 +75,7 @@ STEM_FILES = [
     ("{stem}_with_ncRNA_go.gff3", "final annotation plus ncRNA genes, with GO terms"),
 ]
 OTHER_FILES = [
+    ("methods.md", "methods text of this run"),
     ("citations.md", "references of the software and data this run used"),
     ("hintsfile.gff", "extrinsic hints (introns, protein alignments)"),
     ("params.yaml", "parameters of the run"),
@@ -89,6 +103,14 @@ NCRNA_FILES = ["ncrna/rRNA.gff3", "ncrna/tRNAs.gff3", "ncrna/ncRNAs_infernal.gff
 SUBFEATURE_TYPES = {"exon", "CDS", "five_prime_UTR", "three_prime_UTR", "UTR", "intron", "start_codon",
                     "stop_codon", "noncoding_exon", "pseudogenic_exon"}
 GENE_TYPES = {"gene", "ncRNA_gene", "pseudogene", "rRNA_gene", "tRNA_gene"}
+NCRNA_SOURCES = OrderedDict([   # file: tool that found the genes
+    ("ncrna/rRNA.gff3", "barrnap"), ("ncrna/tRNAs.gff3", "tRNAscan-SE"),
+    ("ncrna/ncRNAs_infernal.gff3", "Infernal (Rfam)"), ("ncrna/lncRNAs.gff3", "FEELnc"),
+])
+VERSION_HEADER = {"tool": "Tool", "version": "Version", "image": "Container image"}
+LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "img", "logo_report.png")
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+CSS_PX_PER_INCH = 96
 GFFCOMPARE_LEVELS = ["Base level", "Exon level", "Intron level", "Intron chain level", "Transcript level",
                      "Locus level"]
 RUN_INFO_LABELS = OrderedDict([
@@ -233,17 +255,73 @@ def pre(text: str) -> str:
     return f"<pre>{esc(text.rstrip())}</pre>"
 
 
+def png_width_inches(data: bytes) -> float | None:
+    """Width of a PNG in inches by its pHYs chunk (matplotlib writes one), or None."""
+    if data[:8] != PNG_MAGIC or len(data) < 24:
+        return None
+    width = struct.unpack(">I", data[16:20])[0]
+    pos = 8
+    while pos + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        if kind == b"IDAT":
+            break
+        if kind == b"pHYs" and length == 9:
+            ppu_x, _ppu_y, unit = struct.unpack(">IIB", data[pos + 8:pos + 17])
+            if unit == 1 and ppu_x > 0:          # pixels per metre
+                return width / (ppu_x * 0.0254)
+            break
+        pos += 12 + length
+    return None
+
+
+def png_figure(data: bytes, alt: str) -> str:
+    """A <figure> with the PNG embedded as a data URI. A PNG with a resolution
+    is shown at its physical size (at most the page width), so that text of the
+    same point size is equally large in all plots (bin/plot_style.py)."""
+    inches = png_width_inches(data)
+    # + padding and border of figure img (box-sizing: border-box)
+    style = f" style=\"width:{inches * CSS_PX_PER_INCH + 14:.0f}px\"" if inches else ""
+    uri = base64.b64encode(data).decode("ascii")
+    return f"<figure><img src=\"data:image/png;base64,{uri}\" alt=\"{esc(alt)}\"{style}></figure>"
+
+
 def png(path: str, alt: str) -> str:
-    """An <img> with the PNG embedded as a data URI, or '' if missing or empty."""
+    """png_figure of a PNG file, or '' if missing or empty."""
     if not nonempty(path):
         return ""
     try:
         with open(path, "rb") as fh:
-            data = base64.b64encode(fh.read()).decode("ascii")
+            data = fh.read()
     except OSError as err:
         warn(f"cannot read {path}: {err}")
         return ""
-    return f"<figure><img src=\"data:image/png;base64,{data}\" alt=\"{esc(alt)}\"></figure>"
+    return png_figure(data, alt)
+
+
+def logo(path: str | None) -> str:
+    """The logo above the title (as in the BRAKER4 report), or '' without a logo file."""
+    if not path or not nonempty(path):
+        return ""
+    try:
+        with open(path, "rb") as fh:
+            uri = base64.b64encode(fh.read()).decode("ascii")
+    except OSError as err:
+        warn(f"cannot read {path}: {err}")
+        return ""
+    return f"<div class=\"logo\"><img src=\"data:image/png;base64,{uri}\" alt=\"Paludamentum logo\"></div>"
+
+
+def pyplot():
+    """matplotlib.pyplot with the common style (plot_style.py), or None without matplotlib."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import plot_style
+    except ImportError:
+        return None
+    plot_style.apply(plt)
+    return plt
 
 
 def fmt_num(value: float) -> str:
@@ -296,16 +374,16 @@ def read_completeness(path: str) -> tuple[list[str], list[str], list[list[str]]]
 
 
 def completeness_chart(rows: list[list[str]], out_png: str) -> bool:
-    """Stacked horizontal bar chart of the completeness rows; True if written."""
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except ImportError:
+    """Stacked horizontal bar chart of the completeness rows in the colours of the
+    BUSCO plot; True if written."""
+    plt = pyplot()
+    if plt is None:
         warn("matplotlib not available, completeness chart skipped")
         return False
-    parts = [("Complete, single-copy", 3, "#2a78d6"), ("Complete, duplicated", 4, "#1baf7a"),
-             ("Fragmented", 5, "#eda100"), ("Missing", 6, "#c3c2b7")]
+    import plot_style as ps
+    from matplotlib.patches import Patch
+    parts = [("Complete, single-copy", 3, ps.BUSCO_SINGLE), ("Complete, duplicated", 4, ps.BUSCO_DUPLICATED),
+             ("Fragmented", 5, ps.BUSCO_FRAGMENTED), ("Missing", 6, ps.BUSCO_MISSING)]
     labels, values = [], []
     for row in rows:
         vals = [to_float(row[idx]) or 0.0 for _, idx, _ in parts]
@@ -314,7 +392,7 @@ def completeness_chart(rows: list[list[str]], out_png: str) -> bool:
         values.append(vals)
     if not values:
         return False
-    fig, ax = plt.subplots(figsize=(9, 1.0 + 0.75 * len(values)), dpi=150)
+    fig, ax = plt.subplots(figsize=(ps.FIG_WIDTH, 1.2 + 0.7 * len(values)))
     ys = list(range(len(values)))
     left = [0.0] * len(values)
     for j, (name, _, colour) in enumerate(parts):
@@ -324,25 +402,23 @@ def completeness_chart(rows: list[list[str]], out_png: str) -> bool:
                 color=colour, edgecolor="white", linewidth=1.5)
         for y, x0, w in zip(ys, left, widths):
             if w >= 6:
-                ax.text(x0 + w / 2, y, f"{w:.1f}%", ha="center", va="center", fontsize=8, color="#0b0b0b")
+                ax.text(x0 + w / 2, y, f"{w:.1f}%", ha="center", va="center", fontsize=ps.ANNOTATION_SIZE,
+                        color=ps.text_colour(colour))
         left = [a + b for a, b in zip(left, widths)]
     ax.set_yticks(ys)
-    ax.set_yticklabels(labels, fontsize=9)
+    ax.set_yticklabels(labels, color=ps.TEXT)
     ax.invert_yaxis()
     ax.set_xlim(0, 100)
-    ax.set_xlabel("% of BUSCO groups", fontsize=9)
-    ax.tick_params(axis="x", labelsize=8, colors="#52514e")
-    for side in ("top", "right", "left"):
-        ax.spines[side].set_visible(False)
-    ax.spines["bottom"].set_color("#bdbcb6")
+    ax.set_xlabel("% of BUSCO groups")
+    ax.spines["left"].set_visible(False)
     ax.tick_params(axis="y", length=0)
-    from matplotlib.patches import Patch   # explicit handles: a part with no bar still gets its colour
+    # explicit handles: a part with no bar still gets its colour
     ax.legend(handles=[Patch(facecolor=c, label=name) for name, _, c in parts], loc="lower center",
-              bbox_to_anchor=(0.5, 1.0), ncol=4, frameon=False, fontsize=8)
+              bbox_to_anchor=(0.5, 1.0), ncol=4)
     fig.tight_layout()
     try:
         os.makedirs(os.path.dirname(os.path.abspath(out_png)), exist_ok=True)
-        fig.savefig(out_png, facecolor="white")
+        fig.savefig(out_png)
     except OSError as err:
         warn(f"cannot write {out_png}: {err}")
         return False
@@ -450,14 +526,16 @@ def gff3_attr(attrs: str, key: str) -> str | None:
     return None
 
 
+RRNA_SUBUNIT_RE = re.compile(r"(\d+(?:\.\d+)?S)_rRNA")
+
+
 def count_ncrna(path: str) -> list[tuple[str, int]]:
-    """(label, count) of genes and transcript-level features of an ncRNA GFF3."""
+    """(type, count) of the transcript-level features of an ncRNA GFF3 (column 3
+    type; rRNA by subunit when the Name says it, e.g. '5S rRNA'), by count."""
     text = read_text(path)
     if text is None:
         return []
-    genes = 0
     types: Counter = Counter()
-    rrna_names: Counter = Counter()
     for line in text.splitlines():
         if not line or line.startswith("#"):
             continue
@@ -465,31 +543,70 @@ def count_ncrna(path: str) -> list[tuple[str, int]]:
         if len(cols) < 9:
             continue
         ftype, attrs = cols[2], cols[8]
-        if ftype in GENE_TYPES:
-            genes += 1
-        elif ftype not in SUBFEATURE_TYPES:
-            types[ftype] += 1
-            if ftype == "rRNA":
-                name = gff3_attr(attrs, "Name")
-                if name:
-                    rrna_names[name] += 1
-    out = []
-    if genes:
-        out.append(("genes", genes))
-    out += sorted(types.items())
-    out += [(f"rRNA {name}", n) for name, n in sorted(rrna_names.items())]
-    return out
+        if ftype in GENE_TYPES or ftype in SUBFEATURE_TYPES:
+            continue
+        label = ftype
+        if ftype == "rRNA":
+            m = RRNA_SUBUNIT_RE.search(gff3_attr(attrs, "Name") or "")
+            if m:
+                label = f"{m.group(1)} rRNA"
+        types[label] += 1
+    return sorted(types.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def ncrna_chart(groups: list[tuple[str, list[tuple[str, int]]]]) -> str:
+    """Horizontal bar chart of the ncRNA counts, one colour per tool; '' without matplotlib."""
+    plt = pyplot()
+    if plt is None:
+        return ""
+    import plot_style as ps
+    from matplotlib.patches import Patch
+    palette = [ps.BLUE, ps.GREEN, ps.ORANGE, ps.PURPLE]
+    bars = [(label, n, palette[i % len(palette)]) for i, (_, counts) in enumerate(groups) for label, n in counts]
+    fig, ax = plt.subplots(figsize=(ps.FIG_WIDTH, 1.2 + 0.3 * len(bars)))
+    ys = list(range(len(bars)))
+    ax.barh(ys, [b[1] for b in bars], height=0.7, color=[b[2] for b in bars])
+    ax.set_yticks(ys)
+    ax.set_yticklabels([b[0] for b in bars], color=ps.TEXT)
+    ax.invert_yaxis()
+    ax.tick_params(axis="y", length=0)
+    for y, (_, n, _) in zip(ys, bars):
+        ax.annotate(f"{n:,}", (n, y), xytext=(4, 0), textcoords="offset points", ha="left", va="center",
+                    fontsize=ps.ANNOTATION_SIZE, color=ps.MUTED)
+    ax.set_xlim(0, max(b[1] for b in bars) * 1.12)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _pos: f"{x:,.0f}"))
+    ax.set_xlabel("Number of ncRNAs")
+    ax.legend(handles=[Patch(facecolor=palette[i % len(palette)], label=tool) for i, (tool, _) in enumerate(groups)],
+              loc="lower right")
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    plt.close(fig)
+    return png_figure(buf.getvalue(), "ncRNA genes per type and tool")
 
 
 def section_ncrna(staged: str) -> str:
-    rows = []
-    for rel in NCRNA_FILES:
-        for label, n in count_ncrna(os.path.join(staged, rel)):
-            rows.append([rel, label, f"{n:,}"])
-    if not rows:
+    groups = []
+    for rel, tool in NCRNA_SOURCES.items():
+        counts = count_ncrna(os.path.join(staged, rel))
+        if counts:
+            groups.append((tool, counts))
+    if not groups:
         return ""
-    return ("<p>Genes and transcript-level features (column 3 type) per file; for rRNA also by name.</p>\n"
-            + table(["File", "Type", "Count"], rows, numeric={2}))
+    summary = "; ".join(f"{tool}: {sum(n for _, n in counts):,}" for tool, counts in groups)
+    parts = [f"<p>ncRNAs per type and tool (transcript-level features of the GFF3 files in <code>ncrna/</code>). "
+             f"{esc(summary)}.</p>"]
+    try:
+        chart = ncrna_chart(groups)
+    except Exception as err:   # a broken input must not stop the report
+        warn(f"ncRNA chart skipped: {type(err).__name__}: {err}")
+        chart = ""
+    if chart:
+        parts.append(chart)
+    else:
+        rows = [[tool, label, f"{n:,}"] for tool, counts in groups for label, n in counts]
+        parts.append(table(["Tool", "Type", "Count"], rows, numeric={2}))
+    return "\n".join(parts)
 
 
 def section_text(path: str) -> str:
@@ -522,17 +639,43 @@ def section_fantasia(staged: str) -> str:
 
 
 def section_software_versions(staged: str) -> str:
+    """Table of qc/software_versions.tsv: Paludamentum first, then the tools by name.
+    A line without exactly the fields of the header (a tool that printed several
+    lines as its version) is left out. Images that are files are shown by name."""
     text = read_text(os.path.join(staged, "qc", "software_versions.tsv"))
     if text is None:
         return ""
     lines = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
     if not lines:
         return ""
-    data = list(csv.reader(lines, delimiter="\t"))
-    header, rows = data[0], data[1:]
+    data = list(csv.reader(lines, delimiter="\t", quoting=csv.QUOTE_NONE))
+    header = data[0]
+    rows, dropped = [], 0
+    for row in data[1:]:
+        if len(row) == len(header) and all(v.strip() for v in row):
+            rows.append([v.strip() for v in row])
+        else:
+            dropped += 1
+    if dropped:
+        warn(f"software_versions.tsv: {dropped} malformed line(s) left out")
     if not rows:
         return ""
-    return table(header, rows)
+    rows.sort(key=lambda r: (r[0] != "Paludamentum", r[0].lower()))
+    image_col = header.index("image") if "image" in header else -1
+
+    def cell(i: int, value: str) -> str:
+        if i == image_col and value.startswith("/"):
+            return f"<td title=\"{esc(value)}\"><code>{esc(os.path.basename(value))}</code></td>"
+        if i == image_col and value not in ("-", "none"):
+            return f"<td><code>{esc(value)}</code></td>"
+        return f"<td>{esc(value)}</td>"
+
+    out = ['<div class="scroll"><table>',
+           "<thead><tr>" + "".join(f"<th>{esc(VERSION_HEADER.get(h, h))}</th>" for h in header) + "</tr></thead>",
+           "<tbody>"]
+    out += ["<tr>" + "".join(cell(i, v) for i, v in enumerate(row)) + "</tr>" for row in rows]
+    out.append("</tbody></table></div>")
+    return "\n".join(out)
 
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+")
@@ -584,10 +727,11 @@ def render_citations(text: str) -> str:
             if para:
                 flush()
             items.append(line[2:].strip())
-        elif re.match(r"^#{1,6}\s", line):
+        elif line.startswith("# "):
+            flush()   # the title of the file; the section has its own heading
+        elif re.match(r"^#{2,6}\s", line):
             flush()
-            tag = "h2" if line.startswith("# ") else "h3"
-            out.append(f"<{tag}>" + inline_md(line.lstrip("#").strip()) + f"</{tag}>")
+            out.append("<h3>" + inline_md(line.lstrip("#").strip()) + "</h3>")
         else:
             if items:
                 flush()
@@ -599,6 +743,11 @@ def render_citations(text: str) -> str:
 def section_references(staged: str) -> str:
     text = read_text(os.path.join(staged, "citations.md"))
     return render_citations(text) if text else ""
+
+
+def section_methods(staged: str) -> str:
+    text = read_text(os.path.join(staged, "methods.md"))
+    return f"<div class=\"methods\">{render_citations(text)}</div>" if text else ""
 
 
 # --------------------------------------------------------------------------- page
@@ -620,12 +769,15 @@ CSS = """
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
 main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
-h1 { font-size: 1.7rem; margin: 0 0 4px; }
+.logo { text-align: center; margin: 8px 0 10px; }
+.logo img { width: 120px; height: auto; }
+h1 { font-size: 1.7rem; margin: 0 0 4px; text-align: center; }
 h1 .stem { color: var(--muted); font-weight: 500; }
 h2 { font-size: 1.25rem; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
 h3 { font-size: 1.05rem; margin: 20px 0 8px; }
 a { color: var(--accent); overflow-wrap: anywhere; }
-nav { margin: 12px 0 8px; color: var(--muted); font-size: 0.9rem; }
+nav { margin: 12px 0 8px; color: var(--muted); font-size: 0.9rem; text-align: center; }
+.methods p { text-align: justify; hyphens: auto; }
 nav a { margin-right: 12px; white-space: nowrap; }
 .scroll { overflow-x: auto; }
 table { border-collapse: collapse; margin: 8px 0 16px; font-size: 0.9rem; background: var(--surface); }
@@ -661,7 +813,7 @@ def draw_completeness(qc: str, out_png: str) -> tuple[list[str], list[list[str]]
     return comments, rows, out_png if written else None
 
 
-def build_report(staged: str, run_info: dict, completeness_png: str) -> str:
+def build_report(staged: str, run_info: dict, completeness_png: str, logo_png: str | None = None) -> str:
     stem = find_stem(staged, run_info)
     qc = os.path.join(staged, "qc")
     # the chart is drawn before the output files are listed, so that the list has it
@@ -669,6 +821,7 @@ def build_report(staged: str, run_info: dict, completeness_png: str) -> str:
     written = {"qc/completeness.png": chart} if chart else {}
     sections = [
         ("run-summary", "Run summary", lambda: section_run_summary(run_info)),
+        ("methods", "Methods", lambda: section_methods(staged)),
         ("output-files", "Output files", lambda: section_output_files(staged, stem, written)),
         ("gene-set-statistics", "Gene set statistics", lambda: section_gene_set_statistics(staged)),
         ("completeness", "Completeness", lambda: section_completeness(comments, rows, chart)),
@@ -697,6 +850,7 @@ def build_report(staged: str, run_info: dict, completeness_png: str) -> str:
            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
            "<meta name=\"color-scheme\" content=\"light dark\">",
            f"<title>{esc(title)}</title>", f"<style>{CSS}</style>", "</head>", "<body>", "<main>",
+           logo(logo_png),
            "<h1>Paludamentum report" + (f" <span class=\"stem\">{esc(stem)}</span>" if stem else "") + "</h1>"]
     if bodies:
         out.append("<nav>" + "".join(f"<a href=\"#{a}\">{esc(t)}</a>" for a, t, _ in bodies) + "</nav>")
@@ -713,6 +867,8 @@ def main(argv=None) -> int:
     parser.add_argument("--dir", required=True, help="directory with the staged result files")
     parser.add_argument("--out", required=True, help="output HTML")
     parser.add_argument("--run-info", help="run_info.json")
+    parser.add_argument("--logo", default=LOGO,
+                        help="PNG shown above the title (default: docs/img/logo_report.png of the checkout)")
     parser.add_argument("--completeness-png",
                         help="where to write the completeness chart (default: completeness.png next to --out)")
     args = parser.parse_args(argv)
@@ -721,7 +877,7 @@ def main(argv=None) -> int:
         warn(f"{args.dir} is not a directory; the report will be empty")
     completeness_png = args.completeness_png or os.path.join(os.path.dirname(os.path.abspath(args.out)),
                                                              "completeness.png")
-    report = build_report(args.dir, load_run_info(args.run_info), completeness_png)
+    report = build_report(args.dir, load_run_info(args.run_info), completeness_png, args.logo)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(report)
     print(f"paludamentum_report: wrote {args.out}", file=sys.stderr)

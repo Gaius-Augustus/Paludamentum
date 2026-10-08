@@ -262,7 +262,13 @@ def full_staged_dir(tmp_path: Path) -> Path:
         "introns_sup_protein\tpct_introns_sup_protein\tsupport_class\n"
         "g1\tt1\tc1\t+\t3\t3\t100.0\t0\t0.0\tfull\ng2\tt2\tc1\t+\t2\t0\t0.0\t0\t0.0\tnone\n"
         "g3\tt3\tc1\t-\t0\t0\tNA\t1\tNA\tpartial\n")
-    (qc / "software_versions.tsv").write_text("tool\tversion\timage\nbusco\t6.1.0\tezlabgva/busco:v6.1.0_cv2\n")
+    (staged / "methods.md").write_text(
+        "# Methods of this Paludamentum run\n\nGenes were predicted with **Tiberius** (Gabriel et al., 2024).\n"
+        "Second line of the *ab initio* paragraph.\n\nA second paragraph.\n")
+    # OMArk printed its usage over several lines in older runs: those lines are left out
+    (qc / "software_versions.tsv").write_text(
+        "tool\tversion\timage\nPaludamentum\t0.5.0\t-\n-d/--database\t/img/omark_0.4.1.sif\nETE_NCBI_DB]\n"
+        "busco\t6.1.0\tezlabgva/busco:v6.1.0_cv2\nOMArk\t0.4.1\t/home/u/images/omark_0.4.1.sif\n")
     (qc / "omark_summary.txt").write_text("#The selected clade was Vertebrata\nS:90%\n")
     (qc / "gffcompare.stats").write_text((DATA / "gffcompare.stats").read_text())
     (qc / "fantasia" / "fantasia_summary.txt").write_text("Proteins with GO terms: 250\n")
@@ -295,11 +301,16 @@ def test_report_with_every_file(tmp_path: Path):
     no_remote_loads(text)
     assert "<title>Paludamentum report – tiberius_evidence</title>" in text
     assert re.findall(r'<section id="([^"]+)"', text) == [
-        "run-summary", "output-files", "gene-set-statistics", "completeness", "evidence-support",
+        "run-summary", "methods", "output-files", "gene-set-statistics", "completeness", "evidence-support",
         "sanity-filter", "utrs", "ncrna", "omark", "gffcompare", "fantasia", "software-versions", "references"]
     assert (out.parent / "completeness.png").stat().st_size > 0
-    # 3 statistics plots, completeness, evidence support, FANTASIA
-    assert text.count('src="data:image/png;base64,') == 6
+    # logo, 3 statistics plots, completeness, evidence support, ncRNA, FANTASIA
+    assert text.count('src="data:image/png;base64,') == 8
+    assert '<div class="logo"><img src="data:image/png;base64,' in text
+    # methods: paragraphs, inline Markdown, no second title
+    methods = text.split('id="methods"')[1].split("</section>")[0]
+    assert methods.count("<p>") == 2 and "<strong>Tiberius</strong> (Gabriel et al., 2024)" in methods
+    assert "<em>ab initio</em>" in methods and "Methods of this Paludamentum run" not in methods
     # escaping of free text
     assert "Mean exons/transcript:      5.33" in text
     assert "287 &lt;x&gt;" in text and "software &lt;and&gt; data" in text
@@ -325,18 +336,22 @@ def test_report_with_every_file(tmp_path: Path):
     assert "<td>introns_sup_protein</td><td class=\"num\">1</td>" in support
     assert "pct_introns" not in support and "<td>support_class</td>" not in support
     assert "<pre>Gene support summary\nTranscripts: 3\nIntrons: 5\n  Supported by both: 0 (0.0%)</pre>" in support
-    # ncRNA counts
-    assert "<td>ncrna/rRNA.gff3</td><td>rRNA</td><td class=\"num\">3</td>" in text
-    assert "<td>ncrna/rRNA.gff3</td><td>rRNA 5S_rRNA</td><td class=\"num\">2</td>" in text
-    assert "<td>ncrna/tRNAs.gff3</td><td>tRNA</td><td class=\"num\">1</td>" in text
-    assert "<td>ncrna/ncRNAs_infernal.gff3</td><td>snoRNA</td><td class=\"num\">1</td>" in text
+    # ncRNA: totals per tool and a chart instead of a table
+    ncrna = text.split('id="ncrna"')[1].split("</section>")[0]
+    assert "barrnap: 3; tRNAscan-SE: 1; Infernal (Rfam): 1." in ncrna
+    assert "<table>" not in ncrna and ncrna.count("data:image/png;base64,") == 1
+    # software versions: Paludamentum first, malformed lines left out, image files by name
+    versions = text.split('id="software-versions"')[1].split("</section>")[0]
+    assert "<th>Container image</th>" in versions
+    assert re.findall(r"<tr><td>([^<]+)</td>", versions) == ["Paludamentum", "busco", "OMArk"]
+    assert '<td title="/home/u/images/omark_0.4.1.sif"><code>omark_0.4.1.sif</code></td>' in versions
     # gffcompare table + full file
     assert "<td>Intron chain level</td><td class=\"num\">48.0</td><td class=\"num\">64.8</td>" in text
     assert "<details>" in text
     # references
     assert "<strong>Tiberius</strong>" in text and "<em>ab initio</em>" in text and "<code>rnaseq</code>" in text
     assert '<a href="https://doi.org/10.1038/nbt.3820">' in text
-    assert "<h2>References of this Paludamentum run</h2>" in text
+    assert "References of this Paludamentum run" not in text   # the section has its own heading
 
 
 def test_completeness_png_path_option(tmp_path: Path):
@@ -373,6 +388,33 @@ def test_output_files_without_chart(tmp_path: Path):
     assert not (tmp_path / "completeness.png").exists()
 
 
+def test_ncrna_counts_by_type_and_rrna_subunit(tmp_path: Path):
+    rep = load("paludamentum_report")
+    gff = tmp_path / "rRNA.gff3"
+    gff.write_text("##gff-version 3\n"
+                   "c1\tbarrnap\tgene\t1\t100\t.\t+\t.\tID=g1\n"
+                   "c1\tbarrnap\trRNA\t1\t100\t.\t+\t.\tID=r1;Parent=g1;Name=x_evidence-rRNA_1_5S_rRNA\n"
+                   "c1\tbarrnap\trRNA\t1\t100\t.\t+\t.\tID=r2;Name=x_evidence-rRNA_2_5.8S_rRNA\n"
+                   "c1\tbarrnap\trRNA\t1\t100\t.\t+\t.\tID=r3;Name=x_evidence-rRNA_3_5S_rRNA\n"
+                   "c1\tbarrnap\trRNA\t1\t100\t.\t+\t.\tID=r4\n"
+                   "c1\tbarrnap\texon\t1\t100\t.\t+\t.\tParent=r4\n")
+    assert rep.count_ncrna(str(gff)) == [("5S rRNA", 2), ("5.8S rRNA", 1), ("rRNA", 1)]
+
+
+def test_png_shown_at_physical_size(tmp_path: Path):
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    rep = load("paludamentum_report")
+    fig, ax = plt.subplots(figsize=(5, 2))
+    fig.savefig(tmp_path / "p.png", dpi=150)
+    plt.close(fig)
+    data = (tmp_path / "p.png").read_bytes()
+    assert rep.png_width_inches(data) == pytest.approx(5, abs=0.01)
+    assert 'style="width:494px"' in rep.png_figure(data, "x")     # 5 in * 96 px + 14 px padding and border
+    assert "style=" not in rep.png_figure(b"not a png", "x")
+
+
 def test_citations_rendering():
     rep = load("paludamentum_report")
     html = rep.render_citations("- **A** (x). Some *ab initio* ref. https://example.org/a_b.\n")
@@ -405,7 +447,7 @@ def test_fantasia_summary_writes_a_placeholder_png_when_no_go_term_passes(tmp_pa
     assert "... above cutoff:                 0" in (out / "fantasia_summary.txt").read_text()
 
 
-def test_fantasia_summary_pie_when_terms_pass(tmp_path: Path):
+def test_fantasia_summary_chart_when_terms_pass(tmp_path: Path):
     results = tmp_path / "results.csv"
     results.write_text(FANTASIA_HEADER
                        + "g1.t1,GO:0005524,0.91,0.1,ATP binding,molecular_function\n"

@@ -276,7 +276,8 @@ Outputs: `<stem>_go.gff3` (and `<stem>_with_ncRNA_go.gff3` with `ncrna.run`)
 with `Ontology_term` on mRNAs and genes, `qc/fantasia/results.csv`,
 `qc/fantasia/failed_sequences.csv`, `qc/fantasia/fantasia_summary.txt`,
 `qc/fantasia/fantasia_go_terms.tsv`, `qc/fantasia/fantasia_go_categories.png`
-(a placeholder figure when no GO term reaches `fantasia.min_score`).
+(bar chart of the functional categories; a placeholder figure when no GO term
+reaches `fantasia.min_score`).
 The FANTASIA-Lite image is run by Nextflow; `conf/base.config` binds
 `bin/fantasia_generate_embeddings.py` (BRAKER4's patched embedding script)
 over the image's copy. FANTASIA-Lite was validated by BRAKER4 on A100 GPUs
@@ -292,11 +293,15 @@ probe runs again in `FANTASIA_ANNOTATE` before the model loads.
 
 ## Report
 
-`report.html` (`bin/paludamentum_report.py`): run summary, output files, gene
-set statistics, completeness, evidence support, sanity filter, UTRs, ncRNA,
+`report.html` (`bin/paludamentum_report.py`): the Paludamentum logo, run
+summary, methods (`methods.md`), output files, gene set statistics,
+completeness (chart in the colours of the BUSCO plot), evidence support,
+sanity filter, UTRs, ncRNA (bar chart of the ncRNAs per type and tool),
 OMArk, gffcompare, FANTASIA, software versions (`qc/software_versions.tsv`)
 and the references of `citations.md`. One self-contained file; sections
-without data are left out.
+without data are left out. All plots share one style (`bin/plot_style.py`:
+page width, 200 dpi, common font sizes) and the report shows each PNG at its
+physical size, so the text of all plots is equally large.
 
 ## Outputs
 

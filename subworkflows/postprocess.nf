@@ -204,9 +204,11 @@ workflow POSTPROCESS {
         if( ncrna_gff3 != null ) top = top.mix(ncrna_gff3)
         def info = run_info + [stem: stem, busco_lineage: lineage]
         def params_yaml = file("${params.outdir}/params.yaml")   // written by the launcher before the run
+        def methods = file("${params.outdir}/methods.md")       // written by main.nf
         REPORT(top.collect(), qc_files.collect(), ncrna_files.collect().ifEmpty([]),
                fantasia_files.collect().ifEmpty([]), file("${params.outdir}/citations.md"),
-               hints.collect().ifEmpty([]), params_yaml.exists() ? params_yaml : [], info)
+               hints.collect().ifEmpty([]), params_yaml.exists() ? params_yaml : [],
+               methods.exists() ? methods : [], file("${projectDir}/docs/img/logo_report.png"), info)
     }
 
     emit:
