@@ -71,7 +71,11 @@ Steps (numbered as in the figure):
    [Containers](containers.md)). `rescue_tiberius`
    is another `tiberius.py` to use instead. If the Tiberius has no `--hints`,
    the step is skipped with a warning in the Nextflow log, and no GPU task is
-   started.
+   started. The Tiberius of the hint rescue image writes the CDS phases of
+   minus-strand transcripts counted from the wrong end; `bin/fix_cds_phases.py`
+   recomputes them from the start codon (the structures stay as predicted), as
+   otherwise the sanity filter of the post-processing reads them as
+   5'-partial and removes them.
 7. The kept and rescued *ab initio* transcripts and the Drusilla ORFs are merged
    into `<tool>_evidence.gff3`.
 

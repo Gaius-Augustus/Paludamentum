@@ -365,7 +365,10 @@ process HINT_RESCUE_TIBERIUS {
       --hints ${hints} \\
       --hint_weight ${params.drusilla.rescue_hint_weight} \\
       --out rescue_raw.gtf${seqLen ? " --seq_len ${seqLen}" : ''} \${BATCH_ARG:-}
-  filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} hint_rescue.gtf
+  filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} rescue_genome.gtf
+  # the Tiberius of this image counts the phases of minus-strand CDS from the
+  # wrong end (bin/fix_cds_phases.py); the structures are kept
+  fix_cds_phases.py rescue_genome.gtf > hint_rescue.gtf
   """
 
   stub:

@@ -1,7 +1,8 @@
 """HINT_RESCUE_TIBERIUS with its real script: which model the rescue passes to Tiberius.
 
 A fake tiberius.py records its arguments; fake bin/ scripts stand in for
-tiberius_batch_size.py, tiberius_model_args.py and filter_and_merge_rescue_gtf.py.
+tiberius_batch_size.py, tiberius_model_args.py, filter_and_merge_rescue_gtf.py
+and fix_cds_phases.py.
 Needs a ``nextflow`` executable (or NEXTFLOW_BIN), like test_stub_run.py.
 """
 from __future__ import annotations
@@ -31,6 +32,7 @@ FAKES = {
     # one argument per line, as bin/tiberius_model_args.py; the path has a space
     "tiberius_model_args.py": '#!/bin/sh\nprintf -- "--model\\n%s/my weights/w\\n--seq_len\\n99990\\n" "$PWD"\n',
     "filter_and_merge_rescue_gtf.py": '#!/bin/sh\ncp "$1" "$4"\n',
+    "fix_cds_phases.py": '#!/bin/sh\ncat "$1"\n',
 }
 
 RESCUE = """
