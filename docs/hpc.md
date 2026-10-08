@@ -80,6 +80,18 @@ Images are pulled once into `singularity.cacheDir`
 (`~/.cache/paludamentum/singularity` by default, or `NXF_SINGULARITY_CACHEDIR`).
 On a cluster put it on a shared file system that the compute nodes can read.
 
+### Scratch
+
+Both shipped SLURM configs set `scratch = true`: every task runs in a
+temporary directory on the compute node (`$TMPDIR`, or a directory made by
+`mktemp` when it is unset) and copies only its declared outputs back to the
+work directory. Temporary files, such as the sort chunks and intermediate BAMs
+of the read mapping, then stay off the shared file system. The nodes need
+enough local `$TMPDIR` for the largest task; set `scratch = false` in your
+config if they have little local disk. FEELnc tasks always run in their work
+directory (`scratch = false` for the label `feelnc` in `base.config`): its
+container cannot start in a task directory under `/tmp`.
+
 ### Work directory
 
 Nextflow does not delete the task directories in `work/` (or `--work_dir`)
