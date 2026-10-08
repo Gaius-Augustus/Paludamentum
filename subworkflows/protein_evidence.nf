@@ -1,6 +1,6 @@
 nextflow.enable.dsl=2
 
-include { MINIPROT_ALIGN; MINIPROT_BOUNDARY_SCORE; MINIPROTHINT_CONVERT; ALN2HINTS; PREPROCESS_PROTEINDB } from '../modules/proteins.nf'
+include { MINIPROT_ALIGN; MINIPROTHINT_CONVERT; ALN2HINTS; PREPROCESS_PROTEINDB } from '../modules/proteins.nf'
 include { PROTEIN_FROM_GFF } from '../modules/genefinder.nf'
 include { genefinderEnabled; resolveGenefinder } from '../lib_nf/functions.nf'
 include { GENEFINDER } from './genefinder.nf'
@@ -36,8 +36,7 @@ workflow PROTEIN_EVIDENCE {
         proteindb_ch = CH_PROTEINS
     }
 
-    prot_aln    = MINIPROT_ALIGN(CH_GENOME, proteindb_ch)
-    scored_ch   = MINIPROT_BOUNDARY_SCORE(prot_aln.aln, CH_SCORE)
+    scored_ch   = MINIPROT_ALIGN(CH_GENOME, proteindb_ch, CH_SCORE)
     prot_gtf_ch = MINIPROTHINT_CONVERT(scored_ch.gff)
     prot_hints_ch = ALN2HINTS(prot_gtf_ch.gtf)
 
