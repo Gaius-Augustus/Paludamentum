@@ -2,7 +2,7 @@
 // what this run did, in execution order, with inline citations.
 //
 // The text is built from the same run map as citations.md (main.nf), and its
-// citations are the short forms of references() in lib_nf/citations.nf, so
+// citations are the short forms of references() (shortCite in lib_nf/citations.nf), so
 // that the two files never disagree. Every key that the text cites must be one
 // of citationKeys(run); methodsCitationProblems(run) lists the ones that are
 // not, and tests/test_methods.py checks it for many runs.
@@ -12,38 +12,9 @@
 // separated by blank lines, one line each. Inline Markdown only (*italic*,
 // **bold**, `code`); no lists, no further headings, no links.
 
-include { references; citationKeys } from './citations.nf'
+include { references; citationKeys; shortCite } from './citations.nf'
 
 // ---- citations
-
-// Surname of an author of a reference string ('Di Tommaso P' -> 'Di Tommaso').
-def citeSurname(String author) {
-    def parts = author.trim().tokenize(' ')
-    return parts.size() > 1 ? parts.subList(0, parts.size() - 1).join(' ') : author.trim()
-}
-
-// Year of a reference string (the year after the venue: '. 2017;' or
-// '. 2026.'), or 'n.d.' for a reference without one.
-def citeYear(String ref) {
-    def years = ref.findAll(/\. (?:19|20)\d\d[;.]/)
-    return years ? years.last().substring(2, 6) : 'n.d.'
-}
-
-// Short citation of a reference of references(): 'Li, 2023',
-// 'Nawrocki & Eddy, 2013', 'Gabriel et al., 2024'.
-def shortCite(String key) {
-    def r = references()[key]
-    if( !r ) error "shortCite: no reference '${key}' in lib_nf/citations.nf."
-    def ref = r.ref.toString()
-    def end = ref.indexOf('. ')
-    def authors = (end > 0 ? ref.substring(0, end) : ref).tokenize(',').collect { a -> a.trim() }.findAll { a -> a }
-    def etAl = authors && authors.last() == 'et al'
-    if( etAl ) authors = authors.subList(0, authors.size() - 1)
-    def first = citeSurname(authors[0])
-    def names = etAl || authors.size() > 2 ? "${first} et al." :
-        authors.size() == 2 ? "${first} & ${citeSurname(authors[1])}" : first
-    return "${names}, ${citeYear(ref)}"
-}
 
 // '(A, 2020; B et al., 2021)' for the keys, which are noted in ctx.used.
 def cite(Map ctx, List keys) {
@@ -386,8 +357,8 @@ def methodsQuality(Map ctx, Map run) {
 def methodsNcrna(Map ctx, Map run) {
     def s = []
     def lncrna = run.lncrna && run.mode in ['rnaseq', 'isoseq', 'mixed']
-    s << "Non-coding RNA genes were annotated as follows: rRNA genes with pybarrnap, the Python implementation of " +
-         "barrnap ${cite(ctx, ['barrnap'])} with `--kingdom euk`, tRNA genes with tRNAscan-SE " +
+    s << "Non-coding RNA genes were annotated as follows: rRNA genes with pybarrnap ${cite(ctx, ['pybarrnap'])}, " +
+         "the Python implementation of barrnap 0.9 ${cite(ctx, ['barrnap'])}, with `--kingdom euk`, tRNA genes with tRNAscan-SE " +
          "${cite(ctx, ['trnascan'])} in eukaryotic mode" +
          (run.trnascanHighConfidence ? ' with the EukHighConfidenceFilter' : '') +
          ", and other ncRNA genes with `cmscan` of Infernal ${cite(ctx, ['infernal'])} against the covariance " +

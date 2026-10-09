@@ -419,7 +419,7 @@ before you use it in a publication.
 
 **Pipeline and gene finders**
 
-- **Paludamentum** (the pipeline). Gabriel L, Hoff KJ. Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders. <https://github.com/Gaius-Augustus/Paludamentum>
+- **Paludamentum** (the pipeline). Gabriel L, Hoff KJ. Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders. 2026. <https://github.com/Gaius-Augustus/Paludamentum>
 - **Nextflow** (workflow engine). Di Tommaso P, Chatzou M, Floden EW, Barja PP, Palumbo E, Notredame C. Nextflow enables reproducible computational workflows. Nature Biotechnology. 2017;35(4):316-319. [doi:10.1038/nbt.3820](https://doi.org/10.1038/nbt.3820)
 - **Tiberius** (gene prediction). Gabriel L, Becker F, Hoff KJ, Stanke M. Tiberius: end-to-end deep learning with an HMM for gene prediction. Bioinformatics. 2024;40(12):btae685. [doi:10.1093/bioinformatics/btae685](https://doi.org/10.1093/bioinformatics/btae685)
 - **Tiberius** (models of the non-mammalian clades). Gabriel L, Brůna T, Kaur A, Krishnan A, Ortmann F, Salamov A, Talbot S, Becker F, Krieg R, Wheat CW, Grigoriev IV, Stanke M, Hoff KJ. Accurate *ab initio* gene prediction in eukaryotes with Tiberius in multiple clades. bioRxiv. 2026. [doi:10.64898/2026.04.24.720536](https://doi.org/10.64898/2026.04.24.720536)
@@ -457,7 +457,8 @@ before you use it in a publication.
 - **compleasm** (completeness of genome and proteome). Huang N, Li H. compleasm: a faster and more accurate reimplementation of BUSCO. Bioinformatics. 2023;39(10):btad595. [doi:10.1093/bioinformatics/btad595](https://doi.org/10.1093/bioinformatics/btad595)
 - **OMArk** (consistency and completeness of the proteome). Nevers Y, Warwick Vesztrocy A, Rossier V, Train CM, Altenhoff A, Dessimoz C, Glover NM. Quality assessment of gene repertoire annotations with OMArk. Nature Biotechnology. 2025;43(1):124-133. [doi:10.1038/s41587-024-02147-w](https://doi.org/10.1038/s41587-024-02147-w)
 - **OMAmer** (protein families of the proteome for OMArk). Rossier V, Warwick Vesztrocy A, Robinson-Rechavi M, Dessimoz C. OMAmer: tree-driven and alignment-free protein assignment to subfamilies outperforms closest sequence approaches. Bioinformatics. 2021;37(18):2866-2873. [doi:10.1093/bioinformatics/btab219](https://doi.org/10.1093/bioinformatics/btab219)
-- **barrnap (pybarrnap)** (rRNA genes). Seemann T. barrnap: BAsic Rapid Ribosomal RNA Predictor; Python implementation pybarrnap by Shimoyama Y (https://github.com/moshi4/pybarrnap). <https://github.com/tseemann/barrnap>
+- **pybarrnap** (rRNA genes). Shimoyama Y. pybarrnap: Python implementation of barrnap. 2024. <https://github.com/moshi4/pybarrnap>
+- **barrnap** (method and rRNA models that pybarrnap re-implements). Seemann T. barrnap 0.9: BAsic Rapid Ribosomal RNA Predictor. 2018. <https://github.com/tseemann/barrnap>
 - **tRNAscan-SE** (tRNA genes). Chan PP, Lin BY, Mak AJ, Lowe TM. tRNAscan-SE 2.0: improved detection and functional classification of transfer RNA genes. Nucleic Acids Research. 2021;49(16):9077-9096. [doi:10.1093/nar/gkab688](https://doi.org/10.1093/nar/gkab688)
 - **Infernal** (ncRNA genes of the Rfam families). Nawrocki EP, Eddy SR. Infernal 1.1: 100-fold faster RNA homology searches. Bioinformatics. 2013;29(22):2933-2935. [doi:10.1093/bioinformatics/btt509](https://doi.org/10.1093/bioinformatics/btt509)
 - **Rfam** (RNA families database (release 15.1)). Ontiveros-Palacios N, Cooke E, Nawrocki EP, Triebel S, Marz M, Rivas E, Griffiths-Jones S, Petrov AI, Bateman A, Sweeney B. Rfam 15: RNA families database in 2025. Nucleic Acids Research. 2025;53(D1):D258-D267. [doi:10.1093/nar/gkae1023](https://doi.org/10.1093/nar/gkae1023)

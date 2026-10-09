@@ -6,8 +6,8 @@
 // cases.json: a list of run maps as main.nf builds them. result.json: per case
 // [text, cited, selected, problems], and the short citations of all references.
 
-include { references; citationKeys } from '../lib_nf/citations.nf'
-include { methodsText; methodsParagraphs; methodsCitationProblems; shortCite } from '../lib_nf/methods.nf'
+include { references; citationKeys; shortCite } from '../lib_nf/citations.nf'
+include { methodsText; methodsParagraphs; methodsCitationProblems } from '../lib_nf/methods.nf'
 
 workflow {
     main:

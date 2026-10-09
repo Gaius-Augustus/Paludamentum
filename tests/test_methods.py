@@ -56,7 +56,18 @@ def short_cite(ref: str) -> str:
     return f"{names}, {years[-1] if years else 'n.d.'}"
 
 
-CITATION = re.compile(r"\(([^()]*?(?:\b(?:19|20)\d\d|n\.d\.))\)")
+def short_cites(refs: dict[str, str]) -> dict[str, str]:
+    """short_cite of each reference (key: ref string, in the order of references()),
+    with a, b, ... after the year where references share authors and year."""
+    plain = {key: short_cite(ref) for key, ref in refs.items()}
+    out = {}
+    for key, cite in plain.items():
+        same = [k for k, c in plain.items() if c == cite]
+        out[key] = cite + "abcdefghijklmnopqrstuvwxyz"[same.index(key)] if len(same) > 1 and not cite.endswith("n.d.") else cite
+    return out
+
+
+CITATION = re.compile(r"\(([^()]*?(?:\b(?:19|20)\d\d[a-z]?|n\.d\.))\)")
 
 
 def citations_of(text: str) -> list[str]:
@@ -65,10 +76,15 @@ def citations_of(text: str) -> list[str]:
 
 
 def citations_md_shorts(text: str) -> set[str]:
-    """Short citations of the references that a citations.md lists ('- **Tool** (use). REF LINK')."""
+    """Short citations of the references that a citations.md lists ('- **Tool** (use). REF LINK',
+    with ' (cited as A & B, 2026a)' after the link when the short citation has a letter)."""
     shorts = set()
     for line in text.splitlines():
         if not line.startswith("- **"):
+            continue
+        m = re.search(r" \(cited as ([^()]+)\)$", line)
+        if m:
+            shorts.add(m.group(1))
             continue
         ref = line[line.index("). ") + 3:].rsplit(" ", 1)[0]
         shorts.add(short_cite(ref))
@@ -207,15 +223,17 @@ def rendered(tmp_path_factory) -> dict:
 def test_short_citations_of_the_references(rendered) -> None:
     """shortCite (Groovy) agrees with short_cite (above), and no two references share one."""
     refs = rendered["references"]
+    expected = short_cites({key: r["ref"] for key, r in refs.items()})
     for key, r in refs.items():
-        assert r["short"] == short_cite(r["ref"]), key
+        assert r["short"] == expected[key], key
     shorts = [r["short"] for r in refs.values()]
     assert len(shorts) == len(set(shorts)), sorted(shorts)
     assert refs["miniprot"]["short"] == "Li, 2023"
     assert refs["infernal"]["short"] == "Nawrocki & Eddy, 2013"
     assert refs["nextflow"]["short"] == "Di Tommaso et al., 2017"
     assert refs["transdecoder"]["short"] == "Haas et al., 2013"
-    assert refs["paludamentum"]["short"] == "Gabriel & Hoff, n.d."
+    assert refs["paludamentum"]["short"] == "Gabriel & Hoff, 2026a" and refs["drusilla"]["short"] == "Gabriel & Hoff, 2026b"
+    assert refs["pybarrnap"]["short"] == "Shimoyama, 2024" and refs["barrnap"]["short"] == "Seemann, 2018"
 
 
 def test_every_citation_is_a_reference_of_the_run(rendered) -> None:

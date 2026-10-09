@@ -8,7 +8,7 @@
 def references() {
     return [
         paludamentum: [tool: 'Paludamentum', use: 'the pipeline',
-            ref: 'Gabriel L, Hoff KJ. Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders.',
+            ref: 'Gabriel L, Hoff KJ. Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders. 2026.',
             url: 'https://github.com/Gaius-Augustus/Paludamentum'],
         nextflow: [tool: 'Nextflow', use: 'workflow engine',
             ref: 'Di Tommaso P, Chatzou M, Floden EW, Barja PP, Palumbo E, Notredame C. Nextflow enables reproducible computational workflows. Nature Biotechnology. 2017;35(4):316-319.',
@@ -85,8 +85,13 @@ def references() {
         omamer: [tool: 'OMAmer', use: 'protein families of the proteome for OMArk',
             ref: 'Rossier V, Warwick Vesztrocy A, Robinson-Rechavi M, Dessimoz C. OMAmer: tree-driven and alignment-free protein assignment to subfamilies outperforms closest sequence approaches. Bioinformatics. 2021;37(18):2866-2873.',
             doi: '10.1093/bioinformatics/btab219'],
-        barrnap: [tool: 'barrnap (pybarrnap)', use: 'rRNA genes',
-            ref: 'Seemann T. barrnap: BAsic Rapid Ribosomal RNA Predictor; Python implementation pybarrnap by Shimoyama Y (https://github.com/moshi4/pybarrnap).',
+        // no papers: the citations that the authors ask for (CITATION.cff of
+        // pybarrnap; barrnap --citation, release 0.9 that pybarrnap re-implements)
+        pybarrnap: [tool: 'pybarrnap', use: 'rRNA genes',
+            ref: 'Shimoyama Y. pybarrnap: Python implementation of barrnap. 2024.',
+            url: 'https://github.com/moshi4/pybarrnap'],
+        barrnap: [tool: 'barrnap', use: 'method and rRNA models that pybarrnap re-implements',
+            ref: 'Seemann T. barrnap 0.9: BAsic Rapid Ribosomal RNA Predictor. 2018.',
             url: 'https://github.com/tseemann/barrnap'],
         trnascan: [tool: 'tRNAscan-SE', use: 'tRNA genes',
             ref: 'Chan PP, Lin BY, Mak AJ, Lowe TM. tRNAscan-SE 2.0: improved detection and functional classification of transfer RNA genes. Nucleic Acids Research. 2021;49(16):9077-9096.',
@@ -127,7 +132,7 @@ def citationKeys(Map run) {
         if( run.compleasm ) keys << 'compleasm'
         if( run.omark ) keys << 'omark' << 'omamer'
         if( run.ncrna ) {
-            keys << 'barrnap' << 'trnascan' << 'infernal' << 'rfam'
+            keys << 'pybarrnap' << 'barrnap' << 'trnascan' << 'infernal' << 'rfam'
             if( run.lncrna && run.mode in ['rnaseq', 'isoseq', 'mixed'] ) keys << 'feelnc'
         }
         if( run.fantasia ) keys << 'fantasia' << 'fantasia_suite' << 'prott5'
@@ -175,15 +180,59 @@ def evidenceCitationKeys(Map run) {
     return keys
 }
 
-// One reference as a Markdown list item.
-def citationLine(Map r) {
+// One reference as a Markdown list item; a reference whose short citation
+// has a letter after the year (shortCite) says so, for the methods text.
+def citationLine(String key) {
+    def r = references()[key]
     def link = r.doi ? "https://doi.org/${r.doi}" : r.url
-    return "- **${r.tool}** (${r.use}). ${r.ref} ${link}"
+    def cite = shortCite(key)
+    def asCited = cite ==~ /.*\d{4}[a-z]/ ? " (cited as ${cite})" : ''
+    return "- **${r.tool}** (${r.use}). ${r.ref} ${link}${asCited}"
+}
+
+// ---- short citations (methods.md)
+
+// Surname of an author of a reference string ('Di Tommaso P' -> 'Di Tommaso').
+def citeSurname(String author) {
+    def parts = author.trim().tokenize(' ')
+    return parts.size() > 1 ? parts.subList(0, parts.size() - 1).join(' ') : author.trim()
+}
+
+// Year of a reference string (the year after the venue: '. 2017;' or
+// '. 2026.'), or 'n.d.' for a reference without one.
+def citeYear(String ref) {
+    def years = ref.findAll(/\. (?:19|20)\d\d[;.]/)
+    return years ? years.last().substring(2, 6) : 'n.d.'
+}
+
+// Authors and year of a reference string: 'Li, 2023', 'Nawrocki & Eddy, 2013',
+// 'Gabriel et al., 2024'.
+def citeAuthorYear(String ref) {
+    def end = ref.indexOf('. ')
+    def authors = (end > 0 ? ref.substring(0, end) : ref).tokenize(',').collect { a -> a.trim() }.findAll { a -> a }
+    def etAl = authors && authors.last() == 'et al'
+    if( etAl ) authors = authors.subList(0, authors.size() - 1)
+    def first = citeSurname(authors[0])
+    def names = etAl || authors.size() > 2 ? "${first} et al." :
+        authors.size() == 2 ? "${first} & ${citeSurname(authors[1])}" : first
+    return "${names}, ${citeYear(ref)}"
+}
+
+// Short citation of a reference of references() for the methods text
+// (lib_nf/methods.nf): citeAuthorYear, with a, b, ... after the year in the
+// order of references() when references share authors and year
+// ('Gabriel & Hoff, 2026a' Paludamentum, 'Gabriel & Hoff, 2026b' Drusilla).
+def shortCite(String key) {
+    def refs = references()
+    if( !refs[key] ) error "shortCite: no reference '${key}' in lib_nf/citations.nf."
+    def own = citeAuthorYear(refs[key].ref.toString())
+    if( own.endsWith('n.d.') ) return own
+    def same = refs.findAll { k, r -> citeAuthorYear(r.ref.toString()) == own }.keySet().toList()
+    return same.size() > 1 ? own + ('abcdefghijklmnopqrstuvwxyz'[same.indexOf(key)]) : own
 }
 
 // Content of <outdir>/citations.md.
 def citationsText(Map run, String version) {
-    def refs = references()
     def lines = [
         '# References of this Paludamentum run',
         '',
@@ -194,6 +243,6 @@ def citationsText(Map run, String version) {
         'that uses its results.',
         '',
     ]
-    citationKeys(run).each { key -> lines << citationLine(refs[key]) }
+    citationKeys(run).each { key -> lines << citationLine(key) }
     return lines.join('\n') + '\n'
 }
