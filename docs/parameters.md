@@ -272,6 +272,7 @@ the *ab initio* predictions. The steps are described in
 | `drusilla.fix_stop`, `drusilla.fix_start` | `true` | Stop codon fix of the ORFs with miniprot alignments; start codon fix with miniprothint start hints (needs `fix_stop`). |
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
+| `drusilla.drop_unstranded` | `true` | StringTie pre-filter: drop transcripts with strand `.`, which have no spliced reads and are almost all single-exon. On *T. rubripes* the ORFs Drusilla found on them were mostly not genes of the reference: gene F1 76.36 with them, 76.55 without. |
 | `drusilla.lgb_model` | `lgb_model` of the clade in `hc_table` (released `drusilla_lgb_3class_v1`) | LightGBM model of the *ab initio* filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. |
 | `drusilla.lgb_model_sha256` | none (with `lgb_model` of `hc_table`: its `lgb_model_sha256`) | sha256 of the archive given as `drusilla.lgb_model`, checked after the download; `null`: not checked. |
 | `drusilla.lgb_threshold` | `0.5` | Transcripts with P(partial) + P(correct) at or above it are candidates. |

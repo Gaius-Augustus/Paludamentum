@@ -103,6 +103,27 @@ def test_stringtie_filter_thresholds_are_options(tmp_path: Path):
     assert decisions["long"]["reason"] == decisions["long_low"]["reason"] == "tpm"
 
 
+def test_stringtie_filter_drop_unstranded(tmp_path: Path):
+    """Strand '.' (no spliced reads) is dropped only with --drop-unstranded, as the last rule."""
+    gtf = write_stringtie(tmp_path)
+    with gtf.open("a") as fh:
+        fh.write(stringtie_tx("unstranded", [(1, 400)], "5", "5").replace("\t+\t", "\t.\t"))
+        fh.write(stringtie_tx("unstranded_short", [(1, 100)], "5", "5").replace("\t+\t", "\t.\t"))
+    proc = run("filter_stringtie_gtf.py", "--in-gtf", str(gtf), "--out-gtf", "out.gtf",
+               "--out-tsv", "decisions.tsv", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert table(tmp_path / "decisions.tsv")["unstranded"]["reason"] == "pass"
+    proc = run("filter_stringtie_gtf.py", "--in-gtf", str(gtf), "--out-gtf", "out.gtf",
+               "--out-tsv", "decisions.tsv", "--drop-unstranded", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    decisions = table(tmp_path / "decisions.tsv")
+    assert decisions["unstranded"]["kept"] == "0" and decisions["unstranded"]["reason"] == "unstranded"
+    assert decisions["unstranded_short"]["reason"] == "length"
+    assert {tx for tx, d in decisions.items() if d["kept"] == "1"} == {"edge", "long"}
+    assert "unstranded" not in (tmp_path / "out.gtf").read_text()
+    assert "  unstranded: 1" in proc.stderr
+
+
 # ---------------------------------------------------------------- compute_orf_features.py
 
 def orf_genome() -> str:

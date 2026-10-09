@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# From tiberius_orf_finder/scripts/filter_stringtie_gtf.py (Lars Gabriel), used unchanged in the Drusilla flow.
+# From tiberius_orf_finder/scripts/filter_stringtie_gtf.py (Lars Gabriel); --drop-unstranded added for the Drusilla flow.
 # Copyright (c) 2026 Lars Gabriel. Artistic License 1.0, see LICENSE.
 """Pre-filter a StringTie GTF by transcript-level cov/TPM/length thresholds.
 
@@ -15,6 +15,7 @@ A transcript is kept iff::
     length >= min_length
     AND  cov   >= min_cov
     AND  TPM   >= tpm_min(length)
+    AND  strand is '+' or '-'      (only with --drop-unstranded)
 
 where TPM is the StringTie ``TPM`` attribute, ``cov`` is the per-base
 read coverage, and ``length`` is the sum of exon spans (inclusive). The
@@ -27,6 +28,11 @@ transcripts that TPM (a per-kb quantity) naturally pushes downward::
 Defaults (TPM>=1, cov>=3, length>=300; relax to TPM>=0.5 when
 length>=3000) are the values of the Drusilla benchmark on the vertebrate
 test species.
+
+StringTie gives strand '.' to transcripts without spliced reads, almost
+always single-exon ones. With --drop-unstranded they are dropped: on
+T. rubripes the ORFs Drusilla finds on them were mostly not genes of the
+reference (gene F1 76.36 with them, 76.55 without).
 
 Outputs
 -------
@@ -80,6 +86,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                          "is length-normalised, so long real transcripts "
                          "drift downward in TPM even at the same gene-level "
                          "expression as a short one.")
+    ap.add_argument("--drop-unstranded", action="store_true",
+                    help="Drop transcripts with strand '.' (no spliced reads).")
     return ap.parse_args(argv)
 
 
@@ -111,12 +119,16 @@ def _collect_transcripts(in_gtf: Path) -> dict[str, dict]:
                 "length": 0,
                 "cov": None,
                 "tpm": None,
+                "strand": None,
             })
             if entry["gene_id"] is None:
                 entry["gene_id"] = _parse_attr(attrs, "gene_id")
             if feature == "exon":
                 entry["length"] += (end - start + 1)
+                if entry["strand"] is None:
+                    entry["strand"] = cols[6]
             elif feature == "transcript":
+                entry["strand"] = cols[6]
                 cov = _parse_attr(attrs, "cov")
                 tpm = _parse_attr(attrs, "TPM")
                 if cov is not None:
@@ -139,6 +151,7 @@ def _decide(
     min_tpm: float,
     long_length: int,
     min_tpm_long: float,
+    drop_unstranded: bool = False,
 ) -> tuple[bool, str]:
     """Return ``(keep, reason)``. ``reason`` names the first failing rule
     or ``'pass'`` / ``'pass_long_relaxed'`` on success."""
@@ -153,6 +166,8 @@ def _decide(
     tpm_threshold = min_tpm_long if is_long else min_tpm
     if tpm is None or tpm < tpm_threshold:
         return False, "tpm_long" if is_long else "tpm"
+    if drop_unstranded and info["strand"] not in ("+", "-"):
+        return False, "unstranded"
     return True, "pass_long_relaxed" if is_long else "pass"
 
 
@@ -178,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
     for tx_id, entry in info.items():
         ok, reason = _decide(
             entry, args.min_length, args.min_cov, args.min_tpm,
-            args.long_length, args.min_tpm_long,
+            args.long_length, args.min_tpm_long, args.drop_unstranded,
         )
         reasons[reason] += 1
         if ok:
@@ -190,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
             kept = "1" if tx_id in keep else "0"
             ok, reason = _decide(
                 entry, args.min_length, args.min_cov, args.min_tpm,
-                args.long_length, args.min_tpm_long,
+                args.long_length, args.min_tpm_long, args.drop_unstranded,
             )
             fh.write(
                 f"{tx_id}\t{entry['gene_id']}\t{entry['length']}\t"
@@ -223,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         f"dropped={n_dropped}",
         file=sys.stderr,
     )
-    for reason in ("pass", "pass_long_relaxed", "length", "cov", "tpm", "tpm_long"):
+    for reason in ("pass", "pass_long_relaxed", "length", "cov", "tpm", "tpm_long", "unstranded"):
         if reasons[reason]:
             print(f"  {reason}: {reasons[reason]}", file=sys.stderr)
     print(

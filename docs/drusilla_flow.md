@@ -109,6 +109,7 @@ drusilla:
   min_tpm: 1
   long_length: 3000
   min_tpm_long: 0.5
+  drop_unstranded: true  # drop transcripts with strand '.' (no spliced reads)
 ```
 
 Drusilla runs on a GPU (label `gpu`) in the Drusilla image, which also runs

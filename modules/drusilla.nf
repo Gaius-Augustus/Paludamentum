@@ -18,6 +18,7 @@ process FILTER_STRINGTIE {
     path "stringtie.filtered.gtf", emit: gtf
 
   script:
+  def dropUnstranded = params.drusilla.drop_unstranded == null || params.drusilla.drop_unstranded.toString().toLowerCase() in ['true', '1', 'yes']
   """
   filter_stringtie_gtf.py \\
       --in-gtf ${gtf} \\
@@ -27,7 +28,7 @@ process FILTER_STRINGTIE {
       --min-cov ${params.drusilla.min_cov} \\
       --min-tpm ${params.drusilla.min_tpm} \\
       --long-length ${params.drusilla.long_length} \\
-      --min-tpm-long ${params.drusilla.min_tpm_long}
+      --min-tpm-long ${params.drusilla.min_tpm_long}${dropUnstranded ? ' \\\n      --drop-unstranded' : ''}
   """
 
   stub:
