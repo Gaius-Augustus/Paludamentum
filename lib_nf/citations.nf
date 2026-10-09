@@ -227,7 +227,7 @@ def shortCite(String key) {
     if( !refs[key] ) error "shortCite: no reference '${key}' in lib_nf/citations.nf."
     def own = citeAuthorYear(refs[key].ref.toString())
     if( own.endsWith('n.d.') ) return own
-    def same = refs.findAll { k, r -> citeAuthorYear(r.ref.toString()) == own }.keySet().toList()
+    def same = refs.findAll { _k, r -> citeAuthorYear(r.ref.toString()) == own }.keySet().toList()
     return same.size() > 1 ? own + ('abcdefghijklmnopqrstuvwxyz'[same.indexOf(key)]) : own
 }
 

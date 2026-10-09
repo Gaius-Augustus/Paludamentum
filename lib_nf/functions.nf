@@ -74,7 +74,7 @@ def tiberiusModelValue(cfg, String key) {
     try {
         def data = new org.yaml.snakeyaml.Yaml().load(file(cfg.toString()).text)
         return (data instanceof Map) ? data[key]?.toString()?.trim() ?: null : null
-    } catch( Exception e ) {
+    } catch( Exception _e ) {
         return null
     }
 }
@@ -144,7 +144,7 @@ def drusillaSetting(p, String key) {
         def table = hcTable(p)
         def forced = table.drusilla_forced?.toString()?.toLowerCase()
         def fallback = (forced && table.clades instanceof Map) ?
-            table.clades.find { k, v -> k.toString().toLowerCase() == forced }?.value : null
+            table.clades.find { k, _v -> k.toString().toLowerCase() == forced }?.value : null
         if( fallback instanceof Map ) entry = fallback
     }
     if( key == 'model' )            return d.model ?: entry.drusilla_model ?: null
