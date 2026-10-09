@@ -1,0 +1,37 @@
+# Test environment of Paludamentum, managed with pixi (https://pixi.sh); pixi
+# needs no root access.
+#
+#   pixi run -e test test           # all tests, with the Nextflow stub runs
+#   pixi run -e test test-scripts   # launcher and script tests, no Nextflow
+#
+# The Python packages of the tests come from the test extra in pyproject.toml
+# (the launcher is installed editable with it); conda-forge and bioconda add
+# what pip cannot install: samtools, GffRead, GenomeTools (gt) and Nextflow
+# with Java.
+
+[workspace]
+name = "paludamentum"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.12.*"
+
+[pypi-dependencies]
+paludamentum = { path = ".", editable = true }
+
+[feature.test.dependencies]
+samtools = "*"
+genometools-genometools = "*"
+gffread = "*"
+nextflow = ">=25.04.0"
+
+[feature.test.pypi-dependencies]
+paludamentum = { path = ".", editable = true, extras = ["test"] }
+
+[feature.test.tasks]
+test = "pytest tests -rs"
+test-scripts = "pytest tests -m 'not nextflow' -rs"
+
+[environments]
+test = ["test"]

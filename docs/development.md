@@ -60,12 +60,22 @@ tests/                 launcher tests and Nextflow stub runs
 
 ## Testing
 
+The test environment is managed with [pixi](https://pixi.sh) (`pixi.toml`,
+no root access needed). It has the Python packages of the tests (the `test`
+extra of `pyproject.toml`), samtools, GffRead, GenomeTools and Nextflow:
+
 ```bash
-pip install -e .[test]
-pytest tests --ignore=tests/test_stub_run.py   # launcher and scripts, no Nextflow needed
-pytest tests/test_stub_run.py                  # needs nextflow, or NEXTFLOW_BIN=/path/to/nextflow
-nextflow lint main.nf modules subworkflows lib_nf
+pixi run -e test test-scripts   # launcher and scripts, no Nextflow needed
+pixi run -e test test           # everything, with the Nextflow stub runs
+pixi run -e test nextflow lint main.nf modules subworkflows lib_nf
 ```
+
+Without pixi, `pip install -e .[test]` installs the Python packages; samtools,
+GffRead and GenomeTools (`gt`, or `GT_BIN`) then have to be on the `PATH`, and
+the tests that need them are skipped otherwise (`pytest -rs` lists the
+reasons). `pytest tests -m "not nextflow"` runs the tests without Nextflow,
+`pytest tests -m nextflow` the stub runs (`NEXTFLOW_BIN=/path/to/nextflow`
+for another Nextflow).
 
 CI runs the same on Python 3.9 and 3.12, and the stub runs on the oldest
 supported Nextflow (25.04.0) and the latest stable release.
