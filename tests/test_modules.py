@@ -118,6 +118,18 @@ def test_cmscan_annotates_overlaps_within_clans():
         assert option in call.group(1), option
 
 
+def test_feelnc_container_has_the_task_directory_as_tmp():
+    """FEELnc writes its feature databases to a fixed /tmp, too small (64 MB)
+    in a contained Singularity container; the label feelnc binds the task
+    directory there and runs without scratch (the task directory would then
+    lie under /tmp itself)."""
+    text = (ROOT / "conf" / "base.config").read_text()
+    block = text[text.index("withLabel: feelnc {"):]
+    block = block[:block.index("}")]
+    assert """containerOptions = '-B "$NXF_TASK_WORKDIR":/tmp'""" in block
+    assert "scratch          = false" in block
+
+
 def test_fantasia_device_reaches_the_pipeline_and_the_probe():
     """FANTASIA_ANNOTATE passes fantasia.device to fantasia_pipeline.py and runs
     the GPU probe only with cuda."""

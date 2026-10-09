@@ -254,9 +254,12 @@ FEELnc cannot train on fewer than 100 candidates or fewer than 100 annotated
 transcripts: `lncRNAs.gff3` is then empty but for a comment line that says so
 (also in the task log), as when no candidate is without coding potential. Any
 other FEELnc error fails the task and the run; `ncrna.lncrna: false` skips
-the step. `FEELnc_codpot.pl` keeps its training files in the task directory
-(`--keeptmp`; in a contained Singularity container `/tmp` holds at most
-64 MB), and it reads a copy of the genome in which IUPAC codes are `N`, the
+the step. FEELnc writes to a fixed `/tmp`, which in a contained Singularity
+container holds at most 64 MB, too little for the training files of
+`FEELnc_codpot.pl` and the feature databases of `FEELnc_classifier.pl` on a
+vertebrate annotation: `/tmp` of the FEELnc container is the task directory
+(`containerOptions` of the label `feelnc` in `conf/base.config`), and
+`FEELnc_codpot.pl` keeps its training files there (`--keeptmp`). It reads a copy of the genome in which IUPAC codes are `N`, the
 only other letter its `fasta_ushuffle` accepts.
 
 ## GO terms with FANTASIA-Lite

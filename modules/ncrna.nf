@@ -228,6 +228,11 @@ process INFERNAL_TO_GFF3 {
 // shuffles the mRNAs, accepts A, C, G, T and N only and stopped on the IUPAC
 // codes of the A. thaliana genome (Y, M, K, S in 4 mRNAs): FEELnc_codpot.pl
 // gets a copy of the genome with every other letter as N.
+// FEELnc_classifier.pl keeps its feature databases in a fixed /tmp, which the
+// label feelnc maps to the task directory (conf/base.config): in the 64 MB
+// /tmp of a contained container they did not fit for the 33,028 transcripts
+// of the Vipsania annotation of T. rubripes, and the classifier stopped with
+// 'Can't call method "primary_tag" on an undefined value' (exit 28, ENOSPC).
 process FEELNC {
   label 'feelnc'
   publishDir "${params.outdir}/ncrna", mode:'copy', overwrite: true, pattern: 'feelnc_classifier.txt'
