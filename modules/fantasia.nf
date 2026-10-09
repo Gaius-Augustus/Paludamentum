@@ -40,9 +40,11 @@ process FANTASIA_ANNOTATE {
 
   script:
   def extra = params.fantasia.additional_params ?: ''
+  def device = params.fantasia.device
+  // cuda: a GPU with enough free memory, checked again on this node
+  def probe = device == 'cuda' ? 'fantasia_gpu_check.sh' : 'echo "fantasia.device = cpu: ProtT5 on the CPU" >&2'
   """
-  # a GPU with enough free memory, checked again on this node
-  fantasia_gpu_check.sh
+  ${probe}
   # The snapshot with pytorch_model.bin: torch.load reads it into memory,
   # the safetensors mmap of the other snapshot fails with SIGBUS in
   # Singularity on some clusters
@@ -60,7 +62,7 @@ process FANTASIA_ANNOTATE {
   python3 /opt/fantasia-lite/src/fantasia_pipeline.py \\
       --serial-models \\
       --embed-models prot_t5 \\
-      --device cuda \\
+      --device ${device} \\
       --venv-dir /opt/venv \\
       --lookup-npz "\$lookup/lookup_table.npz" \\
       --annotations-json "\$lookup/annotations.json" \\

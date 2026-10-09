@@ -270,6 +270,7 @@ proteins and GO terms by similarity to the FANTASIA lookup table.
 | `fantasia.hf_cache_dir` | Hugging Face cache with `Rostlab/prot_t5_xl_uniref50` (the snapshot with `pytorch_model.bin` is used, as in BRAKER4) |
 | `fantasia.lookup_dir` | `lookup_table.npz`, `annotations.json`, `accessions.json` (Zenodo record 17720428) |
 | `fantasia.min_score` | minimum score of a GO term (0.5) |
+| `fantasia.device` | `cuda` (default) or `cpu` |
 | `fantasia.additional_params` | appended to `fantasia_pipeline.py` |
 
 Outputs: `<stem>_go.gff3` (and `<stem>_with_ncRNA_go.gff3` with `ncrna.run`)
@@ -290,6 +291,25 @@ least 15 GB free memory at the start of the run: a run whose `gpu` label
 gives no usable GPU stops in the first minutes, instead of failing in
 `FANTASIA_ANNOTATE` after hours, with the report never written. The same
 probe runs again in `FANTASIA_ANNOTATE` before the model loads.
+
+Without a GPU, or when the GPU queue is full, `fantasia.device: cpu` computes
+the embeddings on the CPU: no GPU probe, `--device cpu`, the same model. It
+is much slower: 693 *A. fumigatus* proteins took 35 minutes on 48 CPUs (brain,
+2026-10-08), about 3 seconds per protein, so a vertebrate proteome of 30,000
+proteins takes about a day. The task keeps the label `gpu`, so give it a CPU
+queue in your config, for example on SLURM:
+
+```groovy
+process {
+  withName: 'FANTASIA_ANNOTATE' {
+    queue          = 'cpu_queue'
+    clusterOptions = ''
+    cpus           = 32
+    memory         = '64 GB'
+    time           = '48h'
+  }
+}
+```
 
 ## Report
 

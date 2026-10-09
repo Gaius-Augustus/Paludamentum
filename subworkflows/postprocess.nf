@@ -178,10 +178,12 @@ workflow POSTPROCESS {
             if( !params.fantasia[key] ) error "fantasia.run = true needs fantasia.${key} (see docs/postprocessing.md)."
             if( !file(params.fantasia[key].toString()).isDirectory() ) error "fantasia.${key}: not a directory: ${params.fantasia[key]}"
         }
+        if( !(params.fantasia.device in ['cuda', 'cpu']) )
+            error "fantasia.device: cuda or cpu, not '${params.fantasia.device}'."
         // probes the GPU at the start of the run; without it a missing GPU
         // killed the run only hours in, in FANTASIA_ANNOTATE, and report.html
-        // was never written
-        FANTASIA_GPU_CHECK()
+        // was never written. fantasia.device = cpu needs no GPU.
+        if( params.fantasia.device == 'cuda' ) FANTASIA_GPU_CHECK()
         def results = FANTASIA_ANNOTATE(proteins, file(params.fantasia.hf_cache_dir.toString()),
                                         file(params.fantasia.lookup_dir.toString())).results
         def summary = FANTASIA_SUMMARY(results)

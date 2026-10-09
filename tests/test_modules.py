@@ -118,6 +118,16 @@ def test_cmscan_annotates_overlaps_within_clans():
         assert option in call.group(1), option
 
 
+def test_fantasia_device_reaches_the_pipeline_and_the_probe():
+    """FANTASIA_ANNOTATE passes fantasia.device to fantasia_pipeline.py and runs
+    the GPU probe only with cuda."""
+    text = (ROOT / "modules" / "fantasia.nf").read_text()
+    annotate = text[text.index("process FANTASIA_ANNOTATE"):]
+    assert "--device ${device}" in annotate
+    assert "--device cuda" not in annotate
+    assert "device == 'cuda' ? 'fantasia_gpu_check.sh'" in annotate
+
+
 def test_feelnc_codpot_trains_in_the_task_directory():
     """FEELnc_codpot.pl writes its shuffled training sequences to /tmp, the
     64 MB session directory of a contained Singularity container, unless

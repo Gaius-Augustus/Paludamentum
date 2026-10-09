@@ -160,6 +160,22 @@ def test_fantasia(ncrna: bool, tmp_path: Path) -> None:
     assert "**FANTASIA" in citations(tmp_path)
 
 
+def test_fantasia_on_cpu_needs_no_gpu_probe(tmp_path: Path) -> None:
+    """fantasia.device = cpu: the embeddings on the CPU, no FANTASIA_GPU_CHECK."""
+    params = {**TIBERIUS_RNASEQ, "fantasia": {**fantasia_dirs(tmp_path), "device": "cpu"}}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert {"tiberius_evidence_go.gff3", "qc/fantasia/results.csv"} <= published
+    assert "FANTASIA_GPU_CHECK" not in proc.stdout
+
+
+def test_fantasia_device_is_cuda_or_cpu(tmp_path: Path) -> None:
+    params = {**TIBERIUS_RNASEQ, "fantasia": {**fantasia_dirs(tmp_path), "device": "gpu"}}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert proc.returncode != 0
+    assert "fantasia.device: cuda or cpu, not 'gpu'" in proc.stdout + proc.stderr
+
+
 def test_fantasia_needs_its_directories(tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], "fantasia": {"run": True}})
     assert proc.returncode != 0
