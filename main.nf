@@ -2,8 +2,9 @@ nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { MERGE_GENEFINDER_TRAIN } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; varusInputs; orfFinder; drusillaSetting; truthy } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; rescueModel; varusInputs; orfFinder; drusillaSetting; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
+include { methodsText } from './lib_nf/methods.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
@@ -15,7 +16,7 @@ include { AB_INITIO } from './subworkflows/ab_initio.nf'
 include { DRUSILLA_HC } from './subworkflows/drusilla.nf'
 include { STRINGTIE_ASSEMBLE_MIX } from './modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_MIX } from './modules/varus.nf'
-include { POSTPROCESS } from './subworkflows/postprocess.nf'
+include { POSTPROCESS; buscoLineage } from './subworkflows/postprocess.nf'
 
 workflow {
   main:
@@ -87,8 +88,33 @@ workflow {
             "with the coverage and TPM that StringTie writes. Pass a single StringTie GTF and no other RNA-Seq or " +
             "Iso-Seq input, or set drusilla.run = false to merge several assemblies in the TransDecoder flow."
 
-    // References of the tools that this run uses
-    file("${outdir}/citations.md").text = citationsText([
+    // What this run does, for the references (citations.md) and the methods
+    // text (methods.md) of the run: lib_nf/citations.nf, lib_nf/methods.nf
+    def gfParams = params[genefinder] ?: [:]
+    def gfModel = genefinder == 'tiberius' ?
+        (params.tiberius?.model_cfg ? file(params.tiberius.model_cfg.toString()).baseName : null) :
+        params.vipsania?.model?.toString()?.trim() ?: null
+    def drp = params.drusilla ?: [:]
+    def drusillaSettings = null
+    if( useDrusilla ) {
+        def fixStop = drp.fix_stop == null || truthy(drp.fix_stop)
+        def lgbModel = drusillaSetting(params, 'lgb_model')?.toString()
+        def rm = rescueModel(params)
+        drusillaSettings = [
+            model: drp.weights ? null : drusillaSetting(params, 'model'),
+            weights: drp.weights ? file(drp.weights.toString()).name : null,
+            lgbModel: lgbModel ? lgbModel.tokenize('/').last().replaceFirst(/\.(tar\.gz|tgz|txt)$/, '') : null,
+            minLength: drp.min_length, minCov: drp.min_cov, minTpm: drp.min_tpm,
+            longLength: drp.long_length, minTpmLong: drp.min_tpm_long, minCodingLength: drp.min_coding_length,
+            fixStop: fixStop, fixStart: fixStop && (drp.fix_start == null || truthy(drp.fix_start)),
+            lgbThreshold: drp.lgb_threshold, lgbKeep: (drp.lgb_keep ?: 'correct').toString().tokenize(', \t'),
+            rescueModel: rm.name ?: file(rm.file.toString()).baseName,
+            rescueFlank: drp.rescue_flank, rescueHintWeight: drp.rescue_hint_weight,
+            rescueOrfFilter: truthy(drp.rescue_orf_filter),
+        ]
+    }
+    def run = [
+        // keys of citationKeys (lib_nf/citations.nf)
         mode: MODE, genefinder: genefinderRun ? genefinder : null, tiberiusModel: params.tiberius?.model_cfg,
         hc: hc.method, orfFinder: hc.method == 'transdecoder' ? orfFinder(params) : null,
         rescue: rescueEnabled(params), odb12: odb12List.size() > 0,
@@ -98,7 +124,29 @@ workflow {
         compleasm: params.qc?.busco_lineage && truthy(params.qc?.compleasm),
         omark: truthy(params.qc?.omark), gffcompare: params.qc?.reference_annotation as boolean,
         ncrna: truthy(params.ncrna?.run), lncrna: truthy(params.ncrna?.lncrna), fantasia: truthy(params.fantasia?.run),
-    ], workflow.manifest.version ?: 'unknown')
+        // further facts of the methods text (methodsText in lib_nf/methods.nf)
+        model: gfModel, clade: hc.clade,
+        result: genefinderRun && gfParams.result ? file(gfParams.result.toString()).name : null,
+        finetune: genefinder == 'vipsania' && truthy(params.vipsania?.finetune),
+        splitMinSize: gfParams.min_split_size ?: 20000000, splitMaxFiles: gfParams.max_files ?: 20,
+        proteinFiles: proteinsList.size(), odb12Partitions: odb12List,
+        scoringMatrix: params.scoring_matrix ? file(params.scoring_matrix.toString()).name : null,
+        shortPaired: hasPaired, shortSingle: hasSingle,
+        shortSra: asList(params.rnaseq_sra_paired).size() > 0 || asList(params.rnaseq_sra_single).size() > 0,
+        isoSra: asList(params.isoseq_sra).size() > 0,
+        minAlignmentRate: params.min_alignment_rate ?: 80,
+        stringtieFiles: stringtieFiles.size(), mixVarus: MODE == 'mixed' && useDrusilla && hasMixVarus,
+        td2PredictArgs: params.td2_predict_args ?: null, drusillaSettings: drusillaSettings,
+        sanityFilter: truthy(params.postprocess?.sanity_filter), utr: truthy(params.postprocess?.utr),
+        maxUtrExtension: params.postprocess?.max_utr_extension,
+        buscoLineage: buscoLineage(params.qc?.busco_lineage),
+        geneSupport: truthy(params.qc?.gene_support), statistics: truthy(params.qc?.statistics),
+        trnascanHighConfidence: truthy(params.ncrna?.trnascan_high_confidence),
+        fantasiaMinScore: params.fantasia?.min_score,
+    ]
+    def version = workflow.manifest.version ?: 'unknown'
+    file("${outdir}/citations.md").text = citationsText(run, version)
+    file("${outdir}/methods.md").text = methodsText(run, version)
 
     // Mixed mode with Drusilla: one stringtie --mix assembly of both BAMs.
     // pyVARUS directories have no BAM; varus assemble makes that assembly.
@@ -219,9 +267,7 @@ workflow {
     // no final annotation and end with the hints and the HC genes.
     if( genefinderRun ) {
       def runInfo = [
-          version: workflow.manifest.version ?: 'unknown', mode: MODE, genefinder: genefinder,
-          model: genefinder == 'tiberius' ? (params.tiberius?.model_cfg ? file(params.tiberius.model_cfg.toString()).baseName : null)
-                                          : params.vipsania?.model,
+          version: version, mode: MODE, genefinder: genefinder, model: gfModel,
           hc: MODE in ['abinitio', 'proteins'] ? null : hc.method,
       ]
       POSTPROCESS(final_gff, inp.genome, genome_chunks, genefinder, genefinder_versions, MODE, asm_short, asm_long,

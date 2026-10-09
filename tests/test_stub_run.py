@@ -124,6 +124,7 @@ def test_tiberius_file_names_are_unchanged(tmp_path: Path) -> None:
         "intermediate/hc.gff3",
         "hintsfile.gff",
         "citations.md",
+        "methods.md",
         # post-processing (docs/postprocessing.md)
         "tiberius_evidence.gtf",
         "tiberius_evidence_cds.fa",
@@ -458,6 +459,7 @@ def test_drusilla_flow_for_vertebrate_models(tool: str, mode: str, tmp_path: Pat
         "intermediate/drusilla_orfs.gtf",
         "intermediate/hint_rescue.gtf",
         "citations.md",
+        "methods.md",
     } | expected_outputs(tool, mode) - {"intermediate/hc.gff3"}
     # one StringTie assembly of all reads
     assert proc.stdout.count("STRINGTIE_ASSEMBLE") == 1, proc.stdout

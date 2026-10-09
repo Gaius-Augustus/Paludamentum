@@ -58,7 +58,7 @@ def test_utrs_can_be_switched_off(tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "postprocess": {"utr": False}})
     assert_ok(proc)
     assert "ADD_UTRS" not in proc.stdout
-    assert published == expected_outputs("tiberius", "rnaseq") - {"qc/utr_report.tsv"} | {"citations.md"}
+    assert published == expected_outputs("tiberius", "rnaseq") - {"qc/utr_report.tsv"} | {"citations.md", "methods.md"}
 
 
 @pytest.mark.parametrize("ready", [True, False], ids=["cached", "download"])

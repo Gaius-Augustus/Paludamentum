@@ -258,7 +258,7 @@ is `tiberius` or `vipsania`.
 | `<tool>_ab_initio.gff3` | mode `abinitio` only: the final annotation (sanity filtered, with `.gtf`, `_proteins.fa` and `_cds.fa` as above) |
 | `<tool>_evidence_with_ncRNA.gff3` | final annotation plus rRNA, tRNA, Rfam and lncRNA genes (`ncrna.run`) |
 | `<tool>_evidence_go.gff3`, `<tool>_evidence_with_ncRNA_go.gff3` | the same with GO terms (`fantasia.run`) |
-| `report.html` | gene set statistics, completeness, evidence support, sanity filter, UTRs, ncRNA, versions and references of the run |
+| `report.html` | methods, gene set statistics, completeness, evidence support, sanity filter, UTRs, ncRNA, versions and references of the run |
 | `qc/` | sanity filter and UTR reports, gene set statistics and plots, hint support, completeness, OMArk, gffcompare, FANTASIA, software versions, see [docs/postprocessing.md](docs/postprocessing.md#outputs) |
 | `ncrna/` | rRNA, tRNA, Rfam and lncRNA annotations (`ncrna.run`) |
 | `intermediate/<tool>_ab_initio.gff3` | *ab initio* predictions before the sanity filter, in every mode; the file to give to `--result` of a later run |
@@ -273,6 +273,7 @@ is `tiberius` or `vipsania`.
 | `sra_downloads/` | reads downloaded from SRA, with `keep_downloads: true` only |
 | `params.yaml` | the merged parameters of this run, written by the launcher |
 | `citations.md` | references of the gene finder and the tools that this run used, see [Citation](#citation) |
+| `methods.md` | a methods section for this run: the steps that ran, their main parameters and inline citations of `citations.md`, see [Citation](#citation) |
 
 Nextflow's timeline, trace and report files are written as well.
 
@@ -406,6 +407,13 @@ marked in the header of the file:
 Every run writes `citations.md` to `outdir`. It lists the references of the
 gene finder and of the tools that this run used, selected from its inputs and
 parameters. Please cite them in a publication that uses the results.
+
+`methods.md` next to it describes, in the style of a Methods section and in
+the order of execution, what the run did (mode, gene finder and model,
+evidence processing, high-confidence genes, post-processing, quality control,
+ncRNA and GO terms as switched on), with inline citations of the references
+in `citations.md`. `report.html` shows it as well. Check and adapt the text
+before you use it in a publication.
 
 ## References
 

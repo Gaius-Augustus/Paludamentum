@@ -777,7 +777,7 @@ h2 { font-size: 1.25rem; margin: 40px 0 12px; padding-bottom: 6px; border-bottom
 h3 { font-size: 1.05rem; margin: 20px 0 8px; }
 a { color: var(--accent); overflow-wrap: anywhere; }
 nav { margin: 12px 0 8px; color: var(--muted); font-size: 0.9rem; text-align: center; }
-.methods p { text-align: justify; hyphens: auto; }
+.methods p { max-width: 80ch; }
 nav a { margin-right: 12px; white-space: nowrap; }
 .scroll { overflow-x: auto; }
 table { border-collapse: collapse; margin: 8px 0 16px; font-size: 0.9rem; background: var(--surface); }
