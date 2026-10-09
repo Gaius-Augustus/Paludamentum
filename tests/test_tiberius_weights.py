@@ -107,7 +107,7 @@ json.dump(a, open(a[a.index("--out") + 1], "w"))
 
 RUN = """
     RUN_TIBERIUS(file('%(genome)s'), file('%(cfg)s'), %(use)s, %(weights)s)
-        .subscribe { f -> f.copyTo("${params.outdir}/${f.name}") }
+        .gtf.subscribe { f -> f.copyTo("${params.outdir}/${f.name}") }
 """
 
 
