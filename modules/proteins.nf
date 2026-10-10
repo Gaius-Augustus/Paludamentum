@@ -3,40 +3,24 @@ nextflow.enable.dsl=2
 process MINIPROT_ALIGN {
   label 'container', 'bigmem'
 
-  input: path genome; path proteins
-
-  output:
-    path "miniprot/miniprot.aln", emit: aln
-
-  script: """
-  mkdir -p miniprot
-  ${params.tools.miniprot} -t ${task.cpus} --aln ${genome} ${proteins} > miniprot/miniprot.aln
-  """
-
-  stub:
-  """
-  mkdir -p miniprot
-  touch miniprot/miniprot.aln
-  """
-}
-
-process MINIPROT_BOUNDARY_SCORE {
-  label 'container'
-
   input:
-    path aln
+    path genome
+    path proteins
     path score_matrix
 
   output:
     path "miniprot/miniprot_parsed.gff", emit: gff
 
+  // miniprot's --aln output (1.5 GB for T. rubripes) goes straight into
+  // miniprot_boundary_scorer, its only reader, and is never written to disk;
+  // pipefail (conf/base.config) fails the task if miniprot fails
   script:
   """
   mkdir -p miniprot
-  ${params.tools.miniprot_boundary_scorer} \
-    -s ${score_matrix} \
-    -o miniprot/miniprot_parsed.gff \
-    < ${aln}
+  ${params.tools.miniprot} -t ${task.cpus} --aln ${genome} ${proteins} \
+    | ${params.tools.miniprot_boundary_scorer} \
+        -s ${score_matrix} \
+        -o miniprot/miniprot_parsed.gff
   """
 
   stub:

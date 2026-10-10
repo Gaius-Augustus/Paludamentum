@@ -43,16 +43,35 @@ GENEFINDER = {
 }
 
 
+STATISTICS = {
+    "qc/gene_set_statistics.txt", "qc/isoform_and_exon_structure.png", "qc/transcript_lengths.png",
+    "qc/introns_per_gene.png",
+}
+
+
+def final_files(stem: str) -> set[str]:
+    """The published annotation, its post-processing and QC files (default params)."""
+    return {
+        f"{stem}.gff3", f"{stem}.gtf", f"{stem}_proteins.fa", f"{stem}_cds.fa",
+        f"intermediate/{stem}_sanity_filtered.gff3", "qc/sanity_filter.tsv",
+        "qc/software_versions.tsv", "report.html", *STATISTICS,
+    }
+
+
 def expected_outputs(tool: str, mode: str) -> set[str]:
     if mode == "abinitio":
-        return {f"{tool}_ab_initio.gff3"}
-    return {
-        f"{tool}_evidence.gff3",
-        f"{tool}_evidence_proteins.fa",
+        return final_files(f"{tool}_ab_initio") | {f"intermediate/{tool}_ab_initio.gff3"}
+    files = final_files(f"{tool}_evidence") | {
         f"intermediate/{tool}_ab_initio.gff3",
+        f"intermediate/{tool}_merged.gff3",
         "intermediate/hc.gff3",
         "hintsfile.gff",
+        "qc/gene_support.tsv",
+        "qc/evidence_support.png",
     }
+    if mode in ("rnaseq", "isoseq", "mixed"):
+        files.add("qc/utr_report.tsv")
+    return files
 
 
 def run_pipeline(tmp_path: Path, params: dict) -> tuple[subprocess.CompletedProcess, set[str]]:
@@ -66,6 +85,7 @@ def run_pipeline(tmp_path: Path, params: dict) -> tuple[subprocess.CompletedProc
             "-params-file", str(params_file),
             "-c", str(ROOT / "tests" / "stub.config"),
             "-work-dir", str(tmp_path / "work"),
+            "-with-trace", str(tmp_path / "trace.txt"),
         ],
         cwd=tmp_path, env=dict(os.environ, NXF_ANSI_LOG="false"),
         capture_output=True, text=True,
@@ -104,6 +124,22 @@ def test_tiberius_file_names_are_unchanged(tmp_path: Path) -> None:
         "intermediate/hc.gff3",
         "hintsfile.gff",
         "citations.md",
+        "methods.md",
+        # post-processing (docs/postprocessing.md)
+        "tiberius_evidence.gtf",
+        "tiberius_evidence_cds.fa",
+        "intermediate/tiberius_merged.gff3",
+        "intermediate/tiberius_evidence_sanity_filtered.gff3",
+        "qc/sanity_filter.tsv",
+        "qc/utr_report.tsv",
+        "qc/gene_support.tsv",
+        "qc/gene_set_statistics.txt",
+        "qc/isoform_and_exon_structure.png",
+        "qc/transcript_lengths.png",
+        "qc/introns_per_gene.png",
+        "qc/evidence_support.png",
+        "qc/software_versions.tsv",
+        "report.html",
     }
 
 
@@ -265,11 +301,11 @@ INPUT_FORMS = {
     "paired_pairs_list": ({"rnaseq_paired": [[R1, R2]]}, []),
     "paired_flat_two":   ({"rnaseq_paired": [R1, R2]}, []),
     "single_list":       ({"rnaseq_single": [R1]}, []),
-    "sra_paired_list":   ({"rnaseq_sra_paired": ["SRR0000001"]},
+    # SRA reads are published with keep_downloads only
+    "sra_paired_list":   ({"rnaseq_sra_paired": ["SRR0000001"], "keep_downloads": True},
                           ["sra_downloads/rnaseq_sra_paired/SRR0000001_1.fastq.gz"]),
-    "sra_single_string": ({"rnaseq_sra_single": "SRR0000002"},
-                          ["sra_downloads/rnaseq_sra_single/SRR0000002.fastq.gz"]),
-    "isoseq_sra_list":   ({"isoseq_sra": ["DRR0000003"]},
+    "sra_single_string": ({"rnaseq_sra_single": "SRR0000002"}, []),
+    "isoseq_sra_list":   ({"isoseq_sra": ["DRR0000003"], "keep_downloads": True},
                           ["sra_downloads/isoseq_sra/DRR0000003.fastq.gz"]),
     "two_protein_files": ({"proteins": [str(DATA / "tiny_proteins.faa"), str(DATA / "tiny_proteins.faa")],
                            "rnaseq_paired": str(DATA / "reads_{1,2}.fastq")}, []),
@@ -286,6 +322,8 @@ def test_input_forms(form: str, tmp_path: Path) -> None:
     assert {"tiberius_evidence.gff3", "intermediate/hc.gff3", "hintsfile.gff"} <= published, sorted(published)
     for f in downloads:
         assert f in published, (f, sorted(published))
+    if not extra.get("keep_downloads"):
+        assert not any(f.startswith("sra_downloads/") for f in published), sorted(published)
 
 
 @pytest.mark.parametrize("bam", [[R1], R1], ids=["list", "string"])
@@ -415,16 +453,14 @@ def test_drusilla_flow_for_vertebrate_models(tool: str, mode: str, tmp_path: Pat
     assert "TD_ALL" not in proc.stdout
     published = {f for f in published if not f.startswith("intermediate/vipsania/")}
     assert published == {
-        f"{tool}_evidence.gff3",
-        f"{tool}_evidence_proteins.fa",
         f"intermediate/{tool}_ab_initio.gff3",
         f"intermediate/{tool}_lgb_filtered.gtf",
         f"intermediate/{tool}_lgb_scores.tsv",
         "intermediate/drusilla_orfs.gtf",
         "intermediate/hint_rescue.gtf",
-        "hintsfile.gff",
         "citations.md",
-    }
+        "methods.md",
+    } | expected_outputs(tool, mode) - {"intermediate/hc.gff3"}
     # one StringTie assembly of all reads
     assert proc.stdout.count("STRINGTIE_ASSEMBLE") == 1, proc.stdout
 

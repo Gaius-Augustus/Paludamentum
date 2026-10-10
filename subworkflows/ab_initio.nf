@@ -17,5 +17,7 @@ workflow AB_INITIO {
     GENEFINDER(CH_GENOME, params_map, true)
 
     emit:
-    GENEFINDER.out
+    gff    = GENEFINDER.out.gff      // <tool>_ab_initio.gff3, the input of POSTPROCESS
+    chunks = GENEFINDER.out.chunks   // genome chunks, for cmscan in POSTPROCESS
+    versions = GENEFINDER.out.versions   // version line of the gene finder, for POSTPROCESS
 }

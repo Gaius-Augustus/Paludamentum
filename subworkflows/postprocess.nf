@@ -1,0 +1,236 @@
+nextflow.enable.dsl=2
+
+// Post-processing of the final protein-coding annotation (docs/postprocessing.md):
+//   1. sanity filter (internal stop codons, CDS length, structure),
+//   2. UTRs from the StringTie assemblies (modes with transcripts),
+//   3. the published <stem>.gff3, .gtf, _proteins.fa, _cds.fa,
+//   4. completeness (compleasm, BUSCO) with qc.busco_lineage,
+//   5. hint support, gene set statistics, OMArk, gffcompare,
+//   6. ncRNA genes (ncrna.run): <stem>_with_ncRNA.gff3,
+//   7. GO terms (fantasia.run): <stem>_go.gff3,
+//   8. software versions and report.html.
+// stem: <tool>_evidence, or <tool>_ab_initio in mode abinitio.
+
+include { truthy } from '../lib_nf/functions.nf'
+include { EMPTY_FILE as EMPTY_PLACEHOLDER } from '../modules/util.nf'
+include { SANITY_FILTER; ADD_UTRS; FINALIZE_ANNOTATION; LONGEST_ISOFORM } from '../modules/finalize.nf'
+include { DOWNLOAD_BUSCO_LINEAGE; FILTER_BUSCO_PROTEINS; COMPLEASM_GENOME; COMPLEASM_PROTEINS;
+          BUSCO_GENOME; BUSCO_PROTEINS; COMPLETENESS_SUMMARY } from '../modules/completeness.nf'
+include { GENE_SUPPORT; GENE_SET_STATISTICS; DOWNLOAD_NCBI_TAXONOMY; OMARK; GFFCOMPARE; SOFTWARE_VERSIONS;
+          REPORT } from '../modules/qc.nf'
+include { DOWNLOAD_RFAM; BARRNAP; TRNASCAN; CMSCAN; INFERNAL_TO_GFF3; FEELNC; FEELNC_TO_GFF3; MERGE_NCRNA } from '../modules/ncrna.nf'
+include { STRINGTIE_MERGE as STRINGTIE_MERGE_ALL } from '../modules/assembly.nf'
+include { FANTASIA_GPU_CHECK; FANTASIA_ANNOTATE; FANTASIA_MERGE; FANTASIA_SUMMARY; FANTASIA_DECORATE as FANTASIA_DECORATE_CODING;
+          FANTASIA_DECORATE as FANTASIA_DECORATE_NCRNA } from '../modules/fantasia.nf'
+
+// BUSCO lineage with its OrthoDB version (eukaryota -> eukaryota_odb12), or null
+def buscoLineage(value) {
+    def lineage = value?.toString()?.trim()
+    if( !lineage ) return null
+    return lineage.contains('_odb') ? lineage : "${lineage}_odb12"
+}
+
+// A cache directory of downloaded databases: the given path, else
+// ~/.cache/paludamentum/<name>. Created, so that tasks can stage it.
+def cacheDir(value, String name) {
+    def dir = file(value ? value.toString() : "${System.getenv('HOME')}/.cache/paludamentum/${name}")
+    dir.mkdirs()
+    return dir
+}
+
+// The files of the (chunk number, file) tuples of ch as one list, in chunk
+// order (the FANTASIA_ANNOTATE results for FANTASIA_MERGE).
+def inChunkOrder(ch) {
+    return ch.toSortedList { a, b -> a[0] <=> b[0] }.map { l -> l.collect { c -> c[1] } }
+}
+
+workflow POSTPROCESS {
+
+    take:
+    gff         // channel: final protein-coding GFF3 (0 or 1 item)
+    genome      // channel: genome FASTA (value)
+    genome_chunks // channel: the genome chunks of the gene finder split (one list; cmscan)
+    prefix      // value: name of the gene finder, 'tiberius' or 'vipsania'
+    genefinder_versions // channel: versions.tsv of the gene finder (empty with a reused result)
+    mode        // value: pipeline mode
+    asm_short   // channel: StringTie assemblies of short reads (may be empty)
+    asm_long    // channel: StringTie assemblies of Iso-Seq reads (may be empty)
+    hints       // channel: hintsfile.gff (empty in mode abinitio)
+    run_info    // value: map for the report (version, mode, genefinder, model, hc)
+
+    main:
+    def stem = mode == 'abinitio' ? "${prefix}_ab_initio" : "${prefix}_evidence"
+    def transcripts = mode in ['rnaseq', 'isoseq', 'mixed']
+    def empty = EMPTY_PLACEHOLDER()
+    def versions = genefinder_versions
+    def qc_files = channel.empty()
+
+    // ---- the final annotation
+    def filtered = SANITY_FILTER(stem, gff, genome)
+    qc_files = qc_files.mix(filtered.report)
+    def pre_final = filtered.gff
+    if( truthy(params.postprocess.utr) && transcripts ) {
+        def utr = ADD_UTRS(stem, pre_final, asm_short.collect().ifEmpty([]), asm_long.collect().ifEmpty([]))
+        pre_final = utr.gff
+        qc_files = qc_files.mix(utr.report)
+    }
+    def fin = FINALIZE_ANNOTATION(stem, pre_final, genome)
+    versions = versions.mix(fin.versions)
+    // value channels, like the outputs of every process below: their inputs
+    // are value channels (these, the genome, the cache directories), and a
+    // .first() on a value channel only makes Nextflow warn
+    def final_gff3 = fin.gff3
+    def final_gtf  = fin.gtf
+    def proteins   = fin.proteins
+
+    // ---- completeness
+    def lineage = buscoLineage(params.qc.busco_lineage)
+    def doCompleasm = lineage && truthy(params.qc.compleasm)
+    def doBusco     = lineage && truthy(params.qc.busco)
+    if( !lineage ) log.info "Completeness assessment off (no qc.busco_lineage)"
+    if( doCompleasm || doBusco ) {
+        def cache = cacheDir(params.qc.busco_download_path, 'busco')
+        def lineages = cache.resolve('lineages')
+        def odb = lineage.tokenize('_')[1]
+        // what compleasm and BUSCO read; compleasm checks the .done markers
+        def ready = ["${lineage}/dataset.cfg", "${lineage}.done", "eukaryota_${odb}.done",
+                     'placement_files.done', 'file_versions.tsv.done'].every { f -> lineages.resolve(f).exists() }
+        def busco_dir = ready ? channel.value(cache) :
+            DOWNLOAD_BUSCO_LINEAGE(lineage, cache).done.map { _d -> cache }
+        def longest = LONGEST_ISOFORM(stem, final_gff3, genome)
+        def busco_proteins = FILTER_BUSCO_PROTEINS(longest.proteins).proteins
+        def summaries = [busco_genome: empty, busco_proteins: empty, compleasm_genome: empty, compleasm_proteins: empty]
+        if( doCompleasm ) {
+            def cg = COMPLEASM_GENOME(genome, lineage, busco_dir)
+            summaries.compleasm_genome   = cg.summary
+            summaries.compleasm_proteins = COMPLEASM_PROTEINS(busco_proteins, lineage, busco_dir).summary
+            versions = versions.mix(cg.versions)
+        }
+        if( doBusco ) {
+            def bg = BUSCO_GENOME(genome, lineage, busco_dir)
+            summaries.busco_genome   = bg.summary
+            summaries.busco_proteins = BUSCO_PROTEINS(busco_proteins, lineage, busco_dir).summary
+            versions = versions.mix(bg.versions)
+        }
+        def completeness = COMPLETENESS_SUMMARY(summaries.busco_genome, summaries.busco_proteins,
+                                                summaries.compleasm_genome, summaries.compleasm_proteins)
+        qc_files = qc_files.mix(completeness.tsv)
+    }
+
+    // ---- hint support and statistics
+    def support = channel.value([])
+    if( truthy(params.qc.gene_support) && mode != 'abinitio' ) {
+        support = GENE_SUPPORT(final_gff3, hints).tsv
+        qc_files = qc_files.mix(support)
+    }
+    if( truthy(params.qc.statistics) ) {
+        def stats = GENE_SET_STATISTICS(final_gff3, support)
+        qc_files = qc_files.mix(stats.text, stats.plots.flatten())
+    }
+
+    // ---- OMArk and gffcompare
+    if( truthy(params.qc.omark) ) {
+        if( !params.qc.omamer_db ) error "qc.omark = true needs the OMAmer database: qc.omamer_db (e.g. LUCA.h5 of https://omabrowser.org/All/)."
+        def db = file(params.qc.omamer_db.toString())
+        if( !db.exists() ) error "qc.omamer_db: no such file: ${db}"
+        // the NCBI taxonomy as ete3's taxa.sqlite in the cache directory, built
+        // once on the submitting host from taxdump.tar.gz (downloaded unless present)
+        def taxaDir = cacheDir(params.qc.ete_taxa_path, 'ncbi_taxonomy')
+        def taxa = taxaDir.resolve('taxa.sqlite').exists() ? channel.value(taxaDir) :
+            DOWNLOAD_NCBI_TAXONOMY(taxaDir).done.map { _d -> taxaDir }
+        def omark = OMARK(proteins, final_gff3, db, taxa)
+        qc_files = qc_files.mix(omark.summary)
+        versions = versions.mix(omark.versions)
+    }
+    if( params.qc.reference_annotation ) {
+        def reference = file(params.qc.reference_annotation.toString())
+        if( !reference.exists() ) error "qc.reference_annotation: no such file: ${reference}"
+        def cmp = GFFCOMPARE(final_gtf, reference)
+        qc_files = qc_files.mix(cmp.stats)
+        versions = versions.mix(cmp.versions)
+    }
+
+    // ---- ncRNA
+    def ncrna_files = channel.empty()
+    def ncrna_gff3 = null
+    if( truthy(params.ncrna.run) ) {
+        def rfamDir = cacheDir(params.ncrna.rfam_dir, 'rfam')
+        def rfamReady = ['Rfam.cm', 'Rfam.clanin'].every { f -> rfamDir.resolve(f).exists() }
+        if( params.ncrna.rfam_dir && !rfamReady )
+            error "ncrna.rfam_dir: no Rfam.cm and Rfam.clanin in ${rfamDir}; leave ncrna.rfam_dir unset to download Rfam 15.1."
+        def rfam = rfamReady ? channel.value(rfamDir) : DOWNLOAD_RFAM(rfamDir).done.map { _d -> rfamDir }
+        def rrna = BARRNAP(stem, genome)
+        def trna = TRNASCAN(stem, genome)
+        // the chunks of the gene finder split (GENEFINDER splits for ncrna.run
+        // also where the gene finder reads none), not a second genome copy
+        def infernal = INFERNAL_TO_GFF3(stem, CMSCAN(genome_chunks.flatten(), rfam).tblout.collect())
+        def lnc = channel.value([])
+        if( transcripts && truthy(params.ncrna.lncrna) ) {
+            def assemblies = asm_short.mix(asm_long).collect()
+            def feelnc = FEELNC(stem, STRINGTIE_MERGE_ALL(assemblies).gtf, final_gtf, genome)
+            lnc = FEELNC_TO_GFF3(stem, feelnc.gtf).gff
+            ncrna_files = ncrna_files.mix(lnc)
+        }
+        ncrna_gff3 = MERGE_NCRNA(stem, final_gff3, rrna.gff, trna.gff, infernal.gff, lnc).gff3
+        ncrna_files = ncrna_files.mix(rrna.gff, trna.gff, infernal.gff)
+        versions = versions.mix(rrna.versions, trna.versions)
+    }
+
+    // ---- GO terms
+    def fantasia_files = channel.empty()
+    def go_files = channel.empty()
+    if( truthy(params.fantasia.run) ) {
+        ['hf_cache_dir', 'lookup_dir'].each { key ->
+            if( !params.fantasia[key] ) error "fantasia.run = true needs fantasia.${key} (see docs/postprocessing.md)."
+            if( !file(params.fantasia[key].toString()).isDirectory() ) error "fantasia.${key}: not a directory: ${params.fantasia[key]}"
+        }
+        if( !(params.fantasia.device in ['cuda', 'cpu']) )
+            error "fantasia.device: cuda or cpu, not '${params.fantasia.device}'."
+        // probes the GPU at the start of the run; without it a missing GPU
+        // killed the run only hours in, in FANTASIA_ANNOTATE, and report.html
+        // was never written. fantasia.device = cpu needs no GPU.
+        if( params.fantasia.device == 'cuda' ) FANTASIA_GPU_CHECK()
+        // one task per chunk of proteins_per_task proteins (0: one task);
+        // default 2000 on the CPU (about 2 h on 48 CPUs, so a vertebrate
+        // proteome no longer runs a day in one job), one task on the GPU
+        def perTask = params.fantasia.proteins_per_task
+        if( perTask == null ) perTask = params.fantasia.device == 'cpu' ? 2000 : 0
+        if( !(perTask.toString().isInteger() && (perTask as int) >= 0) )
+            error "fantasia.proteins_per_task: a whole number >= 0, not '${perTask}'."
+        def chunks = (perTask as int) > 0
+            ? proteins.splitFasta(by: perTask as int, file: true).toList()
+                      .flatMap { files -> (0..<files.size()).collect { i -> [i + 1, files[i]] } }
+            : proteins.map { f -> [1, f] }
+        def annotated = FANTASIA_ANNOTATE(chunks, file(params.fantasia.hf_cache_dir.toString()),
+                                          file(params.fantasia.lookup_dir.toString()))
+        def results = FANTASIA_MERGE(inChunkOrder(annotated.results), inChunkOrder(annotated.failed)).results
+        def summary = FANTASIA_SUMMARY(results)
+        fantasia_files = fantasia_files.mix(summary.summary, summary.plot)
+        go_files = go_files.mix(FANTASIA_DECORATE_CODING(stem, final_gff3, results).gff3)
+        if( ncrna_gff3 != null )
+            go_files = go_files.mix(FANTASIA_DECORATE_NCRNA("${stem}_with_ncRNA", ncrna_gff3, results).gff3)
+    }
+
+    // ---- software versions and report
+    def pipeline_lines = ["Paludamentum\t${run_info.version}\t-"]
+    // a reused gene finder result (<tool>.result) was not predicted in this run
+    def reused = params[prefix]?.result
+    if( reused )
+        pipeline_lines << "${prefix.capitalize()}\tnot run, ${prefix}.result: ${file(reused.toString()).name}\t-"
+    def sv = SOFTWARE_VERSIONS(pipeline_lines, versions.collect().ifEmpty([]))
+    qc_files = qc_files.mix(sv.tsv)
+    if( truthy(params.qc.report) ) {
+        def top = fin.gff3.mix(fin.gtf, fin.proteins, fin.cds, go_files)
+        if( ncrna_gff3 != null ) top = top.mix(ncrna_gff3)
+        def info = run_info + [stem: stem, busco_lineage: lineage]
+        def params_yaml = file("${params.outdir}/params.yaml")   // written by the launcher before the run
+        def methods = file("${params.outdir}/methods.md")       // written by main.nf
+        REPORT(top.collect(), qc_files.collect(), ncrna_files.collect().ifEmpty([]),
+               fantasia_files.collect().ifEmpty([]), file("${params.outdir}/citations.md"),
+               hints.collect().ifEmpty([]), params_yaml.exists() ? params_yaml : [],
+               methods.exists() ? methods : [], file("${projectDir}/docs/img/logo_report.png"), info)
+    }
+
+    emit:
+    gff3 = fin.gff3
+}

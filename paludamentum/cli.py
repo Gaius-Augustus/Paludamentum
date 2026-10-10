@@ -50,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     nextflow.add_argument("--nextflow_bin", default="nextflow", help="Nextflow executable.")
     nextflow.add_argument("--resume", action="store_true", help="Pass -resume to Nextflow.")
     nextflow.add_argument("--work_dir", help="Nextflow work directory (-work-dir).")
+    nextflow.add_argument("--cleanup", action="store_true",
+                          help="Delete the task directories of this run from the work directory after it "
+                               "completed successfully (conf/cleanup.config); -resume of this run is then "
+                               "no longer possible.")
     nextflow.add_argument("--check_tools", action="store_true",
                           help="Check that all tool binaries are available (for runs without containers).")
     nextflow.add_argument("--skip_singularity_check", action="store_true",
@@ -111,6 +115,18 @@ def build_parser() -> argparse.ArgumentParser:
     vipsania.add_argument("--finetune_epochs", type=int, help="Forwarded to vipsania annotate --finetune_epochs.")
     vipsania.add_argument("--context", type=int, help="Forwarded to vipsania annotate -T.")
 
+    post = parser.add_argument_group("Post-processing and quality control (docs/postprocessing.md)")
+    post.add_argument("--busco_lineage",
+                      help="BUSCO/compleasm lineage (e.g. eukaryota_odb12) for the completeness of genome and "
+                           "proteome; without it, no completeness assessment.")
+    post.add_argument("--reference_annotation",
+                      help="Reference annotation (GFF3 or GTF, gzipped or not): the final annotation is compared with it (gffcompare).")
+    post.add_argument("--ncrna", action="store_true",
+                      help="Annotate rRNA, tRNA, Rfam families and lncRNA: <stem>_with_ncRNA.gff3.")
+    post.add_argument("--fantasia", action="store_true",
+                      help="GO terms with FANTASIA-Lite (GPU; needs fantasia.hf_cache_dir and fantasia.lookup_dir "
+                           "in the params file): <stem>_go.gff3.")
+
     parser.add_argument("nextflow_args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     return parser
 
@@ -121,6 +137,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     genefinder, params = merge_run_params(args)
     note = "" if params[genefinder].get("run") else " (run: false, evidence only)"
     print(f"[INFO] Gene finder: {genefinder}{note}")
+    qc = params.get("qc") if isinstance(params.get("qc"), dict) else {}
+    if params[genefinder].get("run") and not qc.get("busco_lineage"):
+        print("[INFO] Completeness assessment off (no busco_lineage)")
     run_nextflow_pipeline(args, genefinder=genefinder, params=params)
 
 

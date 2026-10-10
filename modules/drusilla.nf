@@ -18,6 +18,7 @@ process FILTER_STRINGTIE {
     path "stringtie.filtered.gtf", emit: gtf
 
   script:
+  def dropUnstranded = params.drusilla.drop_unstranded == null || params.drusilla.drop_unstranded.toString().toLowerCase() in ['true', '1', 'yes']
   """
   filter_stringtie_gtf.py \\
       --in-gtf ${gtf} \\
@@ -27,7 +28,7 @@ process FILTER_STRINGTIE {
       --min-cov ${params.drusilla.min_cov} \\
       --min-tpm ${params.drusilla.min_tpm} \\
       --long-length ${params.drusilla.long_length} \\
-      --min-tpm-long ${params.drusilla.min_tpm_long}
+      --min-tpm-long ${params.drusilla.min_tpm_long}${dropUnstranded ? ' \\\n      --drop-unstranded' : ''}
   """
 
   stub:
@@ -174,7 +175,7 @@ process DRUSILLA_ANNOTATE {
 // Then isoforms whose CDS is a subsequence of another one are collapsed.
 process FIX_ORFS {
   label 'drusilla'
-  publishDir "${params.outdir}/intermediate", pattern: "drusilla_orfs.gtf", mode: 'copy'
+  publishDir "${params.outdir}/intermediate", pattern: "drusilla_orfs.gtf", mode: 'copy', overwrite: true
   input:
     path orfs,     stageAs: 'orfs.raw.gtf'
     path partial,  stageAs: 'orfs.partial.gtf'
@@ -221,7 +222,7 @@ process FIX_ORFS {
 // of class partial are the candidates of the hint rescue.
 process GENEFINDER_LGB_FILTER {
   label 'drusilla'
-  publishDir "${params.outdir}/intermediate", pattern: "*_lgb_{filtered.gtf,scores.tsv}", mode: 'copy'
+  publishDir "${params.outdir}/intermediate", pattern: "*_lgb_{filtered.gtf,scores.tsv}", mode: 'copy', overwrite: true
   input:
     val prefix
     path ab_initio
@@ -295,7 +296,7 @@ process HINT_RESCUE_LOCI {
   mkdir -p rescue
   if python3 "${tiberius}" --help 2>&1 | grep -q -- '--hints'; then
       HINTS_OK=true
-      samtools faidx ${genome}
+      ${params.tools.samtools} faidx ${genome}
       chainedHints.py ${hints_gff} ${miniprot_gff} --output chained_hints.gff
       prepare_hint_rescue_loci.py \\
           --partial_gtf ${partial_gtf} \\
@@ -328,7 +329,7 @@ process HINT_RESCUE_LOCI {
 // GPU task is booked for a rescue that cannot run.
 process HINT_RESCUE_TIBERIUS {
   label 'gpu', 'hint_rescue', 'bigmem'
-  publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy'
+  publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy', overwrite: true
   input:
     tuple path(fasta), path(hints), path(manifest)
     // the model: a name in model_cfg/ of the image, or '' and a configuration
@@ -365,7 +366,10 @@ process HINT_RESCUE_TIBERIUS {
       --hints ${hints} \\
       --hint_weight ${params.drusilla.rescue_hint_weight} \\
       --out rescue_raw.gtf${seqLen ? " --seq_len ${seqLen}" : ''} \${BATCH_ARG:-}
-  filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} hint_rescue.gtf
+  filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} rescue_genome.gtf
+  # the Tiberius of this image counts the phases of minus-strand CDS from the
+  # wrong end (bin/fix_cds_phases.py); the structures are kept
+  fix_cds_phases.py rescue_genome.gtf > hint_rescue.gtf
   """
 
   stub:

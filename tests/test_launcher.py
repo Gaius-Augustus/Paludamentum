@@ -112,7 +112,8 @@ def test_container_tags_of_base_config():
     assert "latest" not in tags.values()
 
 
-IMAGE_LABELS = {"container", "tiberius", "vipsania", "drusilla", "hint_rescue"}
+IMAGE_LABELS = {"container", "tiberius", "vipsania", "drusilla", "hint_rescue", "postprocess", "busco", "feelnc",
+                "omark", "fantasia"}
 
 
 def test_every_process_has_at_most_one_image_label():
@@ -364,6 +365,28 @@ def test_command_assembly(tmp_path: Path, fake_path: Path, monkeypatch):
     assert cmd[-7:] == ["-profile", "test", "-resume", "-work-dir", str(tmp_path / "w"), "-with-dag", "dag.html"]
 
 
+
+def test_cleanup_adds_cleanup_config(tmp_path: Path, fake_path: Path, monkeypatch):
+    calls = []
+    real_run = launcher.subprocess.run
+
+    def spy(cmd, *a, **kw):
+        if Path(str(cmd[0])).name == "nextflow":
+            calls.append(list(cmd))
+            return SimpleNamespace(returncode=0)
+        return real_run(cmd, *a, **kw)  # the java -version probe
+
+    monkeypatch.setattr(launcher.subprocess, "run", spy)
+    for cleanup in (False, True):
+        launcher.run_nextflow_pipeline(make_args(tmp_path, {"genome": str(DATA / "tiny.fa")}, cleanup=cleanup),
+                                       genefinder="tiberius")
+
+    configs = [[cmd[i + 1] for i, part in enumerate(cmd) if part == "-c"] for cmd in calls]
+    assert configs[0] == [str(ROOT / "conf" / "base.config"), str(ROOT / "conf" / "local.config")]
+    assert configs[1] == configs[0] + [str(ROOT / "conf" / "cleanup.config")]
+    lines = [line.strip() for line in (ROOT / "conf" / "cleanup.config").read_text().splitlines()]
+    assert "cleanup = true" in lines
+
 def test_base_config_is_not_passed_twice(tmp_path: Path, fake_path: Path, monkeypatch):
     calls = []
     real_run = launcher.subprocess.run
@@ -522,6 +545,51 @@ def test_build_params_tiberius_from_the_command_line(tmp_path: Path, monkeypatch
     # one value is a glob, not a list; relative paths are written absolute
     assert params["rnaseq_paired"] == str(tmp_path / "r_{1,2}.fq")
     assert params["outdir"] == str(tmp_path / "tiberius_results")
+
+
+def test_build_params_post_processing_from_the_command_line(tmp_path: Path, monkeypatch):
+    """Nested blocks (qc, ncrna, fantasia) from the command line; their paths are written absolute."""
+    monkeypatch.chdir(tmp_path)
+    params_file = tmp_path / "in.yaml"
+    params_file.write_text(yaml.safe_dump({
+        "qc": {"omark": True, "omamer_db": "db/LUCA.h5"},
+        "fantasia": {"hf_cache_dir": "~/hf", "lookup_dir": "lookup"},
+    }))
+    _finder, path = launcher.build_params(cli_args(
+        "-p", str(params_file), "--genome", str(DATA / "tiny.fa"), "--model", "Fungi",
+        "--busco_lineage", "fungi_odb12", "--reference_annotation", "ref.gff3", "--ncrna", "--fantasia",
+    ))
+    params = yaml.safe_load(path.read_text())
+    assert params["qc"] == {
+        "omark": True, "omamer_db": str(tmp_path / "db" / "LUCA.h5"),
+        "busco_lineage": "fungi_odb12", "reference_annotation": str(tmp_path / "ref.gff3"),
+    }
+    assert params["ncrna"] == {"run": True}
+    assert params["fantasia"] == {"run": True, "hf_cache_dir": str(Path.home() / "hf"),
+                                  "lookup_dir": str(tmp_path / "lookup")}
+
+
+def test_post_processing_flags_do_not_switch_off(tmp_path: Path, monkeypatch):
+    """store_true flags only switch on; without them the params file decides."""
+    monkeypatch.chdir(tmp_path)
+    params_file = tmp_path / "in.yaml"
+    params_file.write_text(yaml.safe_dump({"ncrna": {"run": True}}))
+    _finder, path = launcher.build_params(cli_args("-p", str(params_file), "--genome", str(DATA / "tiny.fa"),
+                                                   "--model", "Fungi"))
+    params = yaml.safe_load(path.read_text())
+    assert params["ncrna"] == {"run": True} and "fantasia" not in params and "qc" not in params
+
+
+def test_check_tools_of_the_post_processing_follow_the_switches():
+    base = {"genefinder": "vipsania", "vipsania": {"run": True}}
+    keys = lambda p: [key for key, _cmd, _label in launcher.postprocess_tools(p)]
+    assert keys(base) == ["gffread", "gt"]
+    assert keys({**base, "qc": {"busco_lineage": "eukaryota", "busco": False}}) == ["gffread", "compleasm", "gt"]
+    assert keys({**base, "ncrna": {"run": "true"}}) == ["gffread", "trnascan", "cmscan", "cmpress", "barrnap", "gt"]
+    assert ("omamer", "my_omamer", "OMAmer (params.tools.omamer)") in launcher.postprocess_tools(
+        {**base, "qc": {"omark": True}, "tools": {"omamer": "my_omamer"}})
+    # an evidence run without a gene finder has no final annotation
+    assert launcher.postprocess_tools({"genefinder": "vipsania", "vipsania": {"run": False}}) == []
 
 
 def test_build_params_vipsania_from_the_command_line(tmp_path: Path, monkeypatch):

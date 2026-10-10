@@ -62,14 +62,30 @@ The numbers in the figure are the steps below.
    high-confidence (HC) gene set; a comparison of the ORF finders is in
    [docs/orf_finder_comparison.md](docs/orf_finder_comparison.md).
 5. **Integration.** The HC genes are merged with the *ab initio* predictions into
-   the final annotation, and its protein sequences are extracted.
+   the final annotation.
+6. **Post-processing and quality control.** Transcripts with an internal stop
+   codon or a broken CDS are removed, transcripts without UTRs get UTRs from
+   the StringTie assemblies, and the annotation is written as GFF3 (checked
+   with GenomeTools), GTF, protein and CDS sequences. Optional: completeness
+   with compleasm and BUSCO (`--busco_lineage`), OMArk, a comparison with a
+   reference annotation (`--reference_annotation`), rRNA, tRNA, Rfam and
+   lncRNA genes (`--ncrna`) and GO terms with FANTASIA-Lite (`--fantasia`,
+   GPU). `report.html` sums it up. See
+   [docs/postprocessing.md](docs/postprocessing.md).
 
 For vertebrate and mammal gene finder models, runs with transcripts use the
 [Drusilla flow](#drusilla-flow) in steps 4 and 5 instead. Which clade gets
 which flow is set in [conf/hc_genes.yaml](conf/hc_genes.yaml).
 
-Without any evidence input the pipeline runs step 1 only. That is useful to
-parallelize a gene finder over several GPUs.
+Without any evidence input the pipeline runs steps 1 and 6 only. That is
+useful to parallelize a gene finder over several GPUs.
+
+Step 6 in detail: the color of a step says which data it needs, the label on
+it which option switches it on.
+
+<p align="center">
+  <img src="figures/postprocess_flow.svg" alt="Post-processing and quality control: the annotation runs through the sanity filter, gets UTRs from the StringTie assemblies in modes with transcripts, and is written as GFF3, GTF, proteins and CDS; gene set statistics always run, evidence support in evidence modes, completeness, OMArk, gffcompare, ncRNA and GO terms with their options; report.html sums up all steps" width="100%">
+</p>
 
 ## Requirements
 
@@ -101,7 +117,8 @@ submodules `tiberius/`, `vipsania/` and `drusilla/`; in an existing clone run
 
 The first run pulls the images into `~/.cache/paludamentum/singularity`,
 later runs reuse them. Each gene finder image is about 9.4 GB, the image of
-the evidence tools 0.6 GB. On a cluster this directory must be on a file
+the evidence tools 0.6 GB. The images of BUSCO, FEELnc, OMArk and
+FANTASIA-Lite are pulled only when their steps are switched on. On a cluster this directory must be on a file
 system that the compute nodes can read; set `NXF_SINGULARITY_CACHEDIR` to
 use another directory.
 
@@ -136,7 +153,9 @@ runs on, `slurm_generic` needs your GPU partition (see
 in the params file; command line values override the file. Useful options:
 `--dry_run` writes the params file and validates inputs and executables
 without starting Nextflow, `--resume` continues a previous run, `--work_dir`
-sets the Nextflow work directory. Arguments after `--` go to Nextflow.
+sets the Nextflow work directory, `--cleanup` deletes the task directories of
+the run from the work directory once it has finished successfully (see
+[docs/hpc.md](docs/hpc.md#work-directory)). Arguments after `--` go to Nextflow.
 `paludamentum --help` lists everything.
 
 ### Params file
@@ -172,7 +191,8 @@ Paths must not contain spaces. All parameters are documented in
 | `stringtie` | StringTie assembly (GTF) made outside the pipeline, one file, a list or a glob; instead of or in addition to reads, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
 | `rnaseq_varus`, `isoseq_varus`, `mixed_varus` | [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) output directories, which bring their StringTie assembly and intron hints, see [docs/parameters.md](docs/parameters.md#pyvarus-output-directories) |
 | `isoseq` | Iso-Seq FASTQ files |
-| `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra` | SRA run accessions, downloaded by the pipeline |
+| `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra` | SRA run accessions, downloaded by the pipeline; an accession whose download fails twice is dropped with an `Error is ignored` note, and `-resume` tries it again |
+| `keep_downloads` | copy the reads downloaded from SRA to `sra_downloads/` in `outdir`; default false, they stay in the work directory only |
 | `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80 |
 
 The mode is inferred from the inputs and can be forced with `mode`
@@ -231,18 +251,29 @@ is `tiberius` or `vipsania`.
 
 | File | Content |
 | --- | --- |
-| `<tool>_evidence.gff3` | final annotation: *ab initio* predictions merged with HC genes |
-| `<tool>_evidence_proteins.fa` | protein sequences of the final annotation |
-| `<tool>_ab_initio.gff3` | *ab initio* predictions (in `intermediate/` when evidence is used) |
+| `<tool>_evidence.gff3` | final annotation: *ab initio* predictions merged with HC genes, sanity filtered, with UTRs in modes with transcripts |
+| `<tool>_evidence.gtf` | the final annotation as GTF |
+| `<tool>_evidence_proteins.fa` | protein sequences of all transcripts of the final annotation |
+| `<tool>_evidence_cds.fa` | coding sequences of the final annotation |
+| `<tool>_ab_initio.gff3` | mode `abinitio` only: the final annotation (sanity filtered, with `.gtf`, `_proteins.fa` and `_cds.fa` as above) |
+| `<tool>_evidence_with_ncRNA.gff3` | final annotation plus rRNA, tRNA, Rfam and lncRNA genes (`ncrna.run`) |
+| `<tool>_evidence_go.gff3`, `<tool>_evidence_with_ncRNA_go.gff3` | the same with GO terms (`fantasia.run`) |
+| `report.html` | methods, gene set statistics, completeness, evidence support, sanity filter, UTRs, ncRNA, versions and references of the run |
+| `qc/` | sanity filter and UTR reports, gene set statistics and plots, hint support, completeness, OMArk, gffcompare, FANTASIA, software versions, see [docs/postprocessing.md](docs/postprocessing.md#outputs) |
+| `ncrna/` | rRNA, tRNA, Rfam and lncRNA annotations (`ncrna.run`) |
+| `intermediate/<tool>_ab_initio.gff3` | *ab initio* predictions before the sanity filter, in every mode; the file to give to `--result` of a later run |
+| `intermediate/<tool>_merged.gff3` | *ab initio* predictions merged with the HC genes, before the sanity filter |
+| `intermediate/<stem>_sanity_filtered.gff3` | the annotation after the sanity filter, before the UTRs |
 | `intermediate/hc.gff3` | high-confidence genes derived from the evidence (TransDecoder) |
 | `intermediate/drusilla_orfs.gtf` | Drusilla ORFs, the HC genes of the Drusilla flow |
 | `intermediate/<tool>_lgb_filtered.gtf` | *ab initio* predictions kept by the LightGBM filter (Drusilla flow) |
 | `intermediate/<tool>_lgb_scores.tsv` | LightGBM class probabilities of all *ab initio* transcripts (Drusilla flow) |
 | `intermediate/hint_rescue.gtf` | *ab initio* genes predicted again with protein hints (Drusilla flow; missing if the rescue was skipped) |
 | `hintsfile.gff` | protein, RNA-Seq and Iso-Seq hints |
-| `sra_downloads/` | reads downloaded from SRA |
+| `sra_downloads/` | reads downloaded from SRA, with `keep_downloads: true` only |
 | `params.yaml` | the merged parameters of this run, written by the launcher |
 | `citations.md` | references of the gene finder and the tools that this run used, see [Citation](#citation) |
+| `methods.md` | a methods section for this run: the steps that ran, their main parameters and inline citations of `citations.md`, see [Citation](#citation) |
 
 Nextflow's timeline, trace and report files are written as well.
 
@@ -267,8 +298,10 @@ Vipsania finetuning on the target genome is off by default (`--finetune`).
 If the genome is already annotated with Tiberius or Vipsania, give that
 file to the pipeline instead of predicting again. The file may be the GFF3
 or the GTF that `tiberius.py` or `vipsania annotate` wrote, or the
-`<tool>_ab_initio.gff3` of an earlier Paludamentum run. It must belong to
-the genome FASTA of this run (same sequence names).
+`intermediate/<tool>_ab_initio.gff3` of an earlier Paludamentum run (the
+predictions before the sanity filter; `<tool>_ab_initio.gff3` in the output
+directory of mode `abinitio` is the filtered final annotation). It must
+belong to the genome FASTA of this run (same sequence names).
 
 ```bash
 # Tiberius prediction
@@ -332,8 +365,9 @@ The images are pinned in [conf/base.config](conf/base.config) and listed in
 for SLURM. For your own cluster, copy
 [conf/user_hpc_template.config](conf/user_hpc_template.config) and set your
 queues, GPU options and scratch paths, see [docs/hpc.md](docs/hpc.md).
-Downloads (SRA reads, OrthoDB partitions, model weights) run on the
-submitting host, which needs internet access.
+Downloads (SRA reads, OrthoDB partitions, model weights, BUSCO lineages,
+Rfam, the NCBI taxonomy for OMArk) run on the submitting host, which needs
+internet access.
 
 Running without containers, and other setups for experts, are described in
 [docs/advanced_setup.md](docs/advanced_setup.md).
@@ -345,6 +379,7 @@ Running without containers, and other setups for experts, are described in
 | [docs/parameters.md](docs/parameters.md) | all parameters: inputs, gene finder blocks, Drusilla flow, mode |
 | [docs/vipsania.md](docs/vipsania.md) | Vipsania as gene finder: models, finetuning, offline nodes |
 | [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla flow for vertebrate models: conditions, steps, known issues |
+| [docs/postprocessing.md](docs/postprocessing.md) | post-processing and quality control: sanity filter, UTRs, GFF3 contract, completeness, ncRNA, GO terms, report |
 | [docs/containers.md](docs/containers.md) | container images and how they are pinned |
 | [docs/hpc.md](docs/hpc.md) | Nextflow config for your cluster, process labels |
 | [docs/advanced_setup.md](docs/advanced_setup.md) | for experts: running without containers, location of the checkout |
@@ -354,9 +389,18 @@ Running without containers, and other setups for experts, are described in
 
 ## License
 
-Artistic License 1.0, see [LICENSE](LICENSE). Scripts in `bin/` copied from
-Tiberius say so in their header and stay under its MIT License, see
-[LICENSE-Tiberius](LICENSE-Tiberius).
+Artistic License 1.0, see [LICENSE](LICENSE), with three exceptions, each
+marked in the header of the file:
+
+- Scripts in `bin/` copied from Tiberius stay under its MIT License, see
+  [LICENSE-Tiberius](LICENSE-Tiberius).
+- Scripts in `bin/` copied or ported from BRAKER4 stay under its MIT License,
+  see [LICENSE-BRAKER4](LICENSE-BRAKER4).
+- `bin/fantasia_generate_embeddings.py` is derived from
+  [FANTASIA-Lite](https://github.com/CBBIO/FANTASIA-Lite) and is under the GNU
+  Affero General Public License v3.0, see
+  [LICENSE-FANTASIA-Lite](LICENSE-FANTASIA-Lite). It is only used when
+  `--fantasia` is on, where it is bound into the FANTASIA-Lite container.
 
 ## Citation
 
@@ -364,11 +408,18 @@ Every run writes `citations.md` to `outdir`. It lists the references of the
 gene finder and of the tools that this run used, selected from its inputs and
 parameters. Please cite them in a publication that uses the results.
 
+`methods.md` next to it describes, in the style of a Methods section and in
+the order of execution, what the run did (mode, gene finder and model,
+evidence processing, high-confidence genes, post-processing, quality control,
+ncRNA and GO terms as switched on), with inline citations of the references
+in `citations.md`. `report.html` shows it as well. Check and adapt the text
+before you use it in a publication.
+
 ## References
 
 **Pipeline and gene finders**
 
-- **Paludamentum** (the pipeline). Gabriel L, Hoff KJ. Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders. <https://github.com/Gaius-Augustus/Paludamentum>
+- **Paludamentum** (the pipeline). Gabriel L, Hoff KJ. Paludamentum: evidence integration pipeline for the Gaius-Augustus gene finders. 2026. <https://github.com/Gaius-Augustus/Paludamentum>
 - **Nextflow** (workflow engine). Di Tommaso P, Chatzou M, Floden EW, Barja PP, Palumbo E, Notredame C. Nextflow enables reproducible computational workflows. Nature Biotechnology. 2017;35(4):316-319. [doi:10.1038/nbt.3820](https://doi.org/10.1038/nbt.3820)
 - **Tiberius** (gene prediction). Gabriel L, Becker F, Hoff KJ, Stanke M. Tiberius: end-to-end deep learning with an HMM for gene prediction. Bioinformatics. 2024;40(12):btae685. [doi:10.1093/bioinformatics/btae685](https://doi.org/10.1093/bioinformatics/btae685)
 - **Tiberius** (models of the non-mammalian clades). Gabriel L, Brůna T, Kaur A, Krishnan A, Ortmann F, Salamov A, Talbot S, Becker F, Krieg R, Wheat CW, Grigoriev IV, Stanke M, Hoff KJ. Accurate *ab initio* gene prediction in eukaryotes with Tiberius in multiple clades. bioRxiv. 2026. [doi:10.64898/2026.04.24.720536](https://doi.org/10.64898/2026.04.24.720536)
@@ -389,7 +440,7 @@ parameters. Please cite them in a publication that uses the results.
 - **AUGUSTUS (bam2hints)** (intron hints from read alignments). Stanke M, Diekhans M, Baertsch R, Haussler D. Using native and syntenically mapped cDNA alignments to improve *de novo* gene finding. Bioinformatics. 2008;24(5):637-644. [doi:10.1093/bioinformatics/btn013](https://doi.org/10.1093/bioinformatics/btn013)
 - **VARUS** (sampled and aligned reads of the pyVARUS input). Stanke M, Bruhn W, Becker F, Hoff KJ. VARUS: sampling complementary RNA reads from the sequence read archive. BMC Bioinformatics. 2019;20(1):558. [doi:10.1186/s12859-019-3182-x](https://doi.org/10.1186/s12859-019-3182-x)
 - **StringTie** (transcript assembly). Kovaka S, Zimin AV, Pertea GM, Razaghi R, Salzberg SL, Pertea M. Transcriptome assembly from long-read RNA-seq alignments with StringTie2. Genome Biology. 2019;20(1):278. [doi:10.1186/s13059-019-1910-1](https://doi.org/10.1186/s13059-019-1910-1)
-- **GffRead** (format conversion, protein sequences). Pertea G, Pertea M. GFF Utilities: GffRead and GffCompare. F1000Research. 2020;9:304. [doi:10.12688/f1000research.23297.2](https://doi.org/10.12688/f1000research.23297.2)
+- **GffRead and GffCompare** (format conversion, protein sequences, comparison with a reference annotation). Pertea G, Pertea M. GFF Utilities: GffRead and GffCompare. F1000Research. 2020;9:304. [doi:10.12688/f1000research.23297.2](https://doi.org/10.12688/f1000research.23297.2)
 
 **High-confidence genes**
 
@@ -398,6 +449,23 @@ parameters. Please cite them in a publication that uses the results.
 - **PSAURON** (ORF scores of TD2). Sommer MJ, Zimin AV, Salzberg SL. PSAURON: a tool for assessing protein annotation across a broad range of species. NAR Genomics and Bioinformatics. 2025;7(1):lqae189. [doi:10.1093/nargab/lqae189](https://doi.org/10.1093/nargab/lqae189)
 - **Drusilla** (ORFs of the assembled transcripts as high-confidence genes, filter of the gene predictions). Gabriel L, Hoff KJ. Annotating Eukaryotic Genomes by Combining Deep Learning with extrinsic evidence. Poster, German Conference on Bioinformatics (GCB). 2026. [doi:10.13140/RG.2.2.24444.91521](https://doi.org/10.13140/RG.2.2.24444.91521)
 - **LightGBM** (filter of the gene predictions). Ke G, Meng Q, Finley T, Wang T, Chen W, Ma W, Ye Q, Liu TY. LightGBM: A Highly Efficient Gradient Boosting Decision Tree. Advances in Neural Information Processing Systems 30 (NIPS 2017). 2017. <https://proceedings.neurips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html>
+
+**Post-processing and quality control**
+
+- **GenomeTools** (validation of the published GFF3 files). Gremme G, Steinbiss S, Kurtz S. GenomeTools: a comprehensive software library for efficient processing of structured genome annotations. IEEE/ACM Transactions on Computational Biology and Bioinformatics. 2013;10(3):645-656. [doi:10.1109/TCBB.2013.68](https://doi.org/10.1109/TCBB.2013.68)
+- **BUSCO** (completeness of genome and proteome). Manni M, Berkeley MR, Seppey M, Simão FA, Zdobnov EM. BUSCO Update: novel and streamlined workflows along with broader and deeper phylogenetic coverage for scoring of eukaryotic, prokaryotic, and viral genomes. Molecular Biology and Evolution. 2021;38(10):4647-4654. [doi:10.1093/molbev/msab199](https://doi.org/10.1093/molbev/msab199)
+- **compleasm** (completeness of genome and proteome). Huang N, Li H. compleasm: a faster and more accurate reimplementation of BUSCO. Bioinformatics. 2023;39(10):btad595. [doi:10.1093/bioinformatics/btad595](https://doi.org/10.1093/bioinformatics/btad595)
+- **OMArk** (consistency and completeness of the proteome). Nevers Y, Warwick Vesztrocy A, Rossier V, Train CM, Altenhoff A, Dessimoz C, Glover NM. Quality assessment of gene repertoire annotations with OMArk. Nature Biotechnology. 2025;43(1):124-133. [doi:10.1038/s41587-024-02147-w](https://doi.org/10.1038/s41587-024-02147-w)
+- **OMAmer** (protein families of the proteome for OMArk). Rossier V, Warwick Vesztrocy A, Robinson-Rechavi M, Dessimoz C. OMAmer: tree-driven and alignment-free protein assignment to subfamilies outperforms closest sequence approaches. Bioinformatics. 2021;37(18):2866-2873. [doi:10.1093/bioinformatics/btab219](https://doi.org/10.1093/bioinformatics/btab219)
+- **pybarrnap** (rRNA genes). Shimoyama Y. pybarrnap: Python implementation of barrnap. 2024. <https://github.com/moshi4/pybarrnap>
+- **barrnap** (method and rRNA models that pybarrnap re-implements). Seemann T. barrnap 0.9: BAsic Rapid Ribosomal RNA Predictor. 2018. <https://github.com/tseemann/barrnap>
+- **tRNAscan-SE** (tRNA genes). Chan PP, Lin BY, Mak AJ, Lowe TM. tRNAscan-SE 2.0: improved detection and functional classification of transfer RNA genes. Nucleic Acids Research. 2021;49(16):9077-9096. [doi:10.1093/nar/gkab688](https://doi.org/10.1093/nar/gkab688)
+- **Infernal** (ncRNA genes of the Rfam families). Nawrocki EP, Eddy SR. Infernal 1.1: 100-fold faster RNA homology searches. Bioinformatics. 2013;29(22):2933-2935. [doi:10.1093/bioinformatics/btt509](https://doi.org/10.1093/bioinformatics/btt509)
+- **Rfam** (RNA families database (release 15.1)). Ontiveros-Palacios N, Cooke E, Nawrocki EP, Triebel S, Marz M, Rivas E, Griffiths-Jones S, Petrov AI, Bateman A, Sweeney B. Rfam 15: RNA families database in 2025. Nucleic Acids Research. 2025;53(D1):D258-D267. [doi:10.1093/nar/gkae1023](https://doi.org/10.1093/nar/gkae1023)
+- **FEELnc** (lncRNA genes). Wucher V, Legeai F, Hédan B, et al. FEELnc: a tool for long non-coding RNA annotation and its application to the dog transcriptome. Nucleic Acids Research. 2017;45(8):e57. [doi:10.1093/nar/gkw1306](https://doi.org/10.1093/nar/gkw1306)
+- **FANTASIA** (GO terms from protein language model embeddings). Martínez-Redondo GI, Perez-Canales FM, Carbonetto B, Fernández JM, Barrios-Núñez I, Vázquez-Valls M, Cases I, Rojas AM, Fernández R. FANTASIA leverages language models to decode the functional dark proteome across the animal tree of life. Communications Biology. 2025;8(1):1227. [doi:10.1038/s42003-025-08651-2](https://doi.org/10.1038/s42003-025-08651-2)
+- **FANTASIA suite (FANTASIA-Lite)** (GO term annotation software). Pérez-Canales FM, Domínguez-Rodríguez À, Carbonetto B, Fernández R, Cases I, Rojas AM. FANTASIA suite: a reproducible and configurable framework for embedding-based functional annotation of proteins. NAR Genomics and Bioinformatics. 2026;8(3):lqag106. [doi:10.1093/nargab/lqag106](https://doi.org/10.1093/nargab/lqag106)
+- **ProtT5** (protein language model of FANTASIA). Elnaggar A, Heinzinger M, Dallago C, Rehawi G, Wang Y, Jones L, Gibbs T, Feher T, Angerer C, Steinegger M, Bhowmik D, Rost B. ProtTrans: Toward Understanding the Language of Life Through Self-Supervised Learning. IEEE Transactions on Pattern Analysis and Machine Intelligence. 2022;44(10):7112-7127. [doi:10.1109/TPAMI.2021.3095381](https://doi.org/10.1109/TPAMI.2021.3095381)
 
 ## Funding
 

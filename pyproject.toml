@@ -17,7 +17,10 @@ license-files = ["LICEN[CS]E*"]
 dependencies = ["pyyaml"]
 
 [project.optional-dependencies]
-test = ["pytest"]
+# pytest, and the packages of the bin/ scripts the tests run: pyfaidx, pandas
+# and lightgbm (Drusilla flow), biopython and matplotlib (post-processing).
+# Without them those tests are skipped, not failed.
+test = ["pytest", "biopython", "pyfaidx", "pandas", "lightgbm", "matplotlib"]
 
 [project.scripts]
 paludamentum = "paludamentum.cli:main"

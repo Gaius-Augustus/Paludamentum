@@ -1,7 +1,7 @@
 nextflow.enable.dsl=2
 
-include { HISAT2_BUILD; HISAT2_MAP_SINGLE; HISAT2_MAP_PAIRED;
-          SAMTOOLS_MERGE as SAMTOOLS_MERGE_RNA;
+include { HISAT2_BUILD; HISAT2_MAP_SINGLE; HISAT2_MAP_PAIRED; SAMTOOLS_SORT;
+          MERGE_BAMS as MERGE_BAMS_RNA;
           BAM2HINTS as BAM2HINTS_RNA } from '../modules/rnaseq.nf'
 
 include { FILTER_ALIGNMENT as FILTER_PE; FILTER_ALIGNMENT as FILTER_SE } from '../modules/util.nf'
@@ -9,7 +9,7 @@ include { DOWNLOAD_SRA_PAIRED; DOWNLOAD_SRA_SINGLE } from '../modules/download.n
 include { STRINGTIE_ASSEMBLE_RNA } from '../modules/assembly.nf'
 include { EMPTY_FILE } from '../modules/util.nf'
 include { VARUS_INPUT as VARUS_INPUT_RNA; MERGE_INTRON_HINTS as MERGE_INTRON_HINTS_RNA } from '../modules/varus.nf'
-include { asList; varusInputs } from '../lib_nf/functions.nf'
+include { asList; varusInputs; bamCoordinateSorted } from '../lib_nf/functions.nf'
 
 // Library name of a read file: the file name without the FASTQ suffixes and
 // without a trailing read-pair marker (_1, _R1, .1). Two libraries with the same
@@ -150,13 +150,18 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
         rnaseq_bams = rnaseq_bams.mix(FILTER_PE.out)
     }
 
+    // Merging, bam2hints and StringTie need coordinate-sorted BAMs; HISAT2
+    // sorts its BAMs, a user BAM is sorted unless its header says SO:coordinate
     if( DO_BAM ) {
-        rnaseq_bams = rnaseq_bams.mix(
-            channel.fromList(asList(params_map.rnaseq_bam)).map { f -> file(f) }
-        )
+        def user_bams = channel.fromList(asList(params_map.rnaseq_bam)).map { f -> file(f) }
+            .branch { f ->
+                sorted:   bamCoordinateSorted(f)
+                unsorted: true
+            }
+        rnaseq_bams = rnaseq_bams.mix(user_bams.sorted, SAMTOOLS_SORT(user_bams.unsorted).bam)
     }
 
-    rnaseq_merged = SAMTOOLS_MERGE_RNA(rnaseq_bams.collect())
+    rnaseq_merged = MERGE_BAMS_RNA(rnaseq_bams)
     rnaseq_hints  = BAM2HINTS_RNA(rnaseq_merged.bam, CH_GENOME)
 
     if( asm_mode == 'per_sample' )  asm_gtf_out = STRINGTIE_ASSEMBLE_RNA(rnaseq_bams).gtf

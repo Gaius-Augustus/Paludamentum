@@ -80,16 +80,51 @@ Images are pulled once into `singularity.cacheDir`
 (`~/.cache/paludamentum/singularity` by default, or `NXF_SINGULARITY_CACHEDIR`).
 On a cluster put it on a shared file system that the compute nodes can read.
 
+### Scratch
+
+Both shipped SLURM configs set `scratch = true`: every task runs in a
+temporary directory on the compute node (`$TMPDIR`, or a directory made by
+`mktemp` when it is unset) and copies only its declared outputs back to the
+work directory. Temporary files, such as the sort chunks and intermediate BAMs
+of the read mapping, then stay off the shared file system. The nodes need
+enough local `$TMPDIR` for the largest task; set `scratch = false` in your
+config if they have little local disk. FEELnc tasks always run in their work
+directory (`scratch = false` for the label `feelnc` in `base.config`): its
+container cannot start in a task directory under `/tmp`.
+
+### Work directory
+
+Nextflow does not delete the task directories in `work/` (or `--work_dir`)
+after a run. All final outputs are copied to `outdir`, so the work
+directory of a finished run only serves `-resume`, and it grows to hundreds of
+GB on a large genome. `paludamentum --cleanup` adds `conf/cleanup.config`
+(Nextflow's `cleanup = true`): once the run has completed successfully, its
+task directories are deleted. A failed run keeps them for `--resume`; a
+cleaned run cannot be resumed. Without the launcher, pass
+`-c conf/cleanup.config` to `nextflow run`. Nextflow deletes nothing during
+the run, so the work directory still needs the peak space of the whole run.
+
 ## Process labels
 
 | Label | Meaning |
 | --- | --- |
 | `container` | runs in the evidence tools image pinned in `base.config` |
 | `tiberius`, `vipsania`, `drusilla`, `hint_rescue` | runs in that image instead (see [containers.md](containers.md)); never combined with `container` |
-| `gpu` | needs a GPU; gets `containerOptions = '--nv'` |
-| `bigmem` | high memory task, 100 GB by default |
-| `download` | downloads of SRA reads, OrthoDB partitions and model weights; runs on the submitting host, which needs internet access (4 CPUs, or all of the host's CPUs when it has fewer; 8 GB) |
+| `postprocess`, `busco`, `feelnc`, `omark`, `fantasia` | post-processing images: compleasm, gffcompare, tRNAscan-SE, Infernal, pybarrnap, the report; BUSCO; FEELnc; OMArk; FANTASIA-Lite (see [postprocessing.md](postprocessing.md)) |
+| `gpu` | needs a GPU; gets `containerOptions = '--nv'` (FANTASIA_ANNOTATE: `--nv` and a bind, set by `withName` in `base.config`) |
+| `bigmem` | high memory task, 100 GB by default (also compleasm and BUSCO on the genome, cmscan) |
+| `download` | downloads of SRA reads, OrthoDB partitions, model weights, BUSCO lineages, Rfam and the NCBI taxonomy; runs on the submitting host, which needs internet access (4 CPUs, or all of the host's CPUs when it has fewer; 8 GB). The BUSCO and Rfam downloads also carry the image label `postprocess`, the NCBI taxonomy (built with ete3 for OMArk) the image label `omark`. |
 | `local_only` | tiny task that runs on the submitting host |
+
+Tasks get `params.threads` CPUs (48) unless the site config sets
+`process.cpus`, with these exceptions in `base.config`: the single-threaded
+post-processing tasks (sanity filter, UTRs, final files, statistics, report,
+summaries, GFF3 conversions) and the NCBI taxonomy download get one CPU,
+FANTASIA_ANNOTATE gets 8 and the GPU probe FANTASIA_GPU_CHECK one CPU, 2 GB
+and 1 h (so it is scheduled quickly at the start of the run; keep it on the
+same queue as FANTASIA_ANNOTATE). These are `withName` settings, which beat
+`process.cpus` and `withLabel:` of a site config; change them with a
+`withName:` of your own.
 
 Override resources per label (`withLabel:`) or per process (`withName:`) in
 your config. Memory is a closure of `task.attempt` in `base.config`: a task

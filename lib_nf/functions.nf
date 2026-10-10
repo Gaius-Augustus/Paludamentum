@@ -74,7 +74,7 @@ def tiberiusModelValue(cfg, String key) {
     try {
         def data = new org.yaml.snakeyaml.Yaml().load(file(cfg.toString()).text)
         return (data instanceof Map) ? data[key]?.toString()?.trim() ?: null : null
-    } catch( Exception e ) {
+    } catch( Exception _e ) {
         return null
     }
 }
@@ -144,7 +144,7 @@ def drusillaSetting(p, String key) {
         def table = hcTable(p)
         def forced = table.drusilla_forced?.toString()?.toLowerCase()
         def fallback = (forced && table.clades instanceof Map) ?
-            table.clades.find { k, v -> k.toString().toLowerCase() == forced }?.value : null
+            table.clades.find { k, _v -> k.toString().toLowerCase() == forced }?.value : null
         if( fallback instanceof Map ) entry = fallback
     }
     if( key == 'model' )            return d.model ?: entry.drusilla_model ?: null
@@ -260,5 +260,24 @@ def varusInputs(value, String key, String mode) {
             error "${key}: ${dir} is a pyVARUS run in mode '${have}' (${manifest.name}), expected '${mode}'. " +
                   "rnaseq_varus takes ${takes.rnaseq_varus}, isoseq_varus ${takes.isoseq_varus}, mixed_varus ${takes.mixed_varus}."
         return [dir.name, dir.toString(), manifest, gtf, mode == 'mixed' ? [] : hints]
+    }
+}
+
+// True if the header of a BAM file says SO:coordinate (@HD, its first line).
+// No @HD line, another sort order, SAM/CRAM or an unreadable file: false.
+// BAM is BGZF, a series of gzip members: magic BAM\1, int32 l_text, header text.
+def bamCoordinateSorted(f) {
+    try {
+        new java.util.zip.GZIPInputStream(f.newInputStream()).withCloseable { s ->
+            def head = s.readNBytes(8)
+            if( head.length < 8 || new String(head, 0, 4, 'ISO-8859-1') != 'BAM\u0001' )
+                return false
+            def lText = java.nio.ByteBuffer.wrap(head, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt()
+            def text = s.readNBytes(Math.min(Math.max(lText, 0), 65536))
+            def first = new String(text, 'ISO-8859-1').tokenize('\n')[0] ?: ''
+            return first.startsWith('@HD\t') && first.tokenize('\t').contains('SO:coordinate')
+        }
+    } catch( Exception _e ) {
+        return false
     }
 }

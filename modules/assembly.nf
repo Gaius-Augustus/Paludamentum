@@ -7,10 +7,10 @@ process STRINGTIE_ASSEMBLE_RNA {
   output:
     path "stringtie_${rnabam.baseName}.gtf", emit: gtf
     path "stringtie_${rnabam.baseName}.gff3", emit: gff3
+  // The BAMs of RNASEQ_EVIDENCE are coordinate-sorted
   script:
   """
-  ${params.tools.samtools} sort -@ ${task.cpus} -o sorted.bam ${rnabam}
-  ${params.tools.stringtie} -p ${task.cpus} -o "stringtie_${rnabam.baseName}.gtf" sorted.bam
+  ${params.tools.stringtie} -p ${task.cpus} -o "stringtie_${rnabam.baseName}.gtf" ${rnabam}
   ${params.tools.transdecoder_gtf2gff} "stringtie_${rnabam.baseName}.gtf" > "stringtie_${rnabam.baseName}.gff3"
   """
 
@@ -65,7 +65,7 @@ process STRINGTIE_MERGE {
             ${gtfs} > merged.gff3
 
         # convert to GTF for TD_ALL
-        gffread merged.gff3 -T -o stringtie.gtf
+        ${params.tools.gffread} merged.gff3 -T -o stringtie.gtf
     fi
 
     # in both cases we now have stringtie.gtf
@@ -91,10 +91,8 @@ process STRINGTIE_ASSEMBLE_MIX {
   script:
   """
   mkdir -p stringtie
-  # StringTie needs coordinate-sorted BAMs; user BAMs may be unsorted
-  ${params.tools.samtools} sort -@ ${task.cpus} -o rna.sorted.bam rna.bam
-  ${params.tools.samtools} sort -@ ${task.cpus} -o isoseq.sorted.bam isoseq.bam
-  ${params.tools.stringtie} -p ${task.cpus} -o stringtie/stringtie.gtf --mix rna.sorted.bam isoseq.sorted.bam
+  # the merged BAMs of RNASEQ_EVIDENCE and ISOSEQ_EVIDENCE are coordinate-sorted
+  ${params.tools.stringtie} -p ${task.cpus} -o stringtie/stringtie.gtf --mix rna.bam isoseq.bam
   ${params.tools.transdecoder_gtf2gff} stringtie/stringtie.gtf > stringtie/stringtie.gff3
   """
 

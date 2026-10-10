@@ -1,0 +1,173 @@
+nextflow.enable.dsl=2
+
+// GO terms with FANTASIA-Lite (params.fantasia.run, GPU; docs/postprocessing.md).
+// The commands follow BRAKER4 rules/postprocessing/run_fantasia.smk (commit
+// 3535ed3). Nextflow runs the FANTASIA-Lite image itself (label fantasia);
+// conf/base.config binds bin/fantasia_generate_embeddings.py over the image's
+// generate_embeddings.py, which loads ProtT5 from PALUDAMENTUM_HF_MODEL_PATH.
+
+// The GPU probe of bin/fantasia_gpu_check.sh in the environment where
+// FANTASIA_ANNOTATE will run (same labels, so the same image, queue and
+// clusterOptions). No inputs: Nextflow submits it at the start of the run, so
+// a missing GPU stops the run in the first minutes instead of after hours,
+// when the finished annotation finally reaches FANTASIA_ANNOTATE.
+process FANTASIA_GPU_CHECK {
+  label 'fantasia', 'gpu'
+
+  script:
+  """
+  fantasia_gpu_check.sh
+  """
+
+  stub:
+  """
+  true
+  """
+}
+
+// One chunk of the proteins (fantasia.proteins_per_task); FANTASIA_MERGE
+// joins the results of all chunks.
+process FANTASIA_ANNOTATE {
+  tag "chunk ${chunk}"
+  label 'fantasia', 'gpu'
+
+  input:
+    tuple val(chunk), path(proteins)
+    path hf_cache
+    path lookup_dir
+
+  output:
+    tuple val(chunk), path("fantasia/results.csv"), emit: results
+    tuple val(chunk), path("fantasia/failed_sequences.csv"), optional: true, emit: failed
+
+  script:
+  def extra = params.fantasia.additional_params ?: ''
+  def device = params.fantasia.device
+  // cuda: a GPU with enough free memory, checked again on this node
+  def probe = device == 'cuda' ? 'fantasia_gpu_check.sh' : 'echo "fantasia.device = cpu: ProtT5 on the CPU" >&2'
+  """
+  ${probe}
+  # The snapshot with pytorch_model.bin: torch.load reads it into memory,
+  # the safetensors mmap of the other snapshot fails with SIGBUS in
+  # Singularity on some clusters
+  hf=\$(readlink -f ${hf_cache})/hub/models--Rostlab--prot_t5_xl_uniref50
+  snapshot=\$(find "\$hf/snapshots" -maxdepth 2 -name pytorch_model.bin 2>/dev/null | head -n 1 | xargs -r dirname)
+  if [ -z "\$snapshot" ]; then
+      rev=\$(tr -d '[:space:]' < "\$hf/refs/main" 2>/dev/null || true)
+      [ -n "\$rev" ] || { echo "No ProtT5 model (pytorch_model.bin or refs/main) in \$hf" >&2; exit 1; }
+      snapshot=\$hf/snapshots/\$rev
+  fi
+  lookup=\$(readlink -f ${lookup_dir})
+  filter_proteins.py --in ${proteins} --out proteins.fa --strip-stop
+  mkdir -p fantasia
+  export PALUDAMENTUM_HF_MODEL_PATH=\$snapshot TRANSFORMERS_OFFLINE=1 HF_HUB_OFFLINE=1
+  python3 /opt/fantasia-lite/src/fantasia_pipeline.py \\
+      --serial-models \\
+      --embed-models prot_t5 \\
+      --device ${device} \\
+      --venv-dir /opt/venv \\
+      --lookup-npz "\$lookup/lookup_table.npz" \\
+      --annotations-json "\$lookup/annotations.json" \\
+      --accessions-json "\$lookup/accessions.json" \\
+      --embeddings-npz fantasia/query_embeddings.npz \\
+      --config-yaml fantasia/fantasia_config.yaml \\
+      --results-csv fantasia/results.csv \\
+      --topgo \\
+      --topgo-dir fantasia/topgo \\
+      --chunk-dir fantasia/tmp/fasta_chunks \\
+      --chunk-embed-dir fantasia/tmp/chunk_embeddings \\
+      --chunk-results-dir fantasia/tmp/chunk_results \\
+      --chunk-config-dir fantasia/tmp/chunk_configs \\
+      --chunk-failure-dir fantasia/tmp/failures \\
+      --failure-report fantasia/failed_sequences.csv \\
+      ${extra} \\
+      proteins.fa
+  rm -rf fantasia/tmp fantasia/query_embeddings.npz
+  """
+
+  stub:
+  """
+  mkdir -p fantasia
+  touch fantasia/results.csv
+  """
+}
+
+// results.csv and failed_sequences.csv of the FANTASIA_ANNOTATE chunks,
+// joined in chunk order (inputs staged as results_1.csv, results_2.csv, ...)
+process FANTASIA_MERGE {
+  label 'postprocess'
+  publishDir "${params.outdir}/qc", mode:'copy', overwrite: true
+
+  input:
+    path results, stageAs: 'chunks/results_*.csv'
+    path failed, stageAs: 'chunks/failed_*.csv'
+
+  output:
+    path "fantasia/results.csv", emit: results
+    path "fantasia/failed_sequences.csv", optional: true, emit: failed
+
+  script:
+  """
+  mkdir -p fantasia
+  fantasia_merge_csv.py -o fantasia/results.csv \$(ls chunks/results_*.csv | sort -V)
+  if ls chunks/failed_*.csv > /dev/null 2>&1; then
+      fantasia_merge_csv.py -o fantasia/failed_sequences.csv \$(ls chunks/failed_*.csv | sort -V)
+  fi
+  """
+
+  stub:
+  """
+  mkdir -p fantasia
+  touch fantasia/results.csv
+  """
+}
+
+process FANTASIA_SUMMARY {
+  label 'postprocess'
+  publishDir "${params.outdir}/qc/fantasia", mode:'copy', overwrite: true
+
+  input:
+    path results
+
+  output:
+    path "fantasia_summary.txt", emit: summary
+    path "fantasia_go_terms.tsv", emit: go_terms
+    path "fantasia_go_categories.png", emit: plot
+
+  script:
+  """
+  fantasia_summary.py --results ${results} --out-dir . --min-score ${params.fantasia.min_score}
+  """
+
+  stub:
+  """
+  touch fantasia_summary.txt fantasia_go_terms.tsv fantasia_go_categories.png
+  """
+}
+
+// Ontology_term=GO:... on the mRNAs and genes of a GFF3: <name>_go.gff3
+process FANTASIA_DECORATE {
+  tag "${name}"
+  label 'container'
+  publishDir "${params.outdir}/", mode:'copy', overwrite: true
+
+  input:
+    val name
+    path gff3
+    path results
+
+  output:
+    path "${name}_go.gff3", emit: gff3
+
+  script:
+  """
+  fantasia_decorate_gff3.py --gff3-in ${gff3} --gff3-out ${name}_go.gff3 --results ${results} \\
+      --min-score ${params.fantasia.min_score}
+  validate_gff3.sh ${name}_go.gff3
+  """
+
+  stub:
+  """
+  touch ${name}_go.gff3
+  """
+}

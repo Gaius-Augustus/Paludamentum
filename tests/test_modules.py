@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 MODULES = sorted((ROOT / "modules").glob("*.nf"))
 
@@ -45,3 +47,119 @@ def test_every_diamond_call_sets_threads():
 def test_base_config_reserves_params_threads_by_default():
     text = (ROOT / "conf" / "base.config").read_text()
     assert re.search(r"^\s*cpus\s*=\s*\{\s*params\.threads", text, re.MULTILINE)
+
+
+POSTPROCESS_MODULES = ("finalize.nf", "qc.nf", "completeness.nf", "ncrna.nf", "fantasia.nf")
+
+
+def base_config_cpus_by_name():
+    """Process names of the withName selectors of base.config that set cpus."""
+    text = (ROOT / "conf" / "base.config").read_text()
+    names = set()
+    for match in re.finditer(r"withName:\s*'([^']+)'\s*\{([^}]*)\}", text):
+        if re.search(r"^\s*cpus\s*=", match.group(2), re.MULTILINE):
+            names.update(match.group(1).split("|"))
+    return names
+
+
+def test_postprocess_tasks_do_not_reserve_the_default_cpus():
+    """A post-processing task whose tools do not run with task.cpus threads
+    sets its cpus in base.config; otherwise it reserves the 48 of the default
+    (a single-threaded report on 48 CPUs, FANTASIA with 48 CPUs on a GPU node)."""
+    with_cpus = base_config_cpus_by_name()
+    missing = []
+    for name in POSTPROCESS_MODULES:
+        text = (ROOT / "modules" / name).read_text()
+        for match in re.finditer(r"^process\s+(\w+)\s*\{(.*?)^\}", text, re.MULTILINE | re.DOTALL):
+            process, body = match.groups()
+            if "label 'download'" in body or "${task.cpus}" in body:
+                continue
+            if process not in with_cpus:
+                missing.append(f"{name}: {process}")
+    assert not missing, missing
+
+
+def base_config_tool_defaults():
+    """{params.tools key: default executable name} from the tools block of base.config."""
+    text = (ROOT / "conf" / "base.config").read_text()
+    block = re.search(r"^  tools \{(.*?)^  \}", text, re.MULTILINE | re.DOTALL)
+    assert block, "conf/base.config has no tools block"
+    return dict(re.findall(r"^\s*(\w+)\s*=\s*\"([^\"]+)\"", block.group(1), re.MULTILINE))
+
+
+def test_every_configured_tool_is_called_through_its_override():
+    """A tool with a params.tools key must be called as ${params.tools.<key>}:
+    a bare name in a script block silently ignores the override (which
+    --check_tools does check and docs/parameters.md does document)."""
+    defaults = base_config_tool_defaults()
+    assert "gffread" in defaults and "omark" in defaults, sorted(defaults)
+    # the executable at command position: start of line, or after a pipe, a
+    # command separator, a $( or the ) of a case branch
+    patterns = {
+        key: re.compile(r"(?:^|[|;&)]|\$\()\s*" + re.escape(name) + r"(?=\s)")
+        for key, name in defaults.items()
+    }
+    offenders = []
+    for name, number, line in script_lines():
+        for key, pattern in patterns.items():
+            if pattern.search(line):
+                offenders.append(f"{name}:{number}: {defaults[key]} (params.tools.{key})")
+    assert not offenders, offenders
+
+
+def test_cmscan_annotates_overlaps_within_clans():
+    """bin/infernal_to_gff3.py reads the olp field (--fmt 2) and keeps the best
+    hit of an overlapping set. --oclan restricts the overlap annotation to the
+    families of one Rfam clan and needs --clanin and --fmt 2 (cmscan(1))."""
+    text = (ROOT / "modules" / "ncrna.nf").read_text()
+    call = re.search(r"\$\{params\.tools\.cmscan\}(.*?)> /dev/null", text, re.S)
+    assert call, "no cmscan call in modules/ncrna.nf"
+    for option in ("--clanin", "--oclan", "--fmt 2"):
+        assert option in call.group(1), option
+
+
+def test_feelnc_container_has_the_task_directory_as_tmp():
+    """FEELnc writes its feature databases to a fixed /tmp, too small (64 MB)
+    in a contained Singularity container; the label feelnc binds the task
+    directory there and runs without scratch (the task directory would then
+    lie under /tmp itself)."""
+    text = (ROOT / "conf" / "base.config").read_text()
+    block = text[text.index("withLabel: feelnc {"):]
+    block = block[:block.index("}")]
+    assert """containerOptions = '-B "$NXF_TASK_WORKDIR":/tmp'""" in block
+    assert "scratch          = false" in block
+
+
+def test_fantasia_device_reaches_the_pipeline_and_the_probe():
+    """FANTASIA_ANNOTATE passes fantasia.device to fantasia_pipeline.py and runs
+    the GPU probe only with cuda."""
+    text = (ROOT / "modules" / "fantasia.nf").read_text()
+    annotate = text[text.index("process FANTASIA_ANNOTATE"):]
+    assert "--device ${device}" in annotate
+    assert "--device cuda" not in annotate
+    assert "device == 'cuda' ? 'fantasia_gpu_check.sh'" in annotate
+
+
+def test_feelnc_codpot_trains_in_the_task_directory():
+    """FEELnc_codpot.pl writes its shuffled training sequences to /tmp, the
+    64 MB session directory of a contained Singularity container, unless
+    --keeptmp; fasta_ushuffle accepts only A, C, G, T and N, so it gets the
+    genome copy with IUPAC codes as N."""
+    text = (ROOT / "modules" / "ncrna.nf").read_text()
+    call = re.search(r"FEELnc_codpot\.pl(.*?)\n\s*rm -rf", text, re.S)
+    assert call, "no FEELnc_codpot.pl call in modules/ncrna.nf"
+    for option in ("--keeptmp", "--verbosity=0", "-g genome_acgtn.fa"):
+        assert option in call.group(1), option
+    assert "gsub(/[^ACGTNacgtn]/, \"N\")" in text
+
+
+@pytest.mark.parametrize("module,process,tool", [
+    ("genefinder.nf", "RUN_TIBERIUS", "Tiberius"),
+    ("vipsania.nf", "RUN_VIPSANIA", "Vipsania"),
+])
+def test_gene_finder_tasks_write_their_version_line(module, process, tool):
+    """qc/software_versions.tsv gets its gene finder line from these tasks."""
+    text = (ROOT / "modules" / module).read_text()
+    body = text.split(f"process {process} {{", 1)[1].split("\n}", 1)[0]
+    assert re.search(r'path "versions.tsv",\s+emit: versions', body), body
+    assert rf"printf '{tool}\\t" in body, body

@@ -2,7 +2,7 @@ nextflow.enable.dsl=2
 
 include { MINIMAP2_MAP } from '../modules/isoseq.nf'
 include { FILTER_ALIGNMENT as FILTER_ISOSEQ; EMPTY_FILE } from '../modules/util.nf'
-include { SAMTOOLS_MERGE as SAMTOOLS_MERGE_ISO; BAM2HINTS as BAM2HINTS_ISO } from '../modules/rnaseq.nf'
+include { MERGE_BAMS as MERGE_BAMS_ISO; BAM2HINTS as BAM2HINTS_ISO } from '../modules/rnaseq.nf'
 include { DOWNLOAD_SRA_ISOSEQ } from '../modules/download.nf'
 include { STRINGTIE_ASSEMBLE_ISO } from '../modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_ISO; MERGE_INTRON_HINTS as MERGE_INTRON_HINTS_ISO } from '../modules/varus.nf'
@@ -48,7 +48,7 @@ workflow ISOSEQ_EVIDENCE {
 
         iso_bams = channel.empty().mix(FILTER_ISOSEQ.out)
 
-        iso_merged = SAMTOOLS_MERGE_ISO(iso_bams.collect())
+        iso_merged = MERGE_BAMS_ISO(iso_bams)
         iso_hints  = BAM2HINTS_ISO(iso_merged.bam, CH_GENOME)
 
         if( asm_mode == 'per_sample' )  asm_gtf_out = STRINGTIE_ASSEMBLE_ISO(iso_bams).gtf

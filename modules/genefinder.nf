@@ -20,7 +20,8 @@ process RUN_TIBERIUS {
         path weights
 
     output:
-        path "tiberius.${genome.name}.gtf"
+        path "tiberius.${genome.name}.gtf", emit: gtf
+        path "versions.tsv",                emit: versions
 
     script:
     def extra = ''
@@ -47,11 +48,12 @@ process RUN_TIBERIUS {
         --genome ${genome} \\
         "\${MODEL_ARGS[@]}" \\
         --out "tiberius.${genome.name}.gtf"${extra} \${BATCH_ARG:-}
+    printf 'Tiberius\\t%s\\t%s\\n' "\$(python3 -c 'import importlib.metadata as m; print(m.version("tiberius"))' 2>/dev/null || echo unknown)" "${task.container ?: 'none'}" > versions.tsv
     """
 
     stub:
     """
-    touch "tiberius.${genome.name}.gtf"
+    touch "tiberius.${genome.name}.gtf" versions.tsv
     """
 }
 
@@ -122,10 +124,11 @@ process SPLIT_GENOME {
     """
 }
 
-// Ab initio predictions as final result (ab initio mode).
+// Ab initio predictions of the ab initio mode, before the sanity filter; the
+// final <prefix>_ab_initio.gff3 in outdir is written by FINALIZE_ANNOTATION.
 process MERGE_GENEFINDER {
     label 'container'
-    publishDir "${params.outdir}/", mode:'copy'
+    publishDir "${params.outdir}/intermediate/", mode:'copy', overwrite: true
 
     input:
       val prefix
@@ -149,7 +152,7 @@ process MERGE_GENEFINDER {
 // Ab initio predictions as intermediate result (evidence modes).
 process MERGE_GENEFINDER_EVI {
     label 'container'
-    publishDir "${params.outdir}/intermediate/", mode:'copy'
+    publishDir "${params.outdir}/intermediate/", mode:'copy', overwrite: true
 
     input:
       val prefix
@@ -170,9 +173,16 @@ process MERGE_GENEFINDER_EVI {
     """
 }
 
+// Ab initio predictions merged with the HC genes, before the sanity filter;
+// the final <prefix>_evidence.gff3 is written by FINALIZE_ANNOTATION. The HC
+// genes enter the annotation here; nothing is trained on them (the 'TRAIN' of
+// the name, and the traingenes input, come from BRAKER, where they train
+// AUGUSTUS). Both are kept because the process name and its script body are
+// part of the Nextflow task hash: renaming them would invalidate -resume for
+// this process and everything downstream of it.
 process MERGE_GENEFINDER_TRAIN {
     label 'container'
-    publishDir "${params.outdir}/", mode:'copy'
+    publishDir "${params.outdir}/intermediate/", mode:'copy', overwrite: true
 
     input:
       val prefix
@@ -180,17 +190,17 @@ process MERGE_GENEFINDER_TRAIN {
       path traingenes
 
     output:
-      path "${prefix}_evidence.gff3", emit: merged
+      path "${prefix}_merged.gff3", emit: merged
 
     script:
     """
     merge_annotations.py --mode full \\
-        ${ab_initio} ${traingenes} > ${prefix}_evidence.gff3
+        ${ab_initio} ${traingenes} > ${prefix}_merged.gff3
     """
 
     stub:
     """
-    touch ${prefix}_evidence.gff3
+    touch ${prefix}_merged.gff3
     """
 }
 
@@ -211,7 +221,7 @@ process PROTEIN_FROM_GFF {
     # because the resulting protein FASTA is only used by DIAMOND species
     # ranking, so one representative per gene is enough.
     cap_isoforms_per_gene.py --max 10 ${ab_initio} > ab_initio.capped.gff3
-    gffread ab_initio.capped.gff3 \\
+    ${params.tools.gffread} ab_initio.capped.gff3 \\
         -g ${genome} \\
         -y ${prefix}_proteins.fa
     """
@@ -219,31 +229,5 @@ process PROTEIN_FROM_GFF {
   stub:
   """
   touch ${prefix}_proteins.fa
-  """
-}
-
-process PROTEIN_FROM_GFF_FINAL {
-  publishDir "${params.outdir}/", mode:'copy'
-
-  label 'container'
-
-  input:
-      val prefix
-      path annotation
-      path genome
-
-  output:
-      path "${prefix}_evidence_proteins.fa"
-
-  script:
-    """
-    gffread ${annotation} \\
-        -g ${genome} \\
-        -y ${prefix}_evidence_proteins.fa
-    """
-
-  stub:
-  """
-  touch ${prefix}_evidence_proteins.fa
   """
 }

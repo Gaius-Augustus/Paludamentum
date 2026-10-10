@@ -37,7 +37,6 @@ DEFAULT_TOOL_BINARIES: Dict[str, str] = {
     "transdecoder_util_orf2genome": "cdna_alignment_orf_to_genome_orf.pl",
     "transdecoder_gtf2gff": "gtf_to_alignment_gff3.pl",
     "diamond": "diamond",
-    "bedtools": "bedtools",
     "miniprot": "miniprot",
     "miniprot_boundary_scorer": "miniprot_boundary_scorer",
     "miniprothint": "miniprothint.py",
@@ -56,7 +55,6 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "transdecoder_util_orf2genome": "cdna_alignment_orf_to_genome_orf.pl (params.tools.transdecoder_util_orf2genome)",
     "transdecoder_gtf2gff": "gtf_to_alignment_gff3.pl (params.tools.transdecoder_gtf2gff)",
     "diamond": "DIAMOND aligner (params.tools.diamond)",
-    "bedtools": "BEDTools (params.tools.bedtools)",
     "miniprot": "MiniProt aligner (params.tools.miniprot)",
     "miniprot_boundary_scorer": "MiniProt boundary scorer (params.tools.miniprot_boundary_scorer)",
     "miniprothint": "MiniProtHint (params.tools.miniprothint)",
@@ -102,6 +100,7 @@ TOP_LEVEL_CLI_KEYS = (
     "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_sra", "isoseq_varus", "mixed_varus",
     "stringtie", "mode", "scoring_matrix",
 )
+# Post-processing keys of the command line are nested: see BLOCK_CLI_KEYS.
 GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
     "tiberius": ("model_cfg", "model_dir", "result", "min_split_size", "max_files", "max_parallel", "batch_size",
                  "seq_len"),
@@ -114,6 +113,39 @@ GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
 PATH_KEYS = ("genome", "proteins", "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "isoseq", "scoring_matrix",
              "rnaseq_varus", "isoseq_varus", "mixed_varus", "stringtie")
 GENEFINDER_PATH_KEYS = ("result", "model_cfg", "model_dir")
+
+# Command line keys of the post-processing blocks: CLI key -> (block, key)
+BLOCK_CLI_KEYS: Dict[str, Tuple[str, str]] = {
+    "busco_lineage": ("qc", "busco_lineage"),
+    "reference_annotation": ("qc", "reference_annotation"),
+    "ncrna": ("ncrna", "run"),
+    "fantasia": ("fantasia", "run"),
+}
+# Path values of the post-processing blocks, made absolute like PATH_KEYS
+BLOCK_PATH_KEYS = (
+    ("qc", "busco_download_path"), ("qc", "omamer_db"), ("qc", "ete_taxa_path"), ("qc", "reference_annotation"),
+    ("ncrna", "rfam_dir"), ("fantasia", "hf_cache_dir"), ("fantasia", "lookup_dir"),
+)
+
+# Tools of the post-processing (params.tools key, description, condition on
+# the params): checked with --check_tools only when the step that runs them is on
+POSTPROCESS_TOOLS: Tuple[Tuple[str, str, str], ...] = (
+    ("gffread", "GffRead (params.tools.gffread)", "always"),
+    ("compleasm", "compleasm (params.tools.compleasm)", "compleasm"),
+    ("busco", "BUSCO (params.tools.busco)", "busco"),
+    ("gffcompare", "GffCompare (params.tools.gffcompare)", "reference_annotation"),
+    ("trnascan", "tRNAscan-SE (params.tools.trnascan)", "ncrna"),
+    ("cmscan", "Infernal cmscan (params.tools.cmscan)", "ncrna"),
+    ("cmpress", "Infernal cmpress (params.tools.cmpress)", "ncrna"),
+    ("barrnap", "pybarrnap (params.tools.barrnap)", "ncrna"),
+    ("omamer", "OMAmer (params.tools.omamer)", "omark"),
+    ("omark", "OMArk (params.tools.omark)", "omark"),
+)
+POSTPROCESS_TOOL_DEFAULTS: Dict[str, str] = {
+    "gffread": "gffread", "compleasm": "compleasm.py", "busco": "busco", "gffcompare": "gffcompare",
+    "trnascan": "tRNAscan-SE", "cmscan": "cmscan", "cmpress": "cmpress", "barrnap": "pybarrnap",
+    "omamer": "omamer", "omark": "omark",
+}
 
 ROOT_ENV = "PALUDAMENTUM_ROOT"
 
@@ -430,6 +462,10 @@ def cli_overrides(args, genefinder: str) -> Dict:
             block[key] = value
     if block:
         overrides[genefinder] = block
+    for key, (name, sub) in BLOCK_CLI_KEYS.items():
+        value = value_of(key)
+        if value is not None:
+            overrides.setdefault(name, {})[sub] = value
     return overrides
 
 
@@ -482,6 +518,10 @@ def merge_run_params(args, genefinder: str | None = None, root: str | Path | Non
     for key in GENEFINDER_PATH_KEYS:
         if cfg.get(key):
             cfg[key] = absolute_paths(cfg[key], f"{genefinder}.{key}")
+    for name, key in BLOCK_PATH_KEYS:
+        block = params.get(name)
+        if isinstance(block, dict) and block.get(key):
+            block[key] = absolute_paths(block[key], f"{name}.{key}")
 
     if cfg.get("run") and not cfg.get("result"):
         if genefinder == "tiberius" and not cfg.get("model_cfg"):
@@ -704,6 +744,47 @@ def build_tool_command_map(params: Dict) -> Dict[str, str]:
     return command_map
 
 
+def truthy(value) -> bool:
+    """YAML/CLI values such as true, 'true', 1, 'yes' as boolean, as truthy() of lib_nf/functions.nf."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "1", "yes", "y", "on") if value is not None else False
+
+
+def postprocess_steps(params: Dict) -> Dict[str, bool]:
+    """Post-processing steps that a run executes, from the params and the defaults of conf/base.config."""
+    def block(name: str) -> Dict:
+        value = params.get(name)
+        return value if isinstance(value, dict) else {}
+
+    qc = block("qc")
+    finder = params.get(params.get("genefinder") or "tiberius")
+    if not (isinstance(finder, dict) and finder.get("run")):
+        return {}
+    lineage = bool(qc.get("busco_lineage"))
+    return {
+        "always": True,
+        "compleasm": lineage and truthy(qc.get("compleasm", True)),
+        "busco": lineage and truthy(qc.get("busco", True)),
+        "reference_annotation": bool(qc.get("reference_annotation")),
+        "ncrna": truthy(block("ncrna").get("run", False)),
+        "omark": truthy(qc.get("omark", False)),
+    }
+
+
+def postprocess_tools(params: Dict) -> List[Tuple[str, str, str]]:
+    """(key, command, description) of the post-processing tools of a run, for --check_tools."""
+    steps = postprocess_steps(params)
+    overrides = params.get("tools") if isinstance(params.get("tools"), dict) else {}
+    tools = []
+    for key, label, step in POSTPROCESS_TOOLS:
+        if steps.get(step):
+            tools.append((key, str(overrides.get(key) or POSTPROCESS_TOOL_DEFAULTS[key]), label))
+    if steps.get("always"):
+        tools.append(("gt", "gt", "GenomeTools gt (GFF3 validation of the published files)"))
+    return tools
+
+
 def validate_executables(
     params: Dict,
     nextflow_bin: str,
@@ -753,6 +834,8 @@ def validate_executables(
         for key, cmd in tools.items():
             label = TOOL_DESCRIPTIONS.get(key, f"Tool '{key}'")
             check_command(cmd, label)
+        for key, cmd, label in postprocess_tools(params):
+            check_command(cmd, label)
 
         for name, cli in GENEFINDER_CLI.items():
             finder_cfg = params.get(name) or {}
@@ -778,6 +861,7 @@ def run_nextflow(
     resume: bool,
     work_dir: str | None,
     extra_args: Sequence[str],
+    cleanup: bool = False,
 ) -> int:
     launch_cwd = Path.cwd()
     cmd = [
@@ -792,6 +876,8 @@ def run_nextflow(
     # The user config is layered on top of base.config. Skip it if it is base.config itself.
     if Path(config_path).resolve() != Path(base_config_path).resolve():
         cmd.extend(["-c", str(config_path)])
+    if cleanup:
+        cmd.extend(["-c", str(Path(base_config_path).parent / "cleanup.config")])
     if profile:
         cmd.extend(["-profile", profile])
     if resume:
@@ -820,7 +906,7 @@ def run_nextflow_pipeline(
     ``args`` is an argparse-like namespace. Required attributes: ``params_yaml``
     (a complete params file, see ``build_params``), ``nf_config``. Optional:
     ``nextflow_args``, ``work_dir``, ``profile``, ``nextflow_bin``, ``resume``,
-    ``check_tools``, ``skip_singularity_check``, ``dry_run``. ``genefinder`` is
+    ``cleanup``, ``check_tools``, ``skip_singularity_check``, ``dry_run``. ``genefinder`` is
     the gene finder of the run; the pipeline itself selects it from the params.
 
     ``params`` are merged params (see ``merge_run_params``) instead of
@@ -907,6 +993,7 @@ def run_nextflow_pipeline(
         resume=bool(getattr(args, "resume", False)),
         work_dir=str(work_dir) if work_dir else None,
         extra_args=extra_args,
+        cleanup=bool(getattr(args, "cleanup", False)),
     )
     if returncode != 0:
         raise SystemExit(returncode)

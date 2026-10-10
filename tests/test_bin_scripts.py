@@ -262,3 +262,69 @@ def test_malformed_hint_line_is_an_error(tmp_path: Path):
     proc = run("merge_intron_hints.py", "a.gff", cwd=tmp_path)
     assert proc.returncode != 0
     assert "a.gff:1" in proc.stderr
+
+
+# ---------------------------------------------------------------- compleasm_wrapper.py
+
+# Stand-in for compleasm.py: its own URLError class and the hash download of
+# Downloader.download_file_version_document, which writes into the library path
+FAKE_COMPLEASM = '''
+import sys, urllib.request
+class URLError(OSError):
+    pass
+lib = sys.argv[sys.argv.index("-L") + 1]
+try:
+    urllib.request.urlretrieve(sys.argv[-1], lib + "/file_versions.tsv.hash")
+    print("downloaded")
+except URLError:
+    print("offline: using cached file_versions.tsv")
+'''
+
+
+@pytest.mark.parametrize("mode", ["run", "protein"])
+def test_compleasm_wrapper_never_downloads_in_run_and_protein_mode(tmp_path, mode):
+    # tasks sharing a library path overwrote file_versions.tsv.hash while
+    # another task read it (IndexError); in these modes nothing is written
+    fake = tmp_path / "compleasm.py"
+    fake.write_text(FAKE_COMPLEASM)
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    remote = tmp_path / "remote.hash"
+    remote.write_text("0123456789abcdef  file_versions.tsv\n")
+    r = run("compleasm_wrapper.py", str(fake), mode, "-L", str(lib), remote.as_uri())
+    assert r.returncode == 0, r.stderr
+    assert "offline" in r.stdout
+    assert not (lib / "file_versions.tsv.hash").exists()
+
+
+def test_compleasm_wrapper_downloads_in_download_mode(tmp_path):
+    fake = tmp_path / "compleasm.py"
+    fake.write_text(FAKE_COMPLEASM)
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    remote = tmp_path / "remote.hash"
+    remote.write_text("0123456789abcdef  file_versions.tsv\n")
+    r = run("compleasm_wrapper.py", str(fake), "download", "vertebrata", "-L", str(lib), remote.as_uri())
+    assert r.returncode == 0, r.stderr
+    assert "downloaded" in r.stdout
+    assert (lib / "file_versions.tsv.hash").read_text() == remote.read_text()
+
+
+def test_compleasm_wrapper_extracts_members_in_archive_order(tmp_path, monkeypatch):
+    # compleasm passes the HMMs in set order; in a .tar.gz each backward seek
+    # decompresses the archive again, so the wrapper sorts them by offset
+    import tarfile
+    names = [f"lin/hmms/g{i}.hmm" for i in range(5)]
+    archive = tmp_path / "lin.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        for n in names:
+            f = tmp_path / n.replace("/", "_")
+            f.write_text(n)
+            tar.add(f, arcname=n)
+    seen = []
+    monkeypatch.setattr(tarfile.TarFile, "extractall",
+                        lambda self, path=".", members=None, **kw: seen.extend(m.name for m in members))
+    load("compleasm_wrapper").patch_tarfile_member_order()
+    with tarfile.open(archive) as tar:
+        tar.extractall(tmp_path / "out", members=[tar.getmember(n) for n in reversed(names)])
+    assert seen == names

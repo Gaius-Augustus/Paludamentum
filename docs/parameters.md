@@ -101,6 +101,10 @@ rnaseq_single:
 ### RNA-Seq/Iso-Seq (SRA-download)
 RNA-Seq and Iso-Seq libraries can also be automatically downloaded from the Sequence-Read-Archive by specifying their SRA IDs at
 `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra`.  
+An accession whose download fails twice (a network error, or a run that `fasterq-dump` cannot read) is dropped
+with an `Error is ignored` note, as a library below `min_alignment_rate` is dropped; the other libraries go on,
+and `-resume` tries the dropped accession again. The reads stay in the Nextflow work directory; with
+`keep_downloads: true` they are also copied to `sra_downloads/` in `outdir`.
 
 
 ## Parameters
@@ -112,6 +116,7 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `outdir`                   | `"results"` (the launcher sets `<genefinder>_results`) | Directory where all final results are written.                                                               |
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
 | `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
+| `keep_downloads`           | `false`                                | Copy the reads downloaded from SRA to `sra_downloads/` in `outdir`. Off, they are kept in the work directory only, which saves a second copy of every library. |
 | `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. |
 | `hc_table`                 | `"conf/hc_genes.yaml"`                 | HC gene step per clade of the gene finder model: `hc: drusilla` (with `drusilla_model`, `lgb_model`, `lgb_model_sha256`) or the TransDecoder flow, and its `orf_finder`. Today Drusilla for `Vertebrata` and `Mammalia`, TD2 for every other clade. |
 | `transdecoder`             | `orf_finder` of `hc_table` (`"td2"`)   | ORF finder of the TransDecoder HC gene flow: `td1` (TransDecoder 5.7.1) or `td2` ([TD2](https://github.com/Markusjsommer/TD2) 1.1.0, in the container image). See [orf_finder_comparison.md](orf_finder_comparison.md). |
@@ -133,7 +138,6 @@ The location of the required executables is set by default so that they are avai
 | `tools.td2_longorfs`                 | `"TD2.LongOrfs"`                        | Long ORF detection of TD2 (`transdecoder: td2`).                    |
 | `tools.td2_predict`                  | `"TD2.Predict"`                         | ORF prediction of TD2 (`transdecoder: td2`).                        |
 | `tools.diamond`                      | `"diamond"`                             | Diamond alignment tool for protein-to-genome searches.              |
-| `tools.bedtools`                     | `"bedtools"`                            | Bedtools for genomic interval operations.                           |
 | `tools.miniprot`                     | `"miniprot"`                            | MiniProt — protein-to-genome aligner.                               |
 | `tools.miniprot_boundary_scorer`     | `"miniprot_boundary_scorer"`            | Additional MiniProt scoring utility for boundary refinement.        |
 | `tools.miniprothint`                 | `"miniprothint.py"`                     | MiniProtHint wrapper script for generating protein hints.           |
@@ -143,7 +147,8 @@ The location of the required executables is set by default so that they are avai
 
 ### Aligned RNA-Seq reads (BAM)
 Already aligned short reads, for example from VARUS, go to `rnaseq_bam` as a
-list of BAM files. They skip the HISAT2 step.
+list of BAM files. They skip the HISAT2 step. A BAM whose header does not say
+`SO:coordinate` is sorted first; a coordinate-sorted one is used as it is.
 
 ### pyVARUS output directories
 [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) writes `stringtie.gtf`
@@ -220,7 +225,7 @@ The launcher resolves a name such as `diatoms` to that file.
 | `tiberius.run` | `false` (the launcher sets `true` for the selected gene finder) | Run Tiberius and merge its predictions with the HC genes. |
 | `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. |
 | `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` in the model configuration without `.tar.gz`, e.g. `vertebrates_weights`), instead of the download at the start of the run. Tiberius then runs with `--model` and never downloads; the task fails if the directory is missing or empty. Without `model_dir` the archive of `weights_url` is downloaded once on the submitting host (label `download`) and staged into the tasks, so the GPU nodes need no internet. |
-| `tiberius.result` | none | Existing Tiberius prediction (`--result`): the GFF3 or GTF of `tiberius.py`, or the `tiberius_ab_initio.gff3` of an earlier run. It is used instead of running Tiberius, in every mode; a missing file is an error. `tiberius.model_cfg` is then optional: it is not run, but the model of a vertebrate prediction selects the [Drusilla flow](drusilla_flow.md) and is the model of its hint rescue. |
+| `tiberius.result` | none | Existing Tiberius prediction (`--result`): the GFF3 or GTF of `tiberius.py`, or the `intermediate/tiberius_ab_initio.gff3` of an earlier run (not `tiberius_ab_initio.gff3` in the output directory of mode `abinitio`, which is the sanity-filtered final annotation). It is used instead of running Tiberius, in every mode; a missing file is an error. `tiberius.model_cfg` is then optional: it is not run, but the model of a vertebrate prediction selects the [Drusilla flow](drusilla_flow.md) and is the model of its hint rescue. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
 | `tiberius.max_files` | `20` | Maximal number of genome chunks, which is the upper limit of parallel Tiberius tasks. |
 | `tiberius.max_parallel` | unlimited | Cap of concurrently running Tiberius tasks, for example `1` on a single-GPU workstation. |
@@ -267,6 +272,7 @@ the *ab initio* predictions. The steps are described in
 | `drusilla.fix_stop`, `drusilla.fix_start` | `true` | Stop codon fix of the ORFs with miniprot alignments; start codon fix with miniprothint start hints (needs `fix_stop`). |
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
+| `drusilla.drop_unstranded` | `true` | StringTie pre-filter: drop transcripts with strand `.`, which have no spliced reads and are almost all single-exon. On *T. rubripes* the ORFs Drusilla found on them were mostly not genes of the reference: gene F1 76.36 with them, 76.55 without. |
 | `drusilla.lgb_model` | `lgb_model` of the clade in `hc_table` (released `drusilla_lgb_3class_v1`) | LightGBM model of the *ab initio* filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. |
 | `drusilla.lgb_model_sha256` | none (with `lgb_model` of `hc_table`: its `lgb_model_sha256`) | sha256 of the archive given as `drusilla.lgb_model`, checked after the download; `null`: not checked. |
 | `drusilla.lgb_threshold` | `0.5` | Transcripts with P(partial) + P(correct) at or above it are candidates. |
@@ -278,6 +284,40 @@ the *ab initio* predictions. The steps are described in
 | `drusilla.rescue_hint_weight` | `2.5` | `tiberius.py --hint_weight` of the rescue. |
 | `drusilla.rescue_orf_filter` | `false` | ORF-agreement filter: skip rescue loci where a Drusilla ORF already has all introns of the best protein chain. Off by default, as benchmarked. |
 | `drusilla.rescue_seq_len` | `99990` | `tiberius.py --seq_len` of the rescue (divisible by 18). |
+
+## Post-processing and quality control
+
+The steps after the integration, see [postprocessing.md](postprocessing.md).
+Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
+`--fantasia`; the other keys go into the params file.
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `postprocess.sanity_filter` | `true` | Remove transcripts with an internal stop codon, a CDS length that is not a multiple of 3, a broken CDS structure or no CDS; `false`: report only (`qc/sanity_filter.tsv`). |
+| `postprocess.utr` | `true` | UTRs from the StringTie assemblies for transcripts without UTRs (modes `rnaseq`, `isoseq`, `mixed`). |
+| `postprocess.max_utr_extension` | `5000` | Maximal UTR extension in bp beyond the CDS. |
+| `qc.busco_lineage` | none | BUSCO/compleasm lineage, e.g. `eukaryota_odb12`, `vertebrata_odb12` (without `_odbNN`: odb12). Without it there is no completeness assessment. |
+| `qc.busco_download_path` | `~/.cache/paludamentum/busco` | Lineage cache, layout `<dir>/lineages/<lineage>/`; a missing lineage is downloaded once on the submitting host. |
+| `qc.compleasm`, `qc.busco` | `true` | compleasm and BUSCO on genome and proteome (with `qc.busco_lineage`). |
+| `qc.omark` | `false` | OMArk on the proteome; needs `qc.omamer_db`. |
+| `qc.omamer_db` | none | OMAmer database (e.g. `LUCA.h5`, about 15 GB). |
+| `qc.ete_taxa_path` | `~/.cache/paludamentum/ncbi_taxonomy` | NCBI taxonomy for OMArk: ete3's `taxa.sqlite`, built once on the submitting host from `taxdump.tar.gz`, which is downloaded there unless the directory holds it. |
+| `qc.reference_annotation` | none | Reference annotation (GFF3 or GTF, gzipped or not): `gffcompare` at CDS level, `qc/gffcompare.stats`. |
+| `qc.gene_support` | `true` | Hint support per transcript, `qc/gene_support.tsv` (evidence modes). |
+| `qc.statistics` | `true` | Gene set statistics and plots. |
+| `qc.report` | `true` | `report.html`. |
+| `ncrna.run` | `false` | rRNA, tRNA, Rfam and lncRNA genes, `<stem>_with_ncRNA.gff3`. |
+| `ncrna.rfam_dir` | `~/.cache/paludamentum/rfam` | Directory with `Rfam.cm` and `Rfam.clanin` (Rfam 15.1); unset: downloaded once on the submitting host. |
+| `ncrna.trnascan_high_confidence` | `false` | tRNAscan-SE high-confidence filter (EukHighConfidenceFilter). |
+| `ncrna.lncrna` | `true` | lncRNA with FEELnc (modes with transcripts). |
+| `fantasia.run` | `false` | GO terms with FANTASIA-Lite (GPU), `<stem>_go.gff3`. |
+| `fantasia.hf_cache_dir` | none | Hugging Face cache with `Rostlab/prot_t5_xl_uniref50` (required with `fantasia.run`). |
+| `fantasia.lookup_dir` | none | `lookup_table.npz`, `annotations.json`, `accessions.json` of Zenodo record 17720428 (required with `fantasia.run`). |
+| `fantasia.min_score` | `0.5` | Minimum score of a GO term. |
+| `fantasia.device` | `cuda` | `cuda`, or `cpu`: the ProtT5 embeddings on the CPU, no GPU and no GPU probe (much slower; route `FANTASIA_ANNOTATE` to a CPU queue, see [postprocessing.md](postprocessing.md#go-terms-with-fantasia-lite)). |
+| `fantasia.proteins_per_task` | none | Proteins per `FANTASIA_ANNOTATE` task; the tasks run in parallel and `FANTASIA_MERGE` joins their results. None: 2000 with `fantasia.device: cpu`, all proteins in one task with `cuda`; `0`: one task. |
+| `fantasia.additional_params` | none | Appended to `fantasia_pipeline.py`. |
+| `tools.gffread`, `tools.compleasm`, `tools.busco`, `tools.gffcompare`, `tools.trnascan`, `tools.cmscan`, `tools.cmpress`, `tools.barrnap`, `tools.omamer`, `tools.omark` | the names on `PATH` in the images | Executables of the post-processing (`--check_tools` checks those of the steps that are on). GenomeTools (`gt`, GFF3 validation of the final files) has no override and is called by name. |
 
 ## Mode
 
