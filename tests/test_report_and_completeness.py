@@ -422,10 +422,41 @@ def test_citations_rendering():
                     '<a href="https://example.org/a_b">https://example.org/a_b</a>.</li></ul>')
 
 
-# ---------------------------------------------------------------- fantasia_summary.py
-
 FANTASIA_HEADER = "query_accession,go_id,reliability_index,distance,go_description,category\n"
 
+
+# ---------------------------------------------------------------- fantasia_merge_csv.py
+
+def test_fantasia_merge_csv_keeps_the_first_header_and_the_chunk_order(tmp_path: Path):
+    """The results of the FANTASIA_ANNOTATE chunks are joined in the given order,
+    with one header; an empty file (a chunk without rows) is skipped."""
+    chunks = []
+    for name, rows in (("1", "g2.t1,GO:0005634,0.77,0.2,nucleus,cellular_component\n"),
+                       ("2", None),
+                       ("3", "g1.t1,GO:0005524,0.91,0.1,ATP binding,molecular_function\n"
+                             "g1.t1,GO:0016887,0.60,0.3,ATP hydrolysis,molecular_function\n")):
+        path = tmp_path / f"results_{name}.csv"
+        path.write_text("" if rows is None else FANTASIA_HEADER + rows)
+        chunks.append(str(path))
+    out = tmp_path / "results.csv"
+    proc = run("fantasia_merge_csv.py", "-o", str(out), *chunks)
+    assert proc.returncode == 0, proc.stderr
+    assert out.read_text() == (FANTASIA_HEADER
+                               + "g2.t1,GO:0005634,0.77,0.2,nucleus,cellular_component\n"
+                               + "g1.t1,GO:0005524,0.91,0.1,ATP binding,molecular_function\n"
+                               + "g1.t1,GO:0016887,0.60,0.3,ATP hydrolysis,molecular_function\n")
+
+
+def test_fantasia_merge_csv_refuses_another_header(tmp_path: Path):
+    first, second = tmp_path / "results_1.csv", tmp_path / "results_2.csv"
+    first.write_text(FANTASIA_HEADER)
+    second.write_text("sequence_id,model_name\n")
+    proc = run("fantasia_merge_csv.py", "-o", str(tmp_path / "out.csv"), str(first), str(second))
+    assert proc.returncode != 0
+    assert "differs from" in proc.stderr
+
+
+# ---------------------------------------------------------------- fantasia_summary.py
 
 @pytest.mark.parametrize("rows", [
     "",                                                          # results.csv with a header only

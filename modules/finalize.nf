@@ -107,7 +107,9 @@ process FINALIZE_ANNOTATION {
 
   stub:
   """
-  touch ${stem}.gff3 ${stem}.gtf ${stem}_proteins.fa ${stem}_cds.fa versions.tsv
+  touch ${stem}.gff3 ${stem}.gtf ${stem}_cds.fa versions.tsv
+  # two proteins, so that the FANTASIA chunks (fantasia.proteins_per_task) can be tested
+  printf '>stub.t1\\nM\\n>stub.t2\\nM\\n' > ${stem}_proteins.fa
   """
 }
 

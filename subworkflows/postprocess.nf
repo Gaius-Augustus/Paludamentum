@@ -20,7 +20,7 @@ include { GENE_SUPPORT; GENE_SET_STATISTICS; DOWNLOAD_NCBI_TAXONOMY; OMARK; GFFC
           REPORT } from '../modules/qc.nf'
 include { DOWNLOAD_RFAM; BARRNAP; TRNASCAN; CMSCAN; INFERNAL_TO_GFF3; FEELNC; FEELNC_TO_GFF3; MERGE_NCRNA } from '../modules/ncrna.nf'
 include { STRINGTIE_MERGE as STRINGTIE_MERGE_ALL } from '../modules/assembly.nf'
-include { FANTASIA_GPU_CHECK; FANTASIA_ANNOTATE; FANTASIA_SUMMARY; FANTASIA_DECORATE as FANTASIA_DECORATE_CODING;
+include { FANTASIA_GPU_CHECK; FANTASIA_ANNOTATE; FANTASIA_MERGE; FANTASIA_SUMMARY; FANTASIA_DECORATE as FANTASIA_DECORATE_CODING;
           FANTASIA_DECORATE as FANTASIA_DECORATE_NCRNA } from '../modules/fantasia.nf'
 
 // BUSCO lineage with its OrthoDB version (eukaryota -> eukaryota_odb12), or null
@@ -184,8 +184,21 @@ workflow POSTPROCESS {
         // killed the run only hours in, in FANTASIA_ANNOTATE, and report.html
         // was never written. fantasia.device = cpu needs no GPU.
         if( params.fantasia.device == 'cuda' ) FANTASIA_GPU_CHECK()
-        def results = FANTASIA_ANNOTATE(proteins, file(params.fantasia.hf_cache_dir.toString()),
-                                        file(params.fantasia.lookup_dir.toString())).results
+        // one task per chunk of proteins_per_task proteins (0: one task);
+        // default 2000 on the CPU (about 2 h on 48 CPUs, so a vertebrate
+        // proteome no longer runs a day in one job), one task on the GPU
+        def perTask = params.fantasia.proteins_per_task
+        if( perTask == null ) perTask = params.fantasia.device == 'cpu' ? 2000 : 0
+        if( !(perTask.toString().isInteger() && (perTask as int) >= 0) )
+            error "fantasia.proteins_per_task: a whole number >= 0, not '${perTask}'."
+        def chunks = (perTask as int) > 0
+            ? proteins.splitFasta(by: perTask as int, file: true).toList()
+                      .flatMap { files -> (0..<files.size()).collect { i -> [i + 1, files[i]] } }
+            : proteins.map { f -> [1, f] }
+        def annotated = FANTASIA_ANNOTATE(chunks, file(params.fantasia.hf_cache_dir.toString()),
+                                          file(params.fantasia.lookup_dir.toString()))
+        def inChunkOrder = { ch -> ch.toSortedList { a, b -> a[0] <=> b[0] }.map { l -> l.collect { c -> c[1] } } }
+        def results = FANTASIA_MERGE(inChunkOrder(annotated.results), inChunkOrder(annotated.failed)).results
         def summary = FANTASIA_SUMMARY(results)
         fantasia_files = fantasia_files.mix(summary.summary, summary.plot)
         go_files = go_files.mix(FANTASIA_DECORATE_CODING(stem, final_gff3, results).gff3)

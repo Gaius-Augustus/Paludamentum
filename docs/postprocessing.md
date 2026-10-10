@@ -274,6 +274,7 @@ proteins and GO terms by similarity to the FANTASIA lookup table.
 | `fantasia.lookup_dir` | `lookup_table.npz`, `annotations.json`, `accessions.json` (Zenodo record 17720428) |
 | `fantasia.min_score` | minimum score of a GO term (0.5) |
 | `fantasia.device` | `cuda` (default) or `cpu` |
+| `fantasia.proteins_per_task` | proteins per `FANTASIA_ANNOTATE` task (default 2000 with `cpu`, one task with `cuda`; `0`: one task) |
 | `fantasia.additional_params` | appended to `fantasia_pipeline.py` |
 
 Outputs: `<stem>_go.gff3` (and `<stem>_with_ncRNA_go.gff3` with `ncrna.run`)
@@ -299,8 +300,16 @@ Without a GPU, or when the GPU queue is full, `fantasia.device: cpu` computes
 the embeddings on the CPU: no GPU probe, `--device cpu`, the same model. It
 is much slower: 693 *A. fumigatus* proteins took 35 minutes on 48 CPUs (brain,
 2026-10-08), about 3 seconds per protein, so a vertebrate proteome of 30,000
-proteins takes about a day. The task keeps the label `gpu`, so give it a CPU
-queue in your config, for example on SLURM:
+proteins takes about a day in one task (25,866 *A. thaliana* proteins: 23 h
+on 48 CPUs; a run of 31,933 *T. rubripes* proteins exceeded the 48 h limit of
+its job). On the CPU the proteins are therefore split into chunks of
+`fantasia.proteins_per_task` (2000, about 2 h on 48 CPUs), one
+`FANTASIA_ANNOTATE` task per chunk; the scheduler runs them in parallel on
+several nodes, and `FANTASIA_MERGE` joins their `results.csv` and
+`failed_sequences.csv` in chunk order, as FANTASIA-Lite joins its own
+internal chunks (each row is one protein and GO term, so the result is that
+of one task on all proteins). The task keeps the label `gpu`, so give it a
+CPU queue in your config, for example on SLURM:
 
 ```groovy
 process {
@@ -309,10 +318,14 @@ process {
     clusterOptions = ''
     cpus           = 32
     memory         = '64 GB'
-    time           = '48h'
+    time           = '8h'
   }
 }
 ```
+
+On a GPU all proteins run in one task by default; set
+`fantasia.proteins_per_task` there too when the GPU queue has a short time
+limit.
 
 ## Report
 

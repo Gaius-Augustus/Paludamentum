@@ -25,18 +25,20 @@ process FANTASIA_GPU_CHECK {
   """
 }
 
+// One chunk of the proteins (fantasia.proteins_per_task); FANTASIA_MERGE
+// joins the results of all chunks.
 process FANTASIA_ANNOTATE {
+  tag "chunk ${chunk}"
   label 'fantasia', 'gpu'
-  publishDir "${params.outdir}/qc", mode:'copy', overwrite: true, pattern: 'fantasia/{results.csv,failed_sequences.csv}'
 
   input:
-    path proteins
+    tuple val(chunk), path(proteins)
     path hf_cache
     path lookup_dir
 
   output:
-    path "fantasia/results.csv", emit: results
-    path "fantasia/failed_sequences.csv", optional: true, emit: failed
+    tuple val(chunk), path("fantasia/results.csv"), emit: results
+    tuple val(chunk), path("fantasia/failed_sequences.csv"), optional: true, emit: failed
 
   script:
   def extra = params.fantasia.additional_params ?: ''
@@ -81,6 +83,36 @@ process FANTASIA_ANNOTATE {
       ${extra} \\
       proteins.fa
   rm -rf fantasia/tmp fantasia/query_embeddings.npz
+  """
+
+  stub:
+  """
+  mkdir -p fantasia
+  touch fantasia/results.csv
+  """
+}
+
+// results.csv and failed_sequences.csv of the FANTASIA_ANNOTATE chunks,
+// joined in chunk order (inputs staged as results_1.csv, results_2.csv, ...)
+process FANTASIA_MERGE {
+  label 'postprocess'
+  publishDir "${params.outdir}/qc", mode:'copy', overwrite: true
+
+  input:
+    path results, stageAs: 'chunks/results_*.csv'
+    path failed, stageAs: 'chunks/failed_*.csv'
+
+  output:
+    path "fantasia/results.csv", emit: results
+    path "fantasia/failed_sequences.csv", optional: true, emit: failed
+
+  script:
+  """
+  mkdir -p fantasia
+  fantasia_merge_csv.py -o fantasia/results.csv \$(ls chunks/results_*.csv | sort -V)
+  if ls chunks/failed_*.csv > /dev/null 2>&1; then
+      fantasia_merge_csv.py -o fantasia/failed_sequences.csv \$(ls chunks/failed_*.csv | sort -V)
+  fi
   """
 
   stub:

@@ -169,6 +169,28 @@ def test_fantasia_on_cpu_needs_no_gpu_probe(tmp_path: Path) -> None:
     assert "FANTASIA_GPU_CHECK" not in proc.stdout
 
 
+@pytest.mark.parametrize("device,per_task,tasks", [("cpu", 1, 2), ("cpu", 0, 1), ("cuda", None, 1)],
+                         ids=["cpu-chunks", "cpu-one-task", "cuda-default"])
+def test_fantasia_proteins_per_task(device: str, per_task, tasks: int, tmp_path: Path) -> None:
+    """One FANTASIA_ANNOTATE task per chunk of fantasia.proteins_per_task proteins
+    (the stub annotation has two), joined by FANTASIA_MERGE; with cuda all in one task."""
+    fantasia = {**fantasia_dirs(tmp_path), "device": device}
+    if per_task is not None:
+        fantasia["proteins_per_task"] = per_task
+    proc, published = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "fantasia": fantasia})
+    assert_ok(proc)
+    assert proc.stdout.count("FANTASIA_ANNOTATE (chunk") == tasks
+    assert "FANTASIA_MERGE" in proc.stdout
+    assert {"tiberius_evidence_go.gff3", "qc/fantasia/results.csv"} <= published
+
+
+def test_fantasia_proteins_per_task_is_a_whole_number(tmp_path: Path) -> None:
+    fantasia = {**fantasia_dirs(tmp_path), "device": "cpu", "proteins_per_task": -5}
+    proc, _ = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "fantasia": fantasia})
+    assert proc.returncode != 0
+    assert "fantasia.proteins_per_task: a whole number >= 0, not '-5'" in proc.stdout + proc.stderr
+
+
 def test_fantasia_device_is_cuda_or_cpu(tmp_path: Path) -> None:
     params = {**TIBERIUS_RNASEQ, "fantasia": {**fantasia_dirs(tmp_path), "device": "gpu"}}
     proc, _ = run_pipeline(tmp_path, params)
