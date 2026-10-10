@@ -38,6 +38,12 @@ def cacheDir(value, String name) {
     return dir
 }
 
+// The files of the (chunk number, file) tuples of ch as one list, in chunk
+// order (the FANTASIA_ANNOTATE results for FANTASIA_MERGE).
+def inChunkOrder(ch) {
+    return ch.toSortedList { a, b -> a[0] <=> b[0] }.map { l -> l.collect { c -> c[1] } }
+}
+
 workflow POSTPROCESS {
 
     take:
@@ -197,7 +203,6 @@ workflow POSTPROCESS {
             : proteins.map { f -> [1, f] }
         def annotated = FANTASIA_ANNOTATE(chunks, file(params.fantasia.hf_cache_dir.toString()),
                                           file(params.fantasia.lookup_dir.toString()))
-        def inChunkOrder = { ch -> ch.toSortedList { a, b -> a[0] <=> b[0] }.map { l -> l.collect { c -> c[1] } } }
         def results = FANTASIA_MERGE(inChunkOrder(annotated.results), inChunkOrder(annotated.failed)).results
         def summary = FANTASIA_SUMMARY(results)
         fantasia_files = fantasia_files.mix(summary.summary, summary.plot)
