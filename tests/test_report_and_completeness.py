@@ -447,6 +447,18 @@ def test_fantasia_merge_csv_keeps_the_first_header_and_the_chunk_order(tmp_path:
                                + "g1.t1,GO:0016887,0.60,0.3,ATP hydrolysis,molecular_function\n")
 
 
+def test_fantasia_merge_csv_keeps_crlf_line_ends(tmp_path: Path):
+    """failed_sequences.csv of FANTASIA-Lite (csv.DictWriter) ends lines with \\r\\n."""
+    header = b"sequence_id,model_name,error_type\r\n"
+    first, second = tmp_path / "failed_1.csv", tmp_path / "failed_2.csv"
+    first.write_bytes(header + b"g1.t1,prot_t5,too_long\r\n")
+    second.write_bytes(header + b"g9.t1,prot_t5,too_long\r\n")
+    out = tmp_path / "failed.csv"
+    proc = run("fantasia_merge_csv.py", "-o", str(out), str(first), str(second))
+    assert proc.returncode == 0, proc.stderr
+    assert out.read_bytes() == header + b"g1.t1,prot_t5,too_long\r\ng9.t1,prot_t5,too_long\r\n"
+
+
 def test_fantasia_merge_csv_refuses_another_header(tmp_path: Path):
     first, second = tmp_path / "results_1.csv", tmp_path / "results_2.csv"
     first.write_text(FANTASIA_HEADER)

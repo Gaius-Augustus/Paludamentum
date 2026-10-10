@@ -307,8 +307,9 @@ its job). On the CPU the proteins are therefore split into chunks of
 `FANTASIA_ANNOTATE` task per chunk; the scheduler runs them in parallel on
 several nodes, and `FANTASIA_MERGE` joins their `results.csv` and
 `failed_sequences.csv` in chunk order, as FANTASIA-Lite joins its own
-internal chunks (each row is one protein and GO term, so the result is that
-of one task on all proteins). The task keeps the label `gpu`, so give it a
+internal chunks (each row is one protein, GO term and reference; 300
+*A. thaliana* proteins in one task and in three chunks gave the same rows,
+with distances equal to 3.6e-7 and another row order). The task keeps the label `gpu`, so give it a
 CPU queue in your config, for example on SLURM:
 
 ```groovy
