@@ -13,10 +13,14 @@
 # arguments'); 0.5.2 needs pyhmmer >= 0.12.1. The Bioconda
 # compleasm pulls Python 3.7 and HMMER 3.1b2 (through sepp), and compleasm
 # 0.2.7 fails on the current file_versions.tsv of busco-data.ezlab.org.
+# gffcompare 0.12.10 (0.1.2 of this image; 0.12.6 before): the version of the
+# Drusilla and Tiberius benchmarks of Lars Gabriel, whose tables gffcompare
+# 0.12.10 reproduces exactly; 0.12.6 scores the same files up to 16 points
+# lower in gene F1 (docs/drusilla_flow.md).
 #
 # Build (no build context is needed) and tag with the version below:
-#   docker build -t gaiusaugustus/paludamentum-postprocess:0.1.1 - < docker/postprocess/Dockerfile
-#   docker push gaiusaugustus/paludamentum-postprocess:0.1.1
+#   docker build -t gaiusaugustus/paludamentum-postprocess:0.1.2 - < docker/postprocess/Dockerfile
+#   docker push gaiusaugustus/paludamentum-postprocess:0.1.2
 
 FROM mambaorg/micromamba:2.0.5
 
@@ -30,7 +34,7 @@ LABEL org.opencontainers.image.title="paludamentum-postprocess" \
 
 RUN micromamba install -y -n base --override-channels -c conda-forge -c bioconda \
         python=3.12.15=h5f976f7_1_cpython \
-        gffcompare=0.12.6=h9948957_4 \
+        gffcompare=0.12.10=h9948957_0 \
         gffread=0.12.7=h077b44d_6 \
         infernal=1.1.5=pl5321h7b50bb2_4 \
         trnascan-se=2.0.12=pl5321h7b50bb2_2 \
@@ -62,7 +66,7 @@ RUN set -e; \
     compleasm.py --version 2>&1 | grep -q "${COMPLEASM_VERSION}"; \
     /opt/compleasm_kit/miniprot --version > /dev/null; \
     /opt/compleasm_kit/hmmsearch -h | grep -q 'HMMER'; \
-    gffcompare --version 2>&1 | grep -q '0.12.6'; \
+    gffcompare --version 2>&1 | grep -q '0.12.10'; \
     gffread --version | grep -qx '0.12.7'; \
     cmscan -h | grep -q 'INFERNAL 1.1.5'; \
     cmpress -h > /dev/null; \

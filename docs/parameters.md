@@ -25,8 +25,9 @@ genome: /path/to/genome.fa
 ### Protein Sequences (required for every mode except `abinitio`)
 Path to one or more FASTA files with protein sequences aligned to the target genome.
 Multiple files are concatenated in input order. RNA-Seq and Iso-Seq evidence
-need protein evidence, because the high-confidence genes are selected by
-protein homology.
+need protein evidence, because the TransDecoder high-confidence genes are
+selected by protein homology; only the [Drusilla flow](drusilla_flow.md)
+(clades with a Drusilla model in `hc_table`) runs without proteins.
 
 Example:
 ```yaml
@@ -118,7 +119,7 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
 | `keep_downloads`           | `false`                                | Copy the reads downloaded from SRA to `sra_downloads/` in `outdir`. Off, they are kept in the work directory only, which saves a second copy of every library. |
 | `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. |
-| `hc_table`                 | `"conf/hc_genes.yaml"`                 | HC gene step per clade of the gene finder model: `hc: drusilla` (with `drusilla_model`, `lgb_model`, `lgb_model_sha256`) or the TransDecoder flow, and its `orf_finder`. Today Drusilla for `Vertebrata` and `Mammalia`, TD2 for every other clade. |
+| `hc_table`                 | `"conf/hc_genes.yaml"`                 | HC gene step per clade of the gene finder model: `hc: drusilla` (with `drusilla_model`, and optionally `lgb_model`, `lgb_model_sha256`) or the TransDecoder flow, and its `orf_finder`; `recommended`: the most accurate flow measured for the clade, a run that differs gets a warning. Today Drusilla for `Vertebrata`, `Mammalia` and `Insecta` (also `Lepidoptera`, the Tiberius model), TD2 for every other clade. |
 | `transdecoder`             | `orf_finder` of `hc_table` (`"td2"`)   | ORF finder of the TransDecoder HC gene flow: `td1` (TransDecoder 5.7.1) or `td2` ([TD2](https://github.com/Markusjsommer/TD2) 1.1.0, in the container image). See [orf_finder_comparison.md](orf_finder_comparison.md). |
 | `td2_predict_args`         | none                                   | Options appended to `TD2.Predict`, for example `"--precise"`.                                                |
 
@@ -255,29 +256,33 @@ selects one explicitly; without it the block with `run: true` is used.
 ## Drusilla flow
 
 For runs with transcripts and a gene finder model of a clade with
-`hc: drusilla` in `hc_table` (`conf/hc_genes.yaml`: `Vertebrata`, `Mammalia`),
-Drusilla ORFs replace the TransDecoder HC genes and a LightGBM model filters
-the *ab initio* predictions. The steps are described in
-[drusilla_flow.md](drusilla_flow.md).
+`hc: drusilla` in `hc_table` (`conf/hc_genes.yaml`: `Vertebrata`, `Mammalia`,
+`Insecta`, `Lepidoptera`), Drusilla ORFs replace the TransDecoder HC genes.
+With protein evidence, the stop and start codons of the ORFs are fixed with
+the protein alignments, and for a clade with a LightGBM model (`Vertebrata`,
+`Mammalia`) the model filters the *ab initio* predictions and the hint rescue
+predicts partial genes again. Without proteins, or without a LightGBM model,
+the ORFs are merged with all *ab initio* predictions. The steps are
+described in [drusilla_flow.md](drusilla_flow.md).
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `drusilla.run` | `auto` | `auto`: on for the clades with `hc: drusilla` in `hc_table` (Tiberius models whose `target_species` is `Vertebrata` or `Mammalia`, Vipsania `Vertebrata`), if the run has transcripts; `true`: always (an error without transcripts), e.g. for a custom vertebrate model of another clade; a clade without Drusilla models of its own in `hc_table` then uses those of `drusilla_forced` (`Vertebrata`); `false`: never. |
+| `drusilla.run` | `auto` | `auto`: on for the clades with `hc: drusilla` in `hc_table` (Tiberius models whose `target_species` is `Vertebrata`, `Mammalia`, `Insecta` or `Lepidoptera`, Vipsania `Vertebrata` and `Insecta`), if the run has transcripts; `true`: always (an error without transcripts), e.g. for a custom vertebrate model of another clade; a clade without Drusilla models of its own in `hc_table` then uses those of `drusilla_forced` (`Vertebrata`); `false`: never. |
 | `drusilla.model` | `drusilla_model` of the clade in `hc_table` | Released Drusilla model (`drusilla models list`). |
 | `drusilla.weights`, `drusilla.config` | none | A local `.weights.h5` file and its architecture YAML instead of a released model. |
 | `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`), e.g. filled by `drusilla models download vertebrates`, for a submitting host without internet. Without it the archive of the model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task, so the GPU nodes need no internet. A model name that is not in `drusilla/model_cfg/` is downloaded by Drusilla in the task. |
 | `drusilla.batch_size` | automatic | Drusilla batch size; without it Drusilla sizes the batch from the GPU memory. |
 | `drusilla.shards` | `1` | Parallel Drusilla processes, each on a part of the transcripts. For CPU nodes, where one process uses only one to two cores (e.g. 24 with 48 CPUs). |
 | `drusilla.min_coding_length` | `200` | Minimal CDS length of a Drusilla ORF. |
-| `drusilla.fix_stop`, `drusilla.fix_start` | `true` | Stop codon fix of the ORFs with miniprot alignments; start codon fix with miniprothint start hints (needs `fix_stop`). |
+| `drusilla.fix_stop`, `drusilla.fix_start` | `true` | Stop codon fix of the ORFs with miniprot alignments; start codon fix with miniprothint start hints (needs `fix_stop`). Runs with protein evidence only. |
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
-| `drusilla.drop_unstranded` | `true` | StringTie pre-filter: drop transcripts with strand `.`, which have no spliced reads and are almost all single-exon. On *T. rubripes* the ORFs Drusilla found on them were mostly not genes of the reference: gene F1 76.36 with them, 76.55 without. |
-| `drusilla.lgb_model` | `lgb_model` of the clade in `hc_table` (released `drusilla_lgb_3class_v1`) | LightGBM model of the *ab initio* filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. |
+| `drusilla.drop_unstranded` | `true` | StringTie pre-filter: drop transcripts with strand `.`, which have no spliced reads and are almost all single-exon. On *T. rubripes* the ORFs Drusilla found on them were mostly not genes of the reference: gene F1 76.36 with them, 76.55 without (gffcompare 0.12.6). |
+| `drusilla.lgb_model` | `lgb_model` of the clade in `hc_table` (released `drusilla_lgb_3class_v1` for vertebrates and mammals, none for insects) | LightGBM model of the *ab initio* filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. The filter runs with protein evidence only; without a model, or without proteins, all *ab initio* predictions are merged with the ORFs. |
 | `drusilla.lgb_model_sha256` | none (with `lgb_model` of `hc_table`: its `lgb_model_sha256`) | sha256 of the archive given as `drusilla.lgb_model`, checked after the download; `null`: not checked. |
 | `drusilla.lgb_threshold` | `0.5` | Transcripts with P(partial) + P(correct) at or above it are candidates. |
 | `drusilla.lgb_keep` | `correct` | Classes kept among the candidates, e.g. `correct,partial`. |
-| `drusilla.rescue` | `true` | Hint rescue: loci of partial *ab initio* genes are predicted again by Tiberius with hints. |
+| `drusilla.rescue` | `true` | Hint rescue: loci of partial *ab initio* genes are predicted again by Tiberius with hints. Runs only with the LightGBM filter, whose partial class it predicts again. |
 | `drusilla.rescue_tiberius` | the one of the hint rescue image | Another `tiberius.py` with `--hints`. Without `--hints` the rescue is skipped with a warning. |
 | `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue: a model configuration file, or the name of a model in `model_cfg/` of the hint rescue image. `vertebrates` for Vipsania runs and for `tiberius.result` without `tiberius.model_cfg`. The weights in `tiberius.model_dir` are used only for the model of the run; otherwise the weights of the rescue model are downloaded once on the submitting host (for a name, `weights_url` is read from `model_cfg/` of the Tiberius submodule; a name that is not there is downloaded by Tiberius in the task). |
 | `drusilla.rescue_flank` | `25000` | Flank in bp around each rescue locus. |

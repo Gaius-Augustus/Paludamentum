@@ -2,13 +2,14 @@ nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { MERGE_GENEFINDER_TRAIN } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; rescueModel; varusInputs; orfFinder; drusillaSetting; truthy } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; rescueModel; varusInputs; orfFinder; drusillaSetting; drusillaLgb; cladeAdvice; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { methodsText } from './lib_nf/methods.nf'
 include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
 include { PROTEIN_EVIDENCE } from './subworkflows/protein_evidence.nf'
+include { GENEFINDER } from './subworkflows/genefinder.nf'
 include { RNASEQ_EVIDENCE } from './subworkflows/rnaseq_evidence.nf'
 include { ISOSEQ_EVIDENCE } from './subworkflows/isoseq_evidence.nf'
 include { HC_GENES } from './subworkflows/hc_genes.nf'
@@ -66,19 +67,38 @@ workflow {
       error "params.mode '${MODE}' needs Iso-Seq reads (isoseq, isoseq_sra or isoseq_varus) or a StringTie assembly (stringtie)."
     if( hasStringtie && MODE in ['abinitio', 'proteins'] )
       log.warn "stringtie is not used in mode '${MODE}'."
-    if( MODE != 'abinitio' && !hasProteins )
+    if( MODE == 'proteins' && !hasProteins )
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions)."
     log.info "Running mode: ${MODE}"
     log.info "Gene finder : ${genefinderRun ? genefinder : 'none'}"
     def hc = hcMethod(params, MODE)
     if( hc.note ) log.warn hc.note
     def useDrusilla = hc.method == 'drusilla'
+    // Transcripts without proteins: only the Drusilla flow selects HC genes
+    // without protein evidence (clades with a Drusilla model in hc_table).
+    if( MODE != 'abinitio' && !hasProteins && !useDrusilla )
+      error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions): the high-confidence genes " +
+            "of the TransDecoder flow are selected by protein homology. Only the Drusilla flow, for a clade with a " +
+            "Drusilla model in the HC table (conf/hc_genes.yaml" + (hc.clade ? ", this run: clade ${hc.clade}" : '') +
+            ") and a gene finder, runs without proteins."
+    // LightGBM filter and hint rescue of the Drusilla flow: with a LightGBM
+    // model and protein evidence only (drusillaLgb in lib_nf/functions.nf)
+    def useLgb = useDrusilla && drusillaLgb(params, hasProteins)
+    def useRescue = useLgb && rescueEnabled(params)
     if( MODE != 'abinitio' && MODE != 'proteins' ) {
       // conf/hc_genes.yaml (params.hc_table) chooses per clade of the gene finder model
       def clade = hc.clade ? "clade ${hc.clade}, " : ''
       log.info "HC genes    : ${hc.method} (" + clade +
-               (useDrusilla ? "Drusilla model ${drusillaSetting(params, 'model') ?: params.drusilla.weights}" : "ORF finder ${orfFinder(params)}") + ")"
+               (useDrusilla ? "Drusilla model ${drusillaSetting(params, 'model') ?: params.drusilla.weights}" : "ORF finder ${orfFinder(params)}") + ")" +
+               (useDrusilla && !hasProteins ? ' (no protein evidence)' : '')
+      // the hint rescue predicts the partial genes of the LightGBM filter again
+      if( useDrusilla && !useLgb )
+        log.info "HC filter   : none, the ORFs are merged with all gene finder genes, no hint rescue (" +
+                 (drusillaSetting(params, 'lgb_model') ? 'no protein evidence for the LightGBM filter' : "no LightGBM model for clade ${hc.clade ?: 'unknown'}") + ")"
     }
+    // The most accurate flow measured for the clade (recommended in hc_table)
+    def advice = cladeAdvice(params, MODE, hasProteins, hc)
+    if( advice ) log.warn advice
     // The Drusilla flow filters one assembly of all reads by its coverage and
     // TPM, so a given assembly must be that one assembly.
     def stringtieOnly = hasStringtie && useDrusilla
@@ -97,8 +117,9 @@ workflow {
     def drp = params.drusilla ?: [:]
     def drusillaSettings = null
     if( useDrusilla ) {
-        def fixStop = drp.fix_stop == null || truthy(drp.fix_stop)
-        def lgbModel = drusillaSetting(params, 'lgb_model')?.toString()
+        // the stop and start fix needs protein alignments
+        def fixStop = hasProteins && (drp.fix_stop == null || truthy(drp.fix_stop))
+        def lgbModel = useLgb ? drusillaSetting(params, 'lgb_model')?.toString() : null
         def rm = rescueModel(params)
         drusillaSettings = [
             model: drp.weights ? null : drusillaSetting(params, 'model'),
@@ -117,7 +138,7 @@ workflow {
         // keys of citationKeys (lib_nf/citations.nf)
         mode: MODE, genefinder: genefinderRun ? genefinder : null, tiberiusModel: params.tiberius?.model_cfg,
         hc: hc.method, orfFinder: hc.method == 'transdecoder' ? orfFinder(params) : null,
-        rescue: rescueEnabled(params), odb12: odb12List.size() > 0,
+        rescue: useRescue, odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
         isoFastq: hasIso, isoVarus: nIsoVarus > 0,
         busco: params.qc?.busco_lineage && truthy(params.qc?.busco),
@@ -190,11 +211,20 @@ workflow {
 
     } else {
 
-      def pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, params)
+      def empty_file = EMPTY_FILE()
+
+      // Without proteins (Drusilla flow only, checked above) the gene finder
+      // runs on its own, and the protein outputs are empty.
+      def pe
+      if( hasProteins ) {
+        pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, params)
+      } else {
+        def gf = GENEFINDER(inp.genome, params, false)
+        pe = [genefinder_gff: gf.gff, genome_chunks: gf.chunks, genefinder_versions: gf.versions,
+              prot_hints: empty_file, scored_gff: [], prot_hc_hints: []]
+      }
       genome_chunks = pe.genome_chunks
       genefinder_versions = pe.genefinder_versions
-
-      def empty_file = EMPTY_FILE()
 
       // StringTie assemblies: one per BAM for TransDecoder. Drusilla uses one
       // assembly of all reads, whose TPM and coverage its pre-filter reads.
@@ -248,7 +278,8 @@ workflow {
       def hc_gff
       def genefinder_final = pe.genefinder_gff
       if( useDrusilla ) {
-        def dr = DRUSILLA_HC(asm_gtf, inp.genome, genefinder, pe.genefinder_gff, pe.scored_gff, pe.prot_hc_hints)
+        def dr = DRUSILLA_HC(asm_gtf, inp.genome, genefinder, pe.genefinder_gff, pe.scored_gff, pe.prot_hc_hints,
+                             hasProteins, useLgb, useRescue)
         hc_gff           = dr.orfs
         genefinder_final = dr.genefinder
       } else if( MODE in ['mixed','rnaseq','isoseq'] ) {

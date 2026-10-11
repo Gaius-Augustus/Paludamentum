@@ -412,7 +412,7 @@ def test_tiberius_weights_are_downloaded_once_without_model_dir(model_dir: bool,
     ({"mode": "rnaseq", **PROTEINS}, "needs short reads"),
     ({"mode": "isoseq", **PROTEINS}, "needs Iso-Seq reads"),
     ({"mode": "proteins"}, "needs protein evidence"),
-    (ISOSEQ, "need protein evidence"),
+    (ISOSEQ, "needs protein evidence"),
     ({"tiberius": {"run": True, "result": "/nonexistent/old.gtf"}, **PROTEINS}, "does not exist"),
     ({"tiberius": {"run": True, "model_cfg": "/nonexistent/m.yaml"}}, "not a file"),
 ], ids=["mode-typo", "rnaseq-without-reads", "isoseq-without-reads", "proteins-without-proteins",
@@ -487,13 +487,30 @@ def hc_table(tmp_path: Path, clades: dict, orf_finder: str = "td2") -> str:
     return str(table)
 
 
-def test_drusilla_flow_needs_the_lgb_model(tmp_path: Path) -> None:
-    """hc: drusilla without a LightGBM model in the table or the params: TransDecoder flow."""
+def test_drusilla_flow_without_lgb_model(tmp_path: Path) -> None:
+    """hc: drusilla without a LightGBM model: the ORFs are fixed with the proteins and
+    merged with all gene finder genes, without the filter and the hint rescue."""
     table = hc_table(tmp_path, {"Vertebrata": {"hc": "drusilla", "drusilla_model": "vertebrates"}})
     params = {**drusilla_params(tmp_path, "tiberius", lgb=False), "hc_table": table}
     proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
     assert_ok(proc)
-    assert "no LightGBM model (params.drusilla.lgb_model)" in proc.stdout
+    assert "HC genes    : drusilla (clade Vertebrata, Drusilla model vertebrates)\n" in proc.stdout
+    assert "HC filter   : none" in proc.stdout and "no LightGBM model for clade Vertebrata" in proc.stdout
+    assert "FIX_ORFS" in proc.stdout and "MINIPROT_ALIGN" in proc.stdout
+    for process in ("COLLAPSE_ORFS", "GENEFINDER_LGB_FILTER", "HINT_RESCUE"):
+        assert process not in proc.stdout, process
+    assert {"intermediate/drusilla_orfs.gtf", "tiberius_evidence.gff3"} <= published
+    assert not [f for f in published if "_lgb_" in f or "hint_rescue" in f or f == "intermediate/hc.gff3"]
+    assert "**LightGBM**" not in citations(tmp_path)
+
+
+def test_drusilla_flow_needs_the_drusilla_model(tmp_path: Path) -> None:
+    """hc: drusilla without a Drusilla model in the table or the params: TransDecoder flow."""
+    table = hc_table(tmp_path, {"Vertebrata": {"hc": "drusilla", "lgb_model": str(DATA / "tiny.fa")}})
+    params = {**drusilla_params(tmp_path, "tiberius", lgb=False), "hc_table": table}
+    proc, published = run_pipeline(tmp_path, {**params, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "no Drusilla model (params.drusilla.model)" in proc.stdout
     assert "HC genes    : transdecoder (clade Vertebrata, ORF finder td2)" in proc.stdout
     assert "intermediate/hc.gff3" in published
 
@@ -508,13 +525,13 @@ def test_hc_table_released_models_for_vertebrates(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("tool,model,clade", [
-    ("tiberius", "Insecta", "Insecta"),
+    ("tiberius", "Eudicotyledons", "Eudicotyledons"),
     ("vipsania", "Fungi", "Fungi"),
     ("vipsania", "fh1kg88z", "fh1kg88z"),
-], ids=["tiberius-insecta", "vipsania-fungi", "vipsania-model-id"])
+], ids=["tiberius-eudicotyledons", "vipsania-fungi", "vipsania-model-id"])
 def test_other_clades_get_td2(tool: str, model: str, clade: str, tmp_path: Path) -> None:
     if tool == "tiberius":
-        cfg = tmp_path / "insecta.yaml"
+        cfg = tmp_path / "eudicotyledons.yaml"
         cfg.write_text(f"target_species: {model}\n")
         params = {"tiberius": {"run": True, "model_cfg": str(cfg)}}
     else:
@@ -576,7 +593,7 @@ def test_drusilla_forced_uses_the_drusilla_forced_clade(tmp_path: Path) -> None:
 
 
 def test_drusilla_forced_needs_models_for_the_clade(tmp_path: Path) -> None:
-    table = hc_table(tmp_path, {"Vertebrata": {"hc": "drusilla", "drusilla_model": "vertebrates"}})
+    table = hc_table(tmp_path, {"Vertebrata": {"hc": "drusilla", "lgb_model": str(DATA / "tiny.fa")}})
     params = {**GENEFINDER["vipsania"], "drusilla": {"run": True}, "hc_table": table, **EVIDENCE["rnaseq"]}
     proc, _ = run_pipeline(tmp_path, params)
     assert proc.returncode != 0
@@ -618,8 +635,8 @@ def rescue_model(tmp_path: Path) -> str:
 @pytest.mark.parametrize("name,species,flow", [
     ("my_model.yaml", "Vertebrata", "drusilla"),
     ("mammals_v3.yaml", "mammalia", "drusilla"),
-    ("vertebrates.yaml", "Insecta", "transdecoder"),
-], ids=["vertebrata-any-name", "mammalia-any-case", "insecta-named-vertebrates"])
+    ("vertebrates.yaml", "Eudicotyledons", "transdecoder"),
+], ids=["vertebrata-any-name", "mammalia-any-case", "eudicotyledons-named-vertebrates"])
 def test_drusilla_flow_reads_target_species(name: str, species: str, flow: str, tmp_path: Path) -> None:
     """The model's target_species decides, not its file name."""
     params = drusilla_params(tmp_path, "tiberius")
@@ -946,7 +963,7 @@ def test_stringtie_assembly_with_an_existing_prediction(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("case,message", [
     ("missing-file", "stringtie: no such file"),
-    ("without-proteins", "need protein evidence"),
+    ("without-proteins", "needs protein evidence"),
     ("drusilla-two-assemblies", "needs one StringTie assembly of all reads"),
     ("drusilla-assembly-and-reads", "needs one StringTie assembly of all reads"),
 ])

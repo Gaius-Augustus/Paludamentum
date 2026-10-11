@@ -30,6 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  Vipsania with evidence:\n"
             "    paludamentum --genefinder vipsania --nf_config local --genome genome.fa --model Fungi "
             "--proteins proteins.faa\n"
+            "  Insects (recommended): Vipsania fine-tuned, RNA-Seq, Drusilla flow, no proteins:\n"
+            "    paludamentum --nf_config local --genome genome.fa --model Insecta --finetune "
+            "--rnaseq_bam rnaseq.bam\n"
             'Arguments after "--" are forwarded verbatim to Nextflow.'
         ),
     )
@@ -87,7 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "Drusilla flow in mixed mode.")
     inputs.add_argument("--stringtie", nargs="*", default=[],
                         help="StringTie assembly(ies) (GTF) made outside the pipeline, instead of or in addition "
-                             "to reads. Needs --proteins or --odb12Partitions.")
+                             "to reads. Needs --proteins or --odb12Partitions, except for a gene finder "
+                             "model of a clade with a Drusilla model (conf/hc_genes.yaml: vertebrates, insects).")
     inputs.add_argument("--mode", choices=MODES, help="Force the pipeline mode instead of inferring it from the inputs.")
     inputs.add_argument("--scoring_matrix", help="Scoring matrix CSV for miniprot-boundary-scorer.")
 

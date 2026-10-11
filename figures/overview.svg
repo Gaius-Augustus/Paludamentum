@@ -65,12 +65,13 @@
 <text x="634" y="319" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">TransDecoder or TD2,</text>
 <text x="634" y="336" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">DIAMOND</text>
 <text x="634" y="353" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"></text>
-<text x="634" y="370" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Vertebrate models:</text>
-<text x="634" y="387" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Drusilla ORFs and a filter for the</text>
-<text x="634" y="404" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"><tspan font-style="italic">ab initio</tspan> predictions</text>
-<text x="634" y="421" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"></text>
-<text x="634" y="438" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Without reads: from the protein</text>
-<text x="634" y="455" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">alignments alone</text>
+<text x="634" y="370" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Vertebrate and insect models:</text>
+<text x="634" y="387" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Drusilla ORFs, proteins optional;</text>
+<text x="634" y="404" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">vertebrates with proteins: a</text>
+<text x="634" y="421" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">filter for the <tspan font-style="italic">ab initio</tspan> predictions</text>
+<text x="634" y="438" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start"></text>
+<text x="634" y="455" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Without reads: from the protein</text>
+<text x="634" y="472" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">alignments alone</text>
 <path d="M920,86 q0,-6 6,-6 h198 q6,0 6,6 V161 q-52.5,-15 -105.0,0 t-105.0,0 Z" fill="#eceff3" stroke="#5b6675" stroke-width="1.6" stroke-linejoin="round"/>
 <text x="1025.0" y="111" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">Final annotation</text>
 <text x="1025.0" y="132" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="middle">&lt;tool&gt;_evidence.gff3</text>
@@ -96,5 +97,5 @@
 <path d="M860,124.0 L920,124.0" fill="none" stroke="#5b6675" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-grey)"/>
 <path d="M1025.0,164 L1025.0,198" fill="none" stroke="#5b6675" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-grey)"/>
 <text x="30" y="556" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Genome only: step 1 runs alone, for example to parallelize a gene finder over several GPUs.</text>
-<text x="30" y="577" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Reads need proteins: HC genes are built from transcript and protein evidence together. &lt;tool&gt; is tiberius or vipsania.</text>
+<text x="30" y="577" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">Reads need proteins, except for clades with a Drusilla model (vertebrates, insects). &lt;tool&gt; is tiberius or vipsania.</text>
 </svg>
