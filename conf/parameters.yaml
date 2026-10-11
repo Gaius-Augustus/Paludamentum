@@ -124,7 +124,18 @@ tiberius:
 #   model_dir: null              # directory with downloaded models (offline nodes)
 #   finetune: false              # true: finetune on the genome first (one task, no chunks)
 #   result: /abs/path/vipsania.gff    # existing Vipsania prediction (GFF3/GTF): Vipsania does not run,
-#                                     # model is then optional (Vertebrata selects the Drusilla flow)
+#                                     # model is then optional (Vertebrata or Insecta selects the Drusilla flow)
+#
+# Insects (recommended, docs/drusilla_flow.md "Without proteins"): Vipsania
+# Insecta fine-tuned on the genome, RNA-Seq or Iso-Seq, and no proteins; the
+# Drusilla flow then merges the Drusilla ORFs with all Vipsania genes.
+# rnaseq_bam: [/abs/path/VARUS.bam]   # or rnaseq_paired, rnaseq_varus, stringtie, isoseq
+# vipsania:
+#   run: true
+#   model: Insecta
+#   finetune: true
+#   finetune_B: 2
+#   batch_size: 4
 
 # ------------------------------------------------------------
 # Drusilla flow (clades with hc: drusilla in conf/hc_genes.yaml, runs with

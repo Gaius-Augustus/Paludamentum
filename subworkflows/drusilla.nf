@@ -1,23 +1,26 @@
 nextflow.enable.dsl=2
 
-// Drusilla flow of evidence runs with transcripts and a vertebrate gene finder
-// model (see hcMethod in lib_nf/functions.nf):
+// Drusilla flow of evidence runs with transcripts and a gene finder model of a
+// clade with a Drusilla model (see hcMethod in lib_nf/functions.nf):
 //   1. the StringTie assembly is filtered by length, coverage and TPM,
 //   2. Drusilla predicts the ORFs of the kept transcripts,
-//   3. stop and start codons of the ORFs are fixed with protein alignments
-//      (fix_stop, fix_start), subsequence isoforms are collapsed,
-//   4. a LightGBM model filters the gene finder predictions with protein
-//      alignment (miniprot) and hint (miniprothint) features,
-//   5. partial gene finder genes are predicted again by Tiberius with the hints
-//      of their best protein chain, ab initio where there is no chain (hint
-//      rescue; the ORF-agreement filter rescue_orf_filter is off by default).
-// The ORFs, the kept and the rescued gene finder genes are merged by
-// MERGE_GENEFINDER_TRAIN in main.nf, as in the TransDecoder flow.
+//   3. with proteins, stop and start codons of the ORFs are fixed with protein
+//      alignments (fix_stop, fix_start); subsequence isoforms are collapsed,
+//   4. with proteins and a LightGBM model of the clade (lgb), the model
+//      filters the gene finder predictions with protein alignment (miniprot)
+//      and hint (miniprothint) features,
+//   5. with the filter (rescue), partial gene finder genes are predicted again
+//      by Tiberius with the hints of their best protein chain, ab initio where
+//      there is no chain (hint rescue; the ORF-agreement filter
+//      rescue_orf_filter is off by default).
+// The ORFs and the kept (with the filter) or all (without) gene finder genes,
+// and the rescued ones, are merged by MERGE_GENEFINDER_TRAIN in main.nf, as in
+// the TransDecoder flow. Without proteins only steps 1, 2 and the collapse run.
 
-include { FILTER_STRINGTIE; DOWNLOAD_DRUSILLA_MODEL; DRUSILLA_ANNOTATE; FIX_ORFS;
+include { FILTER_STRINGTIE; DOWNLOAD_DRUSILLA_MODEL; DRUSILLA_ANNOTATE; FIX_ORFS; COLLAPSE_ORFS;
           GENEFINDER_LGB_FILTER; HINT_RESCUE_LOCI; HINT_RESCUE_TIBERIUS } from '../modules/drusilla.nf'
 include { DOWNLOAD_TIBERIUS_WEIGHTS as DOWNLOAD_RESCUE_WEIGHTS } from '../modules/genefinder.nf'
-include { rescueEnabled; rescueModel; tiberiusModelValue; drusillaSetting } from '../lib_nf/functions.nf'
+include { rescueModel; tiberiusModelValue; drusillaSetting } from '../lib_nf/functions.nf'
 
 workflow DRUSILLA_HC {
 
@@ -26,8 +29,11 @@ workflow DRUSILLA_HC {
     CH_GENOME
     genefinder       // name of the gene finder, names the published files
     genefinder_gff   // ab initio predictions of the gene finder
-    miniprot_gff     // scored miniprot alignments
-    hc_hints         // miniprothint hc.gff
+    miniprot_gff     // scored miniprot alignments ([] without proteins)
+    hc_hints         // miniprothint hc.gff ([] without proteins)
+    with_proteins    // true: stop and start fix of the ORFs with the protein alignments
+    lgb              // true: LightGBM filter of the gene finder genes (needs proteins)
+    rescue           // true: hint rescue of the partial genes of the filter (needs lgb)
 
     main:
     def d = params.drusilla
@@ -47,14 +53,21 @@ workflow DRUSILLA_HC {
         }
     }
     raw      = DRUSILLA_ANNOTATE(filtered.gtf, CH_GENOME, useModel, drusillaModel)
-    orfs     = FIX_ORFS(raw.gtf, raw.partial, raw.partial5, miniprot_gff, hc_hints, CH_GENOME)
-    kept     = GENEFINDER_LGB_FILTER(
-        genefinder, genefinder_gff, miniprot_gff, hc_hints, CH_GENOME,
-        file(drusillaSetting(params, 'lgb_model'), checkIfExists: true)
-    )
+    // Both publish intermediate/drusilla_orfs.gtf
+    def orfs_gtf
+    if( with_proteins ) orfs_gtf = FIX_ORFS(raw.gtf, raw.partial, raw.partial5, miniprot_gff, hc_hints, CH_GENOME).gtf
+    else                orfs_gtf = COLLAPSE_ORFS(raw.gtf).gtf
 
-    def genefinder_out = kept.gtf
-    if( rescueEnabled(params) ) {
+    def genefinder_out = genefinder_gff
+    def kept = null
+    if( lgb ) {
+        kept = GENEFINDER_LGB_FILTER(
+            genefinder, genefinder_gff, miniprot_gff, hc_hints, CH_GENOME,
+            file(drusillaSetting(params, 'lgb_model'), checkIfExists: true)
+        )
+        genefinder_out = kept.gtf
+    }
+    if( lgb && rescue ) {
         // Tiberius model of the rescue (rescueModel in lib_nf/functions.nf): a
         // model configuration file, or the name of a model in model_cfg/ of the
         // rescue image. Its weights are staged: those of params.tiberius.model_dir
@@ -74,7 +87,7 @@ workflow DRUSILLA_HC {
             if( url ) weights = DOWNLOAD_RESCUE_WEIGHTS(url).collect()
             else      useWeights = false
         }
-        loci    = HINT_RESCUE_LOCI(kept.partial, kept.gtf, orfs.gtf, miniprot_gff, hc_hints, CH_GENOME)
+        loci    = HINT_RESCUE_LOCI(kept.partial, kept.gtf, orfs_gtf, miniprot_gff, hc_hints, CH_GENOME)
         // The GPU task runs only with a --hints Tiberius and at least one locus
         def tiberius = d.rescue_tiberius ?: 'the tiberius.py of the image'
         todo = loci.loci
@@ -98,6 +111,6 @@ workflow DRUSILLA_HC {
     }
 
     emit:
-    orfs       = orfs.gtf
+    orfs       = orfs_gtf
     genefinder = genefinder_out
 }

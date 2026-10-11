@@ -88,8 +88,9 @@ process DOWNLOAD_DRUSILLA_MODEL {
   """
 }
 
-// All ORF predictions (the subsequence collapse follows in FIX_ORFS), with LORF
-// classes, and the 3' and 5' truncated ORFs that the stop and start fix can recover.
+// All ORF predictions (the subsequence collapse follows in FIX_ORFS or
+// COLLAPSE_ORFS), with LORF classes, and the 3' and 5' truncated ORFs that the
+// stop and start fix can recover.
 process DRUSILLA_ANNOTATE {
   label 'gpu', 'drusilla', 'bigmem'
   input:
@@ -206,6 +207,31 @@ process FIX_ORFS {
   ${fix}
   drusilla filter-subseq \\
       --orfs-gtf orfs.fixed.gtf \\
+      --out-gtf drusilla_orfs.gtf \\
+      --report-tsv dropped_subsequences.tsv
+  """
+
+  stub:
+  """
+  touch drusilla_orfs.gtf
+  """
+}
+
+// Without proteins: the subsequence collapse of FIX_ORFS alone. Isoforms
+// whose CDS is a subsequence of another one are collapsed; no codon is changed.
+process COLLAPSE_ORFS {
+  label 'drusilla'
+  publishDir "${params.outdir}/intermediate", pattern: "drusilla_orfs.gtf", mode: 'copy', overwrite: true
+  input:
+    path orfs, stageAs: 'orfs.raw.gtf'
+
+  output:
+    path "drusilla_orfs.gtf", emit: gtf
+
+  script:
+  """
+  drusilla filter-subseq \\
+      --orfs-gtf orfs.raw.gtf \\
       --out-gtf drusilla_orfs.gtf \\
       --report-tsv dropped_subsequences.tsv
   """

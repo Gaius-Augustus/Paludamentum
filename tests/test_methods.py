@@ -200,6 +200,15 @@ def cases() -> list[tuple[str, dict]]:
                 if hc == "transdecoder" and orf == "td2" and rescue:
                     run["td2PredictArgs"] = "--precise"
                 out.append((f"{mode}-{inp}-{gf}-{hc}-{orf}-{pp}-rescue{rescue}", run))
+                if hc == "drusilla" and rescue:
+                    # a clade without LightGBM model (Insecta): no filter, no rescue
+                    nolgb = {**run, "rescue": False,
+                             "drusillaSettings": {**run["drusillaSettings"], "lgbModel": None}}
+                    out.append((f"{mode}-{inp}-{gf}-{hc}-{pp}-nolgb", nolgb))
+                    # no proteins: no protein alignments, no codon fix, no filter, no rescue
+                    out.append((f"{mode}-{inp}-{gf}-{hc}-{pp}-noproteins", {
+                        **nolgb, "proteinFiles": 0, "odb12": False, "odb12Partitions": [], "scoringMatrix": None,
+                        "drusillaSettings": {**nolgb["drusillaSettings"], "fixStop": False, "fixStart": False}}))
     return out
 
 
@@ -263,11 +272,15 @@ def test_text_follows_the_run(rendered) -> None:
         text = res["text"]
         transcripts = run["mode"] in ("rnaseq", "isoseq", "mixed")
         drusilla = transcripts and run["hc"] == "drusilla"
+        proteins = run["proteinFiles"] > 0 or run["odb12"]
+        lgb = drusilla and bool((run["drusillaSettings"] or {}).get("lgbModel"))
         assert f"in mode `{run['mode']}`" in text, name
-        assert ("miniprot" in text) == (run["mode"] != "abinitio"), name
+        assert ("miniprot" in text) == (run["mode"] != "abinitio" and proteins), name
+        assert ("without protein evidence" in text) == (run["mode"] != "abinitio" and not proteins), name
         assert ("Drusilla" in text) == drusilla, name
-        assert ("LightGBM" in text) == drusilla, name
-        assert ("hint rescue" in text) == (drusilla and run["rescue"]), name
+        assert ("LightGBM (" in text) == lgb, name
+        assert ("without the LightGBM filter" in text) == (drusilla and proteins and not lgb), name
+        assert ("hint rescue" in text) == (lgb and run["rescue"]), name
         assert ("TD2" in text) == (transcripts and not drusilla and run["orfFinder"] == "td2"), name
         assert ("TransDecoder" in text) == (transcripts and not drusilla and run["orfFinder"] == "td1"), name
         assert ("StringTie" in text) == transcripts, name

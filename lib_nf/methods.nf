@@ -12,7 +12,7 @@
 // separated by blank lines, one line each. Inline Markdown only (*italic*,
 // **bold**, `code`); no lists, no further headings, no links.
 
-include { references; citationKeys; shortCite } from './citations.nf'
+include { references; citationKeys; shortCite; withProteins; withLgb } from './citations.nf'
 
 // ---- citations
 
@@ -61,15 +61,21 @@ def capitalized(String s) {
 // Pipeline, gene finder and the ab initio predictions.
 def methodsGeneFinder(Map ctx, Map run, String version) {
     def s = []
-    def evidence = [
+    def evidence = withProteins(run) ? [
         abinitio: 'without extrinsic evidence',
         proteins: 'with protein evidence',
         rnaseq:   'with protein and short-read RNA-Seq evidence',
         isoseq:   'with protein and Iso-Seq long-read evidence',
         mixed:    'with protein, short-read RNA-Seq and Iso-Seq long-read evidence',
+    ][run.mode] : [
+        abinitio: 'without extrinsic evidence',
+        rnaseq:   'with short-read RNA-Seq evidence and without protein evidence',
+        isoseq:   'with Iso-Seq long-read evidence and without protein evidence',
+        mixed:    'with short-read RNA-Seq and Iso-Seq long-read evidence and without protein evidence',
     ][run.mode]
     if( run.mode in ['rnaseq', 'isoseq', 'mixed'] && run.stringtieFiles && !transcriptReads(run) )
-        evidence = 'with protein evidence and transcript assemblies'
+        evidence = withProteins(run) ? 'with protein evidence and transcript assemblies' :
+                                       'with transcript assemblies and without protein evidence'
     s << "The genome was annotated with Paludamentum ${version} ${cite(ctx, ['paludamentum'])}, " +
          "a pipeline implemented in Nextflow ${cite(ctx, ['nextflow'])}, in mode `${run.mode}` (${evidence})."
 
@@ -222,7 +228,8 @@ def methodsTranscripts(Map ctx, Map run) {
              ', and all assemblies were merged with `stringtie --merge` into one transcript set.'
     }
     if( !bams && !varus )
-        s << 'Without reads, the hints of the run were protein hints only.'
+        s << (withProteins(run) ? 'Without reads, the hints of the run were protein hints only.' :
+                                  'Without reads and proteins, the run had no hints.')
     return s.join(' ')
 }
 
@@ -243,8 +250,12 @@ def methodsHighConfidence(Map ctx, Map run) {
                      "with a coverage of at least ${numText(d.minCov)} and a TPM of at least ${numText(d.minTpm)}"
         if( d.longLength != null && d.minTpmLong != null )
             filter += " (at least ${numText(d.minTpmLong)} for transcripts of ${numText(d.longLength)} nt or longer)"
-        s << "High-confidence (HC) genes were predicted, and the *ab initio* predictions filtered, with the " +
-             "Drusilla flow ${dr}."
+        def lgb = withLgb(run)
+        s << (lgb ? "High-confidence (HC) genes were predicted, and the *ab initio* predictions filtered, with the " +
+                    "Drusilla flow ${dr}." :
+                    "High-confidence (HC) genes were predicted with the Drusilla flow ${dr}" +
+                    (withProteins(run) ? ', without the LightGBM filter of the *ab initio* predictions, for which ' +
+                                         'the clade has no model.' : ', which needs no protein evidence.'))
         s << filter + '.'
         def model = d.model ? "the model `${d.model}`" : d.weights ? "the weights `${d.weights}`" : 'its model'
         s << "Drusilla predicted the ORFs of the kept transcripts with ${model}, including ORFs truncated " +
@@ -259,12 +270,12 @@ def methodsHighConfidence(Map ctx, Map run) {
         s << 'Isoforms whose CDS was a subsequence of the CDS of another isoform were collapsed, and the remaining ' +
              'ORFs were the HC genes.'
         def keep = (d.lgbKeep ?: ['correct']).collect { k -> "*${k}*" }
-        def lgb = d.lgbModel ? " (`${d.lgbModel}`)" : ''
-        s << "A LightGBM ${cite(ctx, ['lightgbm'])} model${lgb} classified each *ab initio* transcript as wrong, " +
-             'partial or correct from features of the miniprot alignments and the miniprothint hints that overlap ' +
-             "it, and the transcripts with P(partial) + P(correct) of at least ${numText(d.lgbThreshold)} whose most " +
-             "likely class was ${joinOr(keep)} were kept."
-        if( run.rescue ) {
+        if( lgb )
+            s << "A LightGBM ${cite(ctx, ['lightgbm'])} model (`${d.lgbModel}`) classified each *ab initio* transcript as wrong, " +
+                 'partial or correct from features of the miniprot alignments and the miniprothint hints that overlap ' +
+                 "it, and the transcripts with P(partial) + P(correct) of at least ${numText(d.lgbThreshold)} whose most " +
+                 "likely class was ${joinOr(keep)} were kept."
+        if( lgb && run.rescue ) {
             def rmodel = d.rescueModel ? " with the model `${d.rescueModel}`" : ''
             s << 'Loci of transcripts classified as partial that did not overlap a kept transcript on the same ' +
                  "strand were predicted again by Tiberius ${cite(ctx, ['tiberius'])}${rmodel} (hint rescue): each " +
@@ -293,7 +304,7 @@ def methodsHighConfidence(Map ctx, Map run) {
     }
 
     if( !run.genefinder ) return s.join(' ')
-    def abInitio = run.hc == 'drusilla' && transcripts ?
+    def abInitio = run.hc == 'drusilla' && transcripts && withLgb(run) ?
         (run.rescue ? 'the kept and the rescued *ab initio* transcripts' : 'the kept *ab initio* transcripts') :
         'the *ab initio* predictions'
     s << "The HC genes and ${abInitio} were merged into one annotation: transcripts were clustered into loci by " +
@@ -339,9 +350,9 @@ def methodsQuality(Map ctx, Map run) {
     if( tools )
         s << "The completeness of the genome and of the proteome (the longest coding isoform of each gene) was " +
              "assessed with ${joinAnd(tools)} against the lineage `${run.buscoLineage}`."
-    if( run.geneSupport && run.mode != 'abinitio' )
-        s << 'For each coding transcript, the CDS introns and CDS segments supported by ' +
-             (transcriptReads(run) ? 'RNA-Seq and protein hints' : 'protein hints') + ' were counted.'
+    def hintKinds = joinAnd([transcriptReads(run) ? 'RNA-Seq' : null, withProteins(run) ? 'protein' : null])
+    if( run.geneSupport && run.mode != 'abinitio' && hintKinds )
+        s << "For each coding transcript, the CDS introns and CDS segments supported by ${hintKinds} hints were counted."
     if( run.statistics )
         s << 'Gene structure statistics of the annotation were computed.'
     if( run.omark )
@@ -391,7 +402,7 @@ def methodsParagraphs(Map run, String version) {
     def ctx = [used: []]
     def ps = [methodsGeneFinder(ctx, run, version)]
     if( run.mode != 'abinitio' ) {
-        ps << methodsProteins(ctx, run)
+        if( withProteins(run) ) ps << methodsProteins(ctx, run)
         if( run.mode in ['rnaseq', 'isoseq', 'mixed'] ) ps << methodsTranscripts(ctx, run)
         ps << methodsHighConfidence(ctx, run)
     }

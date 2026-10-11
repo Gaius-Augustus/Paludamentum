@@ -121,7 +121,10 @@ def references() {
 // tiberiusModel (params.tiberius.model_cfg or null), hc ('drusilla' |
 // 'transdecoder'), orfFinder ('td1' | 'td2'), rescue, odb12, shortFastq,
 // shortBam, shortVarus, isoFastq, isoVarus, busco, compleasm, omark,
-// gffcompare, ncrna, lncrna, fantasia] (all but the first five boolean).
+// gffcompare, ncrna, lncrna, fantasia] (all but the first five boolean), and
+// proteinFiles (number of protein files; 0 and no odb12: no protein evidence)
+// and drusillaSettings.lgbModel (null: the Drusilla flow ran without the
+// LightGBM filter).
 def citationKeys(Map run) {
     def keys = evidenceCitationKeys(run)
     // post-processing of the final annotation (runs with a gene finder)
@@ -138,6 +141,16 @@ def citationKeys(Map run) {
         if( run.fantasia ) keys << 'fantasia' << 'fantasia_suite' << 'prott5'
     }
     return keys
+}
+
+// True if the run had protein evidence (protein files or OrthoDB partitions).
+def withProteins(Map run) {
+    return (run.proteinFiles ?: 0) > 0 || run.odb12
+}
+
+// True if the Drusilla flow of the run filtered the gene finder genes with LightGBM.
+def withLgb(Map run) {
+    return run.drusillaSettings?.lgbModel as boolean
 }
 
 // Keys of the gene finder and the evidence steps of a run (see citationKeys)
@@ -157,7 +170,7 @@ def evidenceCitationKeys(Map run) {
     if( run.mode == 'abinitio' ) return keys
 
     if( run.odb12 ) keys << 'orthodb'
-    keys << 'miniprot' << 'galba'
+    if( withProteins(run) ) keys << 'miniprot' << 'galba'
     if( (transcripts && !drusilla) || (run.genefinder && run.odb12) ) keys << 'diamond'
 
     if( shortReads && run.shortFastq ) keys << 'hisat2'
@@ -170,7 +183,8 @@ def evidenceCitationKeys(Map run) {
     keys << 'gffread'
 
     if( drusilla ) {
-        keys << 'drusilla' << 'lightgbm'
+        keys << 'drusilla'
+        if( withLgb(run) ) keys << 'lightgbm'
         // the hint rescue runs Tiberius, also when Vipsania is the gene finder
         if( run.rescue && !keys.contains('tiberius') ) keys << 'tiberius'
     } else if( transcripts ) {

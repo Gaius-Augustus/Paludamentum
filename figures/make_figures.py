@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Writes figures/overview.svg, figures/drusilla_flow.svg and figures/postprocess_flow.svg."""
+"""Writes figures/overview.svg, figures/drusilla_flow.svg, figures/no_protein_flow.svg and
+figures/postprocess_flow.svg."""
 import re
 import sys
 from xml.sax.saxutils import escape
@@ -113,7 +114,8 @@ def overview():
     f.box(C, r[1], wC, r[3] + h - r[1], "purple", "High-confidence genes",
           ["HC genes: ORFs of the assembled", "transcripts that the protein", "evidence supports", "",
            "TransDecoder or TD2,", "DIAMOND", "",
-           "Vertebrate models:", "Drusilla ORFs and a filter for the", "ab initio predictions", "",
+           "Vertebrate and insect models:", "Drusilla ORFs, proteins optional;", "vertebrates with proteins: a",
+           "filter for the ab initio predictions", "",
            "Without reads: from the protein", "alignments alone"], 4)
 
     f.doc(D, r[0], wD, h, "grey", "Final annotation", "<tool>_evidence.gff3", mono=True)
@@ -140,7 +142,7 @@ def overview():
     f.arrow([(D + wD / 2, r[0] + h - 4), (D + wD / 2, r[1])], "grey")
 
     f.text(A, 556, "Genome only: step 1 runs alone, for example to parallelize a gene finder over several GPUs.")
-    f.text(A, 577, "Reads need proteins: HC genes are built from transcript and protein evidence together. "
+    f.text(A, 577, "Reads need proteins, except for clades with a Drusilla model (vertebrates, insects). "
                    "<tool> is tiberius or vipsania.")
     return f
 
@@ -195,6 +197,47 @@ def drusilla():
     f.dot(xj, cy(yc), "green")
     f.text((xl + xj) / 2, yk + 19, "correct: kept", anchor="middle")
     f.arrow([(xm, yb + h), (xm, yc)], "grey")
+    return f
+
+
+def no_protein():
+    f = Fig(1160, 352, "Drusilla flow without proteins",
+            "The flow recommended for insects: one StringTie assembly, a transcript filter and Drusilla "
+            "ORFs give the high-confidence genes, which are merged with all ab initio genes of Vipsania, "
+            "fine-tuned on the genome. Without protein evidence there is no codon fix, no LightGBM "
+            "filter and no hint rescue.")
+    w, h = 160, 88
+    X = [20, 202, 384, 566, 748]
+    M, wM = 968, 168
+    ya, yb = 44, 190
+
+    f.doc(X[0], ya, w, h, "red", "Read alignments", "short reads, Iso-Seq")
+    f.box(X[1], ya, w, h, "orange", "StringTie", ["one assembly of", "all reads"], 1)
+    f.box(X[2], ya, w, h, "orange", "Transcript filter", ["length, coverage,", "TPM"], 2)
+    f.box(X[3], ya, w, h, "purple", "Drusilla", ["ORFs, also truncated", "at transcript ends"], 3)
+    f.box(X[4], ya, w, h, "purple", "Collapse", ["isoforms whose CDS", "is part of another"], 4)
+
+    f.doc(X[1], yb, w, h, "green", "Ab initio genes", "Vipsania, fine-tuned")
+
+    f.box(M, ya, wM, h, "grey", "Merge", ["ORFs and all", "ab initio genes"], 5)
+    f.doc(M, yb, wM, h, "grey", "Final annotation", "<tool>_evidence.gff3", mono=True)
+
+    cy = lambda y: y + h / 2
+    for i, c in enumerate(("red", "orange", "orange", "purple")):
+        f.arrow([(X[i] + w, cy(ya)), (X[i + 1], cy(ya))], c)
+    # Drusilla ORFs to the merge
+    f.arrow([(X[4] + w, cy(ya) - 14), (M, cy(ya) - 14)], "purple")
+    f.text((X[4] + w + M) / 2, cy(ya) - 22, "HC genes", 11.5, anchor="middle")
+    # all ab initio genes to the merge, no filter
+    xj = (X[4] + w + M) / 2
+    f.arrow([(X[1] + w, cy(yb)), (xj, cy(yb)), (xj, cy(ya) + 14), (M, cy(ya) + 14)], "green")
+    f.text((X[1] + w + xj) / 2, cy(yb) - 9, "all genes: no filter, no rescue", anchor="middle")
+    f.arrow([(M + wM / 2, ya + h), (M + wM / 2, yb)], "grey")
+
+    f.text(X[0], yb + h + 42, "Without protein evidence there is no codon fix, no LightGBM filter and no hint "
+           "rescue (compare the Drusilla flow with proteins).", 13, fill=INK)
+    f.text(X[0], yb + h + 63, "Recommended for insects in conf/hc_genes.yaml: Vipsania with the model Insecta, "
+           "fine-tuned on the genome (vipsania.finetune: true).")
     return f
 
 
@@ -306,6 +349,6 @@ def postprocess():
 
 out = sys.argv[1]
 for name, fig in (("overview", overview()), ("drusilla_flow", drusilla()),
-                  ("postprocess_flow", postprocess())):
+                  ("no_protein_flow", no_protein()), ("postprocess_flow", postprocess())):
     with open(f"{out}/{name}.svg", "w") as fh:
         fh.write(fig.svg())

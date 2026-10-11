@@ -43,20 +43,16 @@ def modes() {
 }
 
 // Mode of a run from its inputs. Transcript evidence (short reads, BAM, Iso-Seq,
-// pyVARUS directories) needs protein evidence, because the high-confidence
-// genes need both; the caller reports that as an error. The caller counts
+// pyVARUS directories) without protein evidence gives the transcript mode as
+// well: main.nf stops such a run unless the Drusilla flow selects the
+// high-confidence genes, which needs no proteins (hcMethod). The caller counts
 // rnaseq_varus in hasBAM and isoseq_varus in hasIso.
 def inferMode(boolean hasPaired, boolean hasSingle, boolean hasIso, boolean hasBAM, boolean hasProteins) {
   def hasShortReads = hasPaired || hasSingle || hasBAM
-  if( !hasProteins ) {
-    if( hasShortReads || hasIso )
-      error "RNA-Seq and Iso-Seq evidence need protein evidence (params.proteins or params.odb12Partitions): the high-confidence genes are selected by protein homology."
-    return 'abinitio'
-  }
   if( hasShortReads && hasIso ) return 'mixed'
   if( hasIso )                  return 'isoseq'
   if( hasShortReads )           return 'rnaseq'
-  return 'proteins'
+  return hasProteins ? 'proteins' : 'abinitio'
 }
 
 // params.mode normalised to one of modes(), or an error for anything else.
@@ -154,8 +150,18 @@ def drusillaSetting(p, String key) {
 }
 
 // True if the Drusilla flow runs the hint rescue (params.drusilla.rescue).
+// The rescue predicts the partial genes of the LightGBM filter again, so it
+// runs only where the filter runs (drusillaLgb).
 def rescueEnabled(p) {
     return p.drusilla?.rescue == null || truthy(p.drusilla.rescue)
+}
+
+// True if the Drusilla flow runs the LightGBM filter of the gene finder genes:
+// the clade (or params.drusilla) has a LightGBM model, and there is protein
+// evidence, from which the filter computes its features. Without it the
+// Drusilla ORFs are merged with all gene finder genes.
+def drusillaLgb(p, boolean hasProteins) {
+    return hasProteins && drusillaSetting(p, 'lgb_model') as boolean
 }
 
 // Tiberius model of the hint rescue: params.drusilla.rescue_model_cfg, else the
@@ -187,7 +193,8 @@ def hcTransdecoder(clade, note) {
 // 'transdecoder', clade: clade of the gene finder model or null, note: text or
 // null]. params.drusilla.run 'auto' follows hc of the clade in the HC table
 // (conf/hc_genes.yaml) for runs with transcripts and a gene finder; true and
-// false force the choice.
+// false force the choice. The Drusilla flow needs a Drusilla model only; a
+// clade without a LightGBM model runs it without the filter (drusillaLgb).
 def hcMethod(p, String mode) {
     def run = p.drusilla?.run
     def auto = run == null || run.toString().trim().toLowerCase() == 'auto'
@@ -197,7 +204,6 @@ def hcMethod(p, String mode) {
     if( !(hc in ['drusilla', 'transdecoder']) )
         error "hc of clade ${clade.name} in the HC table must be 'drusilla' or 'transdecoder', got '${hc}'."
     def missing = []
-    if( !drusillaSetting(p, 'lgb_model') ) missing << 'LightGBM model (params.drusilla.lgb_model)'
     if( !p.drusilla?.weights && !drusillaSetting(p, 'model') ) missing << 'Drusilla model (params.drusilla.model)'
     if( !auto && !truthy(run) ) return hcTransdecoder(clade.name, null)
     if( auto ) {
@@ -215,8 +221,42 @@ def hcMethod(p, String mode) {
     }
     if( !hasTranscripts )     error "params.drusilla.run = true needs transcripts (mode rnaseq, isoseq or mixed), the mode is '${mode}'."
     if( !genefinderEnabled(p) ) error "params.drusilla.run = true needs a gene finder (tiberius.run or vipsania.run)."
-    if( missing ) error "params.drusilla.run = true needs a ${missing.join(' and a ')}; the HC table has none for clade ${clade.name ?: 'unknown'}, nor a drusilla_forced clade with them."
+    if( missing ) error "params.drusilla.run = true needs a ${missing.join(' and a ')}; the HC table has none for clade ${clade.name ?: 'unknown'}, nor a drusilla_forced clade with one."
     return [method: 'drusilla', clade: clade.name, note: rescueEnabled(p) ? rescueModel(p).note : null]
+}
+
+// The most accurate flow measured for the clade of the gene finder model, as
+// the key 'recommended' of its entry in the HC table (conf/hc_genes.yaml):
+// genefinder, finetune (Vipsania), transcripts, drusilla (the Drusilla flow
+// selects the HC genes), proteins (true: given, false: not given), and note
+// (the measured accuracy). Keys that are not set are not checked. Returns
+// null if the clade has no recommendation or the run follows it, else the
+// warning, which names every difference.
+def cladeAdvice(p, String mode, boolean hasProteins, Map hc) {
+    def clade = hcClade(p)
+    def rec = clade.entry?.recommended
+    if( !(rec instanceof Map) ) return null
+    def tool = resolveGenefinder(p)
+    def running = genefinderEnabled(p)
+    def transcripts = mode in ['rnaseq', 'isoseq', 'mixed']
+    def diff = []
+    def wantTool = rec.genefinder?.toString()?.trim()?.toLowerCase()
+    if( wantTool && (!running || tool != wantTool) )
+        diff << (running ? "the gene finder is ${tool}, not ${wantTool}" : "no gene finder runs (${wantTool}.run)")
+    if( running && tool == 'vipsania' && rec.finetune != null && !p.vipsania?.result &&
+        truthy(rec.finetune) != truthy(p.vipsania?.finetune) )
+        diff << (truthy(rec.finetune) ? 'Vipsania is not fine-tuned on the genome (vipsania.finetune: true)' :
+                                        'Vipsania is fine-tuned on the genome')
+    if( rec.transcripts != null && truthy(rec.transcripts) != transcripts )
+        diff << (transcripts ? 'there is RNA-Seq or Iso-Seq evidence' : 'there is no RNA-Seq or Iso-Seq evidence')
+    if( transcripts && rec.drusilla != null && truthy(rec.drusilla) != (hc.method == 'drusilla') )
+        diff << (hc.method == 'drusilla' ? 'the Drusilla flow selects the high-confidence genes' :
+                                           "the high-confidence genes are not those of the Drusilla flow (HC genes: ${hc.method})")
+    if( rec.proteins != null && truthy(rec.proteins) != hasProteins )
+        diff << (hasProteins ? 'protein evidence is given (proteins or odb12Partitions)' : 'there is no protein evidence')
+    if( !diff ) return null
+    def note = rec.note ? " ${rec.note.toString().trim()}" : ''
+    return "This run of clade ${clade.name} differs from the flow recommended for it: ${diff.join('; ')}.${note}"
 }
 
 // Header keys (#key=value lines) of a pyVARUS manifest; '# ' lines are comments.

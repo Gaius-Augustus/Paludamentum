@@ -73,8 +73,9 @@ The numbers in the figure are the steps below.
    GPU). `report.html` sums it up. See
    [docs/postprocessing.md](docs/postprocessing.md).
 
-For vertebrate and mammal gene finder models, runs with transcripts use the
-[Drusilla flow](#drusilla-flow) in steps 4 and 5 instead. Which clade gets
+For vertebrate, mammal and insect gene finder models, runs with transcripts
+use the [Drusilla flow](#drusilla-flow) in steps 4 and 5 instead; it also runs
+without proteins, which is the recommended flow for insects. Which clade gets
 which flow is set in [conf/hc_genes.yaml](conf/hc_genes.yaml).
 
 Without any evidence input the pipeline runs steps 1 and 6 only. That is
@@ -196,25 +197,29 @@ Paths must not contain spaces. All parameters are documented in
 | `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80 |
 
 The mode is inferred from the inputs and can be forced with `mode`
-(`--mode`). A forced mode without its inputs, or transcript evidence without
-proteins, is an error:
+(`--mode`). A forced mode without its inputs is an error, and so is
+transcript evidence without proteins outside the Drusilla flow:
 
 | Mode | Inputs |
 | --- | --- |
 | `abinitio` (historic name: `tiberius`) | genome only |
 | `proteins` | proteins |
-| `rnaseq` | proteins and short reads, or proteins and a StringTie assembly |
-| `isoseq` | proteins and Iso-Seq |
-| `mixed` | proteins, short reads and Iso-Seq |
+| `rnaseq` | short reads or a StringTie assembly, and proteins |
+| `isoseq` | Iso-Seq, and proteins |
+| `mixed` | short reads and Iso-Seq, and proteins |
 
-Transcript evidence requires protein evidence, because HC genes need both.
+The TransDecoder HC genes need protein evidence. The [Drusilla flow](#drusilla-flow)
+does not: for a clade with a Drusilla model in
+[conf/hc_genes.yaml](conf/hc_genes.yaml) (vertebrates, mammals, insects) the
+proteins of the modes `rnaseq`, `isoseq` and `mixed` are optional.
 
 ### Existing StringTie assemblies
 
 If the transcripts are already assembled, pass the StringTie GTF with
 `--stringtie` (`stringtie` in the params file). The pipeline then neither
 maps reads nor runs StringTie for them; the assembly goes straight to the
-HC gene step. Proteins are still required.
+HC gene step. Proteins are still required, except in the
+[Drusilla flow](#drusilla-flow).
 
 ```bash
 paludamentum --nf_config local --genome genome.fa --model_cfg eudicotyledons \
@@ -232,7 +237,7 @@ need no GPU, no mapping and no assembly step. Notes:
 
 - Several assemblies can be given, also together with reads; they are
   merged with the assemblies that the pipeline makes from the reads.
-- With a vertebrate or mammal gene finder model (a clade with
+- With a vertebrate, mammal or insect gene finder model (a clade with
   `hc: drusilla` in `conf/hc_genes.yaml`) the [Drusilla flow](#drusilla-flow)
   runs, which filters transcripts by the coverage and TPM that StringTie
   writes. It takes exactly one assembly of all reads and no other RNA-Seq
@@ -241,8 +246,9 @@ need no GPU, no mapping and no assembly step. Notes:
   `drusilla.run: false` to merge several assemblies in the TransDecoder flow
   instead.
 - A run with only an assembly is reported as mode `rnaseq`, whatever reads
-  the assembly was made from. `hintsfile.gff` then has protein hints only;
-  intron hints from reads do not influence the annotation.
+  the assembly was made from. `hintsfile.gff` then has protein hints only
+  (none without proteins); intron hints from reads do not influence the
+  annotation.
 
 ## Outputs
 
@@ -328,9 +334,9 @@ run. Notes:
 - `--genefinder` names the gene finder that made the file (default:
   Tiberius). It sets the names of the output files (`tiberius_*`,
   `vipsania_*`).
-- For a prediction of a vertebrate model, name the model as well
-  (`--model_cfg vertebrates` for Tiberius, `--model Vertebrata` for
-  Vipsania). The model is not run; it tells the pipeline to use the
+- For a prediction of a vertebrate or insect model, name the model as well
+  (`--model_cfg vertebrates` for Tiberius, `--model Vertebrata` or
+  `--model Insecta` for Vipsania). The model is not run; it tells the pipeline to use the
   [Drusilla flow](#drusilla-flow). Without it, runs with transcripts use the
   TransDecoder HC genes. The hint rescue of the Drusilla flow runs Tiberius
   on a GPU; all other steps of a run with `--result` need no GPU.
@@ -340,19 +346,43 @@ run. Notes:
 
 ## Drusilla flow
 
-For vertebrate and mammal gene finder models (clades with `hc: drusilla` in
-[conf/hc_genes.yaml](conf/hc_genes.yaml)), runs with transcripts take another route
-through steps 4 and 5: Drusilla ORFs replace the TransDecoder HC genes, a
-LightGBM model filters the *ab initio* predictions, and Tiberius predicts
-partial genes again with protein hints. The gene-level F1 is 80.46 on
-*Takifugu rubripes* with the Tiberius `vertebrates` model and 79.71 on
-*Bos taurus* with `mammalia_softmasking_v2`. The flow is switched on
+For vertebrate, mammal and insect gene finder models (clades with
+`hc: drusilla` in [conf/hc_genes.yaml](conf/hc_genes.yaml)), runs with
+transcripts take another route through steps 4 and 5: Drusilla ORFs replace
+the TransDecoder HC genes. With protein evidence, vertebrates and mammals
+also get a LightGBM filter of the *ab initio* predictions, and Tiberius
+predicts partial genes again with protein hints. The gene-level F1 is 80.70
+on *Takifugu rubripes* with the Tiberius `vertebrates` model (Paludamentum
+0.5.0, gffcompare 0.12.10) and 79.71 on *Bos taurus* with
+`mammalia_softmasking_v2` (Paludamentum 0.4.0). The flow is switched on
 automatically (`drusilla.run: auto`).
 Conditions, steps, parameters and known issues are in
 [docs/drusilla_flow.md](docs/drusilla_flow.md).
 
 <p align="center">
   <img src="figures/drusilla_flow.svg" alt="Drusilla flow: StringTie assembly, transcript filter, Drusilla ORFs and codon fix give the high-confidence genes; LightGBM filter and hint rescue treat the ab initio genes; both are merged into the final annotation" width="100%">
+</p>
+
+**Without proteins.** The Drusilla flow also runs without protein evidence:
+the Drusilla ORFs are merged with all *ab initio* genes, without codon fix,
+LightGBM filter and hint rescue. This is the recommended flow for insects,
+with Vipsania `Insecta` fine-tuned on the genome:
+
+```bash
+paludamentum --nf_config local --genome genome.fa --model Insecta --finetune \
+    --rnaseq_bam rnaseq.bam
+```
+
+On 11 insect genomes, Drusilla ORFs merged with fine-tuned Vipsania genes
+reached a mean gene F1 of 75.2, as BRAKER3 with proteins (75.4), and more
+than Drusilla with Tiberius (66.0) or Vipsania alone (60.4) (evaluation of
+Lars Gabriel with gffcompare 0.12.10, see
+[docs/drusilla_flow.md](docs/drusilla_flow.md#insects)). An insect
+run with another flow (Tiberius, no fine-tuning, no transcripts, proteins)
+gets a warning in the Nextflow log.
+
+<p align="center">
+  <img src="figures/no_protein_flow.svg" alt="Drusilla flow without proteins: StringTie assembly, transcript filter and Drusilla ORFs, whose subsequence isoforms are collapsed, give the high-confidence genes, which are merged with all ab initio genes of Vipsania, fine-tuned on the genome; no codon fix, no LightGBM filter, no hint rescue" width="100%">
 </p>
 
 ## Containers and HPC
@@ -378,7 +408,7 @@ Running without containers, and other setups for experts, are described in
 | --- | --- |
 | [docs/parameters.md](docs/parameters.md) | all parameters: inputs, gene finder blocks, Drusilla flow, mode |
 | [docs/vipsania.md](docs/vipsania.md) | Vipsania as gene finder: models, finetuning, offline nodes |
-| [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla flow for vertebrate models: conditions, steps, known issues |
+| [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla flow for vertebrate and insect models, with and without proteins: conditions, steps, known issues |
 | [docs/postprocessing.md](docs/postprocessing.md) | post-processing and quality control: sanity filter, UTRs, GFF3 contract, completeness, ncRNA, GO terms, report |
 | [docs/containers.md](docs/containers.md) | container images and how they are pinned |
 | [docs/hpc.md](docs/hpc.md) | Nextflow config for your cluster, process labels |

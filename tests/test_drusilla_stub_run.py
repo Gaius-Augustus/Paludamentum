@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from test_stub_run import (DATA, EVIDENCE, NEXTFLOW, ROOT, assert_ok, drusilla_params,
-                           run_pipeline)
+from test_stub_run import (DATA, EVIDENCE, ISOSEQ, NEXTFLOW, PROTEINS, ROOT, SHORT_READS, assert_ok,
+                           drusilla_params, run_pipeline)
 
 pytestmark = [
     pytest.mark.nextflow,
@@ -98,6 +98,138 @@ def test_tiberius_result_without_model_is_not_drusilla(tmp_path: Path) -> None:
     assert "cannot tell which clade the prediction comes from" in proc.stdout + proc.stderr
     assert "HC genes    : transdecoder" in proc.stdout
     assert "intermediate/hc.gff3" in published
+
+
+# ---- without proteins: the insect flow ------------------------------------------
+
+# the flow recommended for insects in conf/hc_genes.yaml
+INSECT = {"vipsania": {"run": True, "model": "Insecta", "finetune": True}}
+ADVICE = "differs from the flow recommended for it"
+NO_PROTEIN_STEPS = ("MINIPROT_ALIGN", "FIX_ORFS", "GENEFINDER_LGB_FILTER", "HINT_RESCUE", "TD_ALL")
+
+
+def insect_stringtie(tmp_path: Path) -> dict:
+    gtf = tmp_path / "stringtie.gtf"
+    gtf.write_text('c1\tStringTie\ttranscript\t1\t300\t1000\t+\t.\tgene_id "g"; transcript_id "t"; cov "5"; TPM "3";\n')
+    return {"stringtie": str(gtf)}
+
+
+@pytest.mark.parametrize("evidence", ["rnaseq", "isoseq", "mixed", "stringtie"])
+def test_insect_flow_without_proteins(evidence: str, tmp_path: Path) -> None:
+    """Drusilla ORFs (subsequences collapsed) merged with all Vipsania genes; no protein step."""
+    inputs = {"rnaseq": SHORT_READS, "isoseq": ISOSEQ, "mixed": {**SHORT_READS, **ISOSEQ}}.get(evidence) \
+        or insect_stringtie(tmp_path)
+    proc, published = run_pipeline(tmp_path, {**INSECT, **inputs})
+    assert_ok(proc)
+    assert "HC genes    : drusilla (clade Insecta, Drusilla model insects) (no protein evidence)" in proc.stdout
+    assert "HC filter   : none" in proc.stdout and ADVICE not in proc.stdout + proc.stderr
+    assert "COLLAPSE_ORFS" in proc.stdout and "DOWNLOAD_DRUSILLA_MODEL" in proc.stdout
+    for process in NO_PROTEIN_STEPS:
+        assert process not in proc.stdout, process
+    # fine-tuning: one Vipsania task on the whole genome
+    assert "SPLIT_GENOME" not in proc.stdout
+    published = {f for f in published if not f.startswith("intermediate/vipsania/")}
+    assert {"intermediate/vipsania_ab_initio.gff3", "intermediate/drusilla_orfs.gtf",
+            "intermediate/vipsania_merged.gff3", "vipsania_evidence.gff3", "hintsfile.gff",
+            "qc/gene_support.tsv"} <= published, sorted(published)
+    assert not [f for f in published if "_lgb_" in f or "hint_rescue" in f or f == "intermediate/hc.gff3"]
+    text = (tmp_path / "out" / "citations.md").read_text()
+    assert "**Drusilla**" in text and "**Vipsania**" in text
+    for name in ("miniprot", "LightGBM", "Tiberius", "DIAMOND", "TD2"):
+        assert f"**{name}**" not in text, (name, text)
+    methods = (tmp_path / "out" / "methods.md").read_text()
+    assert "without protein evidence" in methods and "which needs no protein evidence" in methods
+    assert "miniprot" not in methods and "LightGBM" not in methods and "finetuned" in methods
+
+
+def test_insect_flow_with_proteins(tmp_path: Path) -> None:
+    """With proteins the ORFs are fixed (FIX_ORFS), but Insecta has no LightGBM model."""
+    proc, published = run_pipeline(tmp_path, {**INSECT, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "HC genes    : drusilla (clade Insecta, Drusilla model insects)\n" in proc.stdout
+    assert "FIX_ORFS" in proc.stdout and "MINIPROT_ALIGN" in proc.stdout
+    for process in ("COLLAPSE_ORFS", "GENEFINDER_LGB_FILTER", "HINT_RESCUE"):
+        assert process not in proc.stdout, process
+    assert "protein evidence is given" in proc.stdout + proc.stderr
+    assert {"intermediate/drusilla_orfs.gtf", "vipsania_evidence.gff3"} <= published
+    methods = (tmp_path / "out" / "methods.md").read_text()
+    assert "miniprot" in methods and "without the LightGBM filter" in methods
+
+
+@pytest.mark.parametrize("params,differences", [
+    (INSECT, []),
+    ({"vipsania": {"run": True, "model": "58hsuobw", "finetune": "true"}}, []),
+    ({"vipsania": {"run": True, "model": "Insecta"}}, ["Vipsania is not fine-tuned on the genome"]),
+    ({"vipsania": {"run": True, "model": "Insecta", "result": "PREVIOUS"}}, []),
+    ({"tiberius": {"run": True, "model_cfg": "Insecta"}}, ["the gene finder is tiberius, not vipsania"]),
+    ({"tiberius": {"run": True, "model_cfg": "Lepidoptera"}}, ["the gene finder is tiberius, not vipsania"]),
+    ({**INSECT, "drusilla": {"run": False}, **PROTEINS},
+     ["the high-confidence genes are not those of the Drusilla flow (HC genes: transdecoder)",
+      "protein evidence is given"]),
+], ids=["recommended", "model-id", "not-fine-tuned", "reused-result", "tiberius", "tiberius-lepidoptera",
+        "transdecoder-flow"])
+def test_insect_runs_get_the_recommended_flow(params: dict, differences: list[str], tmp_path: Path) -> None:
+    params = yaml.safe_load(yaml.safe_dump(params))
+    if "tiberius" in params:
+        # the flow reads target_species of the model, as Tiberius' model_cfg/ has it
+        cfg = tmp_path / "model.yaml"
+        cfg.write_text(f'target_species: "{params["tiberius"]["model_cfg"]}"\n')
+        params["tiberius"]["model_cfg"] = str(cfg)
+    if params.get("vipsania", {}).get("result") == "PREVIOUS":
+        (tmp_path / "previous.gtf").write_text("")
+        params["vipsania"]["result"] = str(tmp_path / "previous.gtf")
+    proc, _ = run_pipeline(tmp_path, {**SHORT_READS, **params})
+    assert_ok(proc)
+    out = proc.stdout + proc.stderr
+    assert (ADVICE in out) == bool(differences), out[-3000:]
+    for d in differences:
+        assert d in out, (d, out[-3000:])
+    if differences:
+        assert "mean gene F1 of 75.2 on 11 insect genomes" in out
+
+
+@pytest.mark.parametrize("params,differences", [
+    (INSECT, ["there is no RNA-Seq or Iso-Seq evidence"]),
+    ({"tiberius": {"run": True, "model_cfg": "Insecta"}},
+     ["the gene finder is tiberius, not vipsania", "there is no RNA-Seq or Iso-Seq evidence"]),
+    ({**INSECT, **PROTEINS}, ["there is no RNA-Seq or Iso-Seq evidence", "protein evidence is given"]),
+], ids=["ab-initio", "ab-initio-tiberius", "proteins"])
+def test_insect_runs_without_transcripts_are_warned(params: dict, differences: list[str], tmp_path: Path) -> None:
+    params = yaml.safe_load(yaml.safe_dump(params))
+    if "tiberius" in params:
+        cfg = tmp_path / "model.yaml"
+        cfg.write_text('target_species: "Insecta"\n')
+        params["tiberius"]["model_cfg"] = str(cfg)
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    out = proc.stdout + proc.stderr
+    assert ADVICE in out
+    for d in differences:
+        assert d in out, (d, out[-3000:])
+
+
+def test_vertebrates_without_proteins(tmp_path: Path) -> None:
+    """A clade with a LightGBM model runs without the filter when there are no proteins."""
+    proc, published = run_pipeline(tmp_path, {**drusilla_params(tmp_path, "vipsania"), **SHORT_READS})
+    assert_ok(proc)
+    assert "HC genes    : drusilla (clade Vertebrata, Drusilla model vertebrates) (no protein evidence)" in proc.stdout
+    assert "no protein evidence for the LightGBM filter" in proc.stdout
+    for process in NO_PROTEIN_STEPS:
+        assert process not in proc.stdout, process
+    assert ADVICE not in proc.stdout + proc.stderr
+    assert "intermediate/drusilla_orfs.gtf" in published
+
+
+@pytest.mark.parametrize("params,message", [
+    ({"vipsania": {"run": True, "model": "Fungi"}, **SHORT_READS}, "needs protein evidence"),
+    ({**INSECT, "drusilla": {"run": False}, **SHORT_READS}, "needs protein evidence"),
+    ({**INSECT, "mode": "proteins"}, "needs protein evidence"),
+    ({"vipsania": {"run": False, "model": "Insecta"}, **SHORT_READS}, "needs protein evidence"),
+], ids=["fungi", "drusilla-off", "proteins-mode", "no-gene-finder"])
+def test_transcripts_without_proteins_need_the_drusilla_flow(params: dict, message: str, tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, params)
+    assert proc.returncode != 0
+    assert message in proc.stdout + proc.stderr, proc.stdout[-2000:]
 
 
 # ---- processes with their real scripts -------------------------------------------
