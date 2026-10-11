@@ -141,10 +141,6 @@ A run with transcripts and without protein evidence (no `proteins`, no
 proteins, for any clade with a Drusilla model. Without a Drusilla model for
 the clade the run stops: the TransDecoder HC genes need proteins.
 
-<p align="center">
-  <img src="../figures/no_protein_flow.svg" alt="Drusilla flow without proteins: StringTie assembly, transcript filter and Drusilla ORFs, whose subsequence isoforms are collapsed, give the high-confidence genes, which are merged with all ab initio genes of Vipsania, fine-tuned on the genome; no codon fix, no LightGBM filter, no hint rescue" width="100%">
-</p>
-
 1. to 3. as with proteins: one StringTie assembly of all reads, the
    transcript filter and `drusilla annotate`.
 4. `COLLAPSE_ORFS`: isoforms whose CDS is a subsequence of another one are
@@ -165,6 +161,13 @@ and start codon fix of step 4.
 
 This is the recommended flow for insects: Vipsania with the model `Insecta`,
 fine-tuned on the genome, RNA-Seq or Iso-Seq evidence, and no proteins.
+
+<p align="center">
+  <img src="../figures/insect_flow.svg" alt="Insect flow: the reads are aligned and assembled with StringTie into one transcript set (step 3), which is filtered, and Drusilla predicts its ORFs with the insect model (step 4); Vipsania, fine-tuned on the genome, predicts the ab initio genes (step 1); all ab initio genes are merged with the ORFs (step 5) and post-processed into vipsania_evidence.gff3 (step 6); step 2, protein evidence, does not run; other choices get a warning" width="100%">
+</p>
+
+The numbers in the figure are the steps of the overview in the
+[README](../README.md#what-the-pipeline-does).
 
 ```yaml
 genome: /abs/path/genome.fa

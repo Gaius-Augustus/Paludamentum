@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes figures/overview.svg, figures/drusilla_flow.svg, figures/no_protein_flow.svg and
+"""Writes figures/overview.svg, figures/drusilla_flow.svg, figures/insect_flow.svg and
 figures/postprocess_flow.svg."""
 import re
 import sys
@@ -37,9 +37,10 @@ class Fig:
         self.add(f'<text x="{x}" y="{y}" font-family="{fam}" font-size="{size}" font-weight="{weight}" '
                  f'fill="{fill}" text-anchor="{anchor}"{style}>{italic(escape(s))}</text>')
 
-    def box(self, x, y, w, h, color, title, lines, num=None):
-        fill, stroke = COL[color]
-        self.add(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="10" fill="{fill}" stroke="{stroke}" stroke-width="1.6"/>')
+    def box(self, x, y, w, h, color, title, lines, num=None, dashed=False, fill=None):
+        fill, stroke = (fill or COL[color][0]), COL[color][1]
+        dash = ' stroke-dasharray="6 4"' if dashed else ""
+        self.add(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="10" fill="{fill}" stroke="{stroke}" stroke-width="1.6"{dash}/>')
         tx = x + 14
         if num is not None:
             self.add(f'<circle cx="{x + 24}" cy="{y + 25}" r="11" fill="{stroke}"/>')
@@ -49,12 +50,13 @@ class Fig:
         for i, ln in enumerate(lines):
             self.text(x + 14, y + 53 + 17 * i, ln)
 
-    def doc(self, x, y, w, h, color, title, sub, mono=False, tag=None):
-        fill, stroke = COL[color]
+    def doc(self, x, y, w, h, color, title, sub, mono=False, tag=None, dashed=False, fill=None):
+        fill, stroke = (fill or COL[color][0]), COL[color][1]
         b = y + h - 7
         d = (f'M{x},{y + 6} q0,-6 6,-6 h{w - 12} q6,0 6,6 V{b} '
              f'q{-w / 4},-15 {-w / 2},0 t{-w / 2},0 Z')
-        self.add(f'<path d="{d}" fill="{fill}" stroke="{stroke}" stroke-width="1.6" stroke-linejoin="round"/>')
+        dash = ' stroke-dasharray="6 4"' if dashed else ""
+        self.add(f'<path d="{d}" fill="{fill}" stroke="{stroke}" stroke-width="1.6" stroke-linejoin="round"{dash}/>')
         self.text(x + w / 2, y + 31, title, 15, "bold", INK, "middle")
         self.text(x + w / 2, y + 52, sub, 11.5 if mono else 12.5, anchor="middle", mono=mono)
         if tag:
@@ -84,14 +86,14 @@ class Fig:
 
 
 def overview():
-    f = Fig(1160, 606, "Paludamentum overview",
-            "Inputs (genome, proteins, short reads, Iso-Seq reads), the five processing steps "
+    f = Fig(1340, 606, "Paludamentum overview",
+            "Inputs (genome, proteins, short reads, Iso-Seq reads), the six processing steps "
             "(ab initio prediction, protein evidence, transcript evidence, high-confidence genes, "
-            "integration) and the output files of Paludamentum.")
-    A, B, C, D = 30, 300, 620, 920
-    wA, wB, wC, wD = 210, 260, 240, 210
+            "integration, post-processing and quality control) and the output files of Paludamentum.")
+    A, B, C, E, D = 30, 290, 580, 870, 1110
+    wA, wB, wC, wE, wD = 220, 260, 260, 210, 200
     h, r = 88, [80, 198, 316, 434]
-    for x, w, s in ((A, wA, "INPUTS"), (B, wB + C + wC - B - wB, "PROCESSING"), (D, wD, "OUTPUTS")):
+    for x, w, s in ((A, wA, "INPUTS"), (B, E + wE - B, "PROCESSING"), (D, wD, "OUTPUTS")):
         f.text(x, 52, s, 13, "bold", SUB, style=' letter-spacing="1.5"')
         f.add(f'<path d="M{x},62 h{w}" stroke="#d9dee4" stroke-width="1.5"/>')
 
@@ -112,20 +114,28 @@ def overview():
     f.box(C, r[0], wC, h, "grey", "Integration",
           ["HC genes are merged with the", "ab initio predictions"], 5)
     f.box(C, r[1], wC, r[3] + h - r[1], "purple", "High-confidence genes",
-          ["HC genes: ORFs of the assembled", "transcripts that the protein", "evidence supports", "",
-           "TransDecoder or TD2,", "DIAMOND", "",
-           "Vertebrate and insect models:", "Drusilla ORFs, proteins optional;", "vertebrates with proteins: a",
-           "filter for the ab initio predictions", "",
+          ["TransDecoder flow: ORFs of the", "assembled transcripts (TD2 or", "TransDecoder) that the protein",
+           "evidence supports", "",
+           "Drusilla flow (vertebrates,", "insects): Drusilla ORFs; with", "proteins, vertebrates also get a",
+           "filter of the ab initio predictions", "",
            "Without reads: from the protein", "alignments alone"], 4)
 
+    f.box(E, r[0], wE, r[3] + h - r[0], "grey", "Post-processing",
+          ["and quality control", "",
+           "Sanity filter: broken CDS", "and internal stops removed", "",
+           "UTRs from the StringTie", "assemblies", "",
+           "GFF3 (validated), GTF,", "protein and CDS FASTA", "",
+           "Optional: BUSCO, compleasm,", "OMArk, gffcompare, ncRNA,", "GO terms (FANTASIA-Lite)", "",
+           "report.html sums it up"], 6)
+
     f.doc(D, r[0], wD, h, "grey", "Final annotation", "<tool>_evidence.gff3", mono=True)
-    f.doc(D, r[1], wD, h, "grey", "Protein sequences", "<tool>_evidence_proteins.fa", mono=True)
+    f.doc(D, r[1], wD, h, "grey", "Sequences, GTF", "<tool>_evidence_*.fa", mono=True)
     y0 = r[2]
     f.add(f'<rect x="{D}" y="{y0}" width="{wD}" height="{r[3] + h - y0}" rx="10" fill="#fafbfc" '
           f'stroke="#b6bec8" stroke-width="1.4" stroke-dasharray="5 4"/>')
     f.text(D + 14, y0 + 28, "Also written", 14, "bold", INK)
-    for i, (name, what) in enumerate((("<tool>_ab_initio.gff3", "ab initio predictions"),
-                                      ("intermediate/hc.gff3", "HC genes"),
+    for i, (name, what) in enumerate((("intermediate/", "ab initio and HC genes"),
+                                      ("qc/, report.html", "quality control"),
                                       ("hintsfile.gff", "protein and transcript hints"))):
         f.text(D + 14, y0 + 58 + 48 * i, name, 11.5, fill=INK, mono=True)
         f.text(D + 14, y0 + 75 + 48 * i, what)
@@ -138,12 +148,14 @@ def overview():
     ym = (r[2] + r[3] + h) / 2
     f.arrow([(B + wB, ym), (C, ym)], "orange")
     f.arrow([(C + wC / 2, r[1]), (C + wC / 2, r[0] + h)], "purple")
-    f.arrow([(C + wC, r[0] + h / 2), (D, r[0] + h / 2)], "grey")
-    f.arrow([(D + wD / 2, r[0] + h - 4), (D + wD / 2, r[1])], "grey")
+    f.arrow([(C + wC, r[0] + h / 2), (E, r[0] + h / 2)], "grey")
+    f.arrow([(E + wE, r[0] + h / 2), (D, r[0] + h / 2)], "grey")
+    f.arrow([(E + wE, r[1] + h / 2), (D, r[1] + h / 2)], "grey")
+    f.arrow([(E + wE, (r[2] + r[3] + h) / 2), (D, (r[2] + r[3] + h) / 2)], "grey")
 
-    f.text(A, 556, "Genome only: step 1 runs alone, for example to parallelize a gene finder over several GPUs.")
-    f.text(A, 577, "Reads need proteins, except for clades with a Drusilla model (vertebrates, insects). "
-                   "<tool> is tiberius or vipsania.")
+    f.text(A, 556, "Genome only: steps 1 and 6 run, for example to parallelize a gene finder over several GPUs.")
+    f.text(A, 577, "Reads need proteins, except in the Drusilla flow (vertebrates, insects; recommended for insects "
+                   "without proteins). <tool> is tiberius or vipsania.")
     return f
 
 
@@ -200,44 +212,65 @@ def drusilla():
     return f
 
 
-def no_protein():
-    f = Fig(1160, 352, "Drusilla flow without proteins",
-            "The flow recommended for insects: one StringTie assembly, a transcript filter and Drusilla "
-            "ORFs give the high-confidence genes, which are merged with all ab initio genes of Vipsania, "
-            "fine-tuned on the genome. Without protein evidence there is no codon fix, no LightGBM "
-            "filter and no hint rescue.")
-    w, h = 160, 88
-    X = [20, 202, 384, 566, 748]
-    M, wM = 968, 168
-    ya, yb = 44, 190
-
-    f.doc(X[0], ya, w, h, "red", "Read alignments", "short reads, Iso-Seq")
-    f.box(X[1], ya, w, h, "orange", "StringTie", ["one assembly of", "all reads"], 1)
-    f.box(X[2], ya, w, h, "orange", "Transcript filter", ["length, coverage,", "TPM"], 2)
-    f.box(X[3], ya, w, h, "purple", "Drusilla", ["ORFs, also truncated", "at transcript ends"], 3)
-    f.box(X[4], ya, w, h, "purple", "Collapse", ["isoforms whose CDS", "is part of another"], 4)
-
-    f.doc(X[1], yb, w, h, "green", "Ab initio genes", "Vipsania, fine-tuned")
-
-    f.box(M, ya, wM, h, "grey", "Merge", ["ORFs and all", "ab initio genes"], 5)
-    f.doc(M, yb, wM, h, "grey", "Final annotation", "<tool>_evidence.gff3", mono=True)
-
+def insect():
+    f = Fig(1310, 574, "Insect flow of Paludamentum",
+            "The recommended flow for insects, without protein evidence, numbered with the steps of the "
+            "overview: Vipsania, fine-tuned on the genome, predicts the ab initio genes (1); reads are "
+            "aligned and assembled with StringTie into one transcript set (3), which is filtered, and "
+            "Drusilla predicts the ORFs of the kept transcripts with its insect model, the high-confidence "
+            "genes (4); all ab initio genes are merged with the ORFs (5) and post-processed into "
+            "vipsania_evidence.gff3 (6). Step 2, protein evidence, does not run, and with it no codon fix, "
+            "LightGBM filter or hint rescue. Runs that differ get a warning.")
+    A, wA = 30, 200                    # inputs
+    X, w = [258, 424, 590, 756], 148   # transcript lane
+    M, wM = 930, 150                   # merge
+    O, wO = 1104, 180                  # post-processing and output
+    ya, yb, yc, h, hc = 80, 230, 380, 104, 116
     cy = lambda y: y + h / 2
-    for i, c in enumerate(("red", "orange", "orange", "purple")):
-        f.arrow([(X[i] + w, cy(ya)), (X[i + 1], cy(ya))], c)
-    # Drusilla ORFs to the merge
-    f.arrow([(X[4] + w, cy(ya) - 14), (M, cy(ya) - 14)], "purple")
-    f.text((X[4] + w + M) / 2, cy(ya) - 22, "HC genes", 11.5, anchor="middle")
-    # all ab initio genes to the merge, no filter
-    xj = (X[4] + w + M) / 2
-    f.arrow([(X[1] + w, cy(yb)), (xj, cy(yb)), (xj, cy(ya) + 14), (M, cy(ya) + 14)], "green")
-    f.text((X[1] + w + xj) / 2, cy(yb) - 9, "all genes: no filter, no rescue", anchor="middle")
-    f.arrow([(M + wM / 2, ya + h), (M + wM / 2, yb)], "grey")
 
-    f.text(X[0], yb + h + 42, "Without protein evidence there is no codon fix, no LightGBM filter and no hint "
-           "rescue (compare the Drusilla flow with proteins).", 13, fill=INK)
-    f.text(X[0], yb + h + 63, "Recommended for insects in conf/hc_genes.yaml: Vipsania with the model Insecta, "
-           "fine-tuned on the genome (vipsania.finetune: true).")
+    for x, wid, label in ((A, wA, "INPUTS"), (X[0], M + wM - X[0], "PROCESSING"), (O, wO, "OUTPUT")):
+        f.text(x, 52, label, 13, "bold", SUB, style=' letter-spacing="1.5"')
+        f.add(f'<path d="M{x},62 h{wid}" stroke="#d9dee4" stroke-width="1.5"/>')
+
+    f.doc(A, ya, wA, h, "red", "RNA-Seq or Iso-Seq", "FASTQ, BAM, SRA, pyVARUS", tag="required")
+    f.doc(A, yb, wA, h, "green", "Genome", "FASTA", tag="required")
+    f.doc(A, yc, wA, h, "grey", "Proteins", "not needed", tag="a warning if given", dashed=True, fill="#ffffff")
+
+    f.box(X[0], ya, w, h, "orange", "Alignment", ["HISAT2, minimap2;", "BAM as given"], 3)
+    f.box(X[1], ya, w, h, "orange", "StringTie", ["one assembly", "of all reads"], 3)
+    f.box(X[2], ya, w, h, "purple", "Filter", ["length, coverage", "and TPM of the", "transcripts"], 4)
+    f.box(X[3], ya, w, h, "purple", "Drusilla", ["model insects: ORFs", "= HC genes; nested", "isoforms collapsed"], 4)
+    f.box(X[0], yb, X[3] + w - X[0], h, "green", "Vipsania",
+          ["model Insecta, fine-tuned on the genome before it annotates it:",
+           "one GPU task on the whole genome (about 4 h on an A100)"], 1)
+    f.box(M, ya, wM, yb + h - ya, "grey", "Merge",
+          ["Drusilla ORFs", "and all", "ab initio genes,", "no filter;", "identical CDS", "collapsed"], 5)
+    f.box(O, ya, wO, h, "grey", "Post-processing", ["sanity filter, UTRs", "from StringTie,", "GFF3, GTF, FASTA"], 6)
+    f.doc(O, yb, wO, h, "grey", "Final annotation", "vipsania_evidence.gff3", mono=True)
+
+    for i, c in enumerate(("red", "orange", "orange", "purple")):
+        x0 = A + wA if i == 0 else X[i - 1] + w
+        f.arrow([(x0, cy(ya)), (X[i], cy(ya))], c)
+    f.arrow([(X[3] + w, cy(ya)), (M, cy(ya))], "purple")
+    f.arrow([(A + wA, cy(yb)), (X[0], cy(yb))], "green")
+    f.arrow([(X[3] + w, cy(yb)), (M, cy(yb))], "green")
+    f.arrow([(M + wM, cy(ya)), (O, cy(ya))], "grey")
+    f.arrow([(O + wO / 2, ya + h), (O + wO / 2, yb)], "grey")
+
+    # what is not in this flow, the warning and the accuracy
+    f.box(X[0], yc, X[1] + w - X[0], hc, "grey", "Not in this flow",
+          ["step 2: no protein alignments,", "no stop and start codon fix,", "no LightGBM filter, no hint rescue",
+           "(they lowered the accuracy on insects)"], dashed=True, fill="#ffffff")
+    f.box(X[2], yc, M + wM - X[2], hc, "yellow", "Other choices get a warning",
+          ["Tiberius instead of Vipsania, Vipsania without fine-tuning,",
+           "no RNA-Seq or Iso-Seq, or protein evidence: the Nextflow log",
+           "names each difference (recommended of Insecta in",
+           "conf/hc_genes.yaml); the run goes on."])
+    f.box(O, yc, wO, hc, "green", "Gene F1", ["this flow       75.2", "BRAKER3         75.4", "Tiberius        57.6",
+                                              "mean of 11 insects"])
+    f.text(A, yc + hc + 34, "Numbers: the steps of the overview figure. Gene F1: mean over 11 RefSeq insects "
+           "(Lars Gabriel), gffcompare 0.12.10 --strict-match -e 3 -T on the CDS;")
+    f.text(A, yc + hc + 55, "BRAKER3 with protein evidence.")
     return f
 
 
@@ -349,6 +382,6 @@ def postprocess():
 
 out = sys.argv[1]
 for name, fig in (("overview", overview()), ("drusilla_flow", drusilla()),
-                  ("no_protein_flow", no_protein()), ("postprocess_flow", postprocess())):
+                  ("insect_flow", insect()), ("postprocess_flow", postprocess())):
     with open(f"{out}/{name}.svg", "w") as fh:
         fh.write(fig.svg())

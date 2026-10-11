@@ -26,6 +26,7 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 - [Gene finders](#gene-finders)
   - [Existing predictions](#existing-predictions)
 - [Drusilla flow](#drusilla-flow)
+  - [Insects](#insects)
 - [Containers and HPC](#containers-and-hpc)
 - [Documentation](#documentation)
 - [License](#license)
@@ -36,7 +37,7 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 ## What the pipeline does
 
 <p align="center">
-  <img src="figures/overview.svg" alt="Paludamentum overview: the inputs genome, proteins, short reads and Iso-Seq reads; the processing steps ab initio prediction, protein evidence, transcript evidence, high-confidence genes and integration; the output files" width="100%">
+  <img src="figures/overview.svg" alt="Paludamentum overview: the inputs genome, proteins, short reads and Iso-Seq reads; the six processing steps ab initio prediction, protein evidence, transcript evidence, high-confidence genes, integration, and post-processing and quality control; the output files" width="100%">
 </p>
 
 The numbers in the figure are the steps below.
@@ -73,10 +74,14 @@ The numbers in the figure are the steps below.
    GPU). `report.html` sums it up. See
    [docs/postprocessing.md](docs/postprocessing.md).
 
-For vertebrate, mammal and insect gene finder models, runs with transcripts
-use the [Drusilla flow](#drusilla-flow) in steps 4 and 5 instead; it also runs
-without proteins, which is the recommended flow for insects. Which clade gets
-which flow is set in [conf/hc_genes.yaml](conf/hc_genes.yaml).
+Steps 4 and 5 run in one of three ways. The clade of the gene finder model
+and the inputs decide which ([conf/hc_genes.yaml](conf/hc_genes.yaml)):
+
+| HC genes (steps 4 and 5) | For | Proteins | Described in |
+| --- | --- | --- | --- |
+| TransDecoder flow: TD2 ORFs supported by the proteins | all other clades | required with reads | step 4 above |
+| Drusilla flow with proteins: Drusilla ORFs, LightGBM filter and hint rescue of the *ab initio* genes | vertebrates, mammals | given | [Drusilla flow](#drusilla-flow) |
+| Drusilla flow without proteins: Drusilla ORFs merged with all *ab initio* genes | insects (recommended); any clade with a Drusilla model | not needed | [Insects](#insects) |
 
 Without any evidence input the pipeline runs steps 1 and 6 only. That is
 useful to parallelize a gene finder over several GPUs.
@@ -348,42 +353,73 @@ run. Notes:
 
 For vertebrate, mammal and insect gene finder models (clades with
 `hc: drusilla` in [conf/hc_genes.yaml](conf/hc_genes.yaml)), runs with
-transcripts take another route through steps 4 and 5: Drusilla ORFs replace
-the TransDecoder HC genes. With protein evidence, vertebrates and mammals
-also get a LightGBM filter of the *ab initio* predictions, and Tiberius
-predicts partial genes again with protein hints. The gene-level F1 is 80.70
-on *Takifugu rubripes* with the Tiberius `vertebrates` model (Paludamentum
-0.5.0, gffcompare 0.12.10) and 79.71 on *Bos taurus* with
-`mammalia_softmasking_v2` (Paludamentum 0.4.0). The flow is switched on
-automatically (`drusilla.run: auto`).
-Conditions, steps, parameters and known issues are in
-[docs/drusilla_flow.md](docs/drusilla_flow.md).
+transcripts take another route through steps 4 and 5 of the overview:
+Drusilla ORFs replace the TransDecoder HC genes. With protein evidence,
+vertebrates and mammals also get a LightGBM filter of the *ab initio*
+predictions, and Tiberius predicts partial genes again with protein hints.
+The gene-level F1 is 80.70 on *Takifugu rubripes* with the Tiberius
+`vertebrates` model (Paludamentum 0.5.0, gffcompare 0.12.10) and 79.71 on
+*Bos taurus* with `mammalia_softmasking_v2` (Paludamentum 0.4.0). The flow is
+switched on automatically (`drusilla.run: auto`). Conditions, steps,
+parameters and known issues are in [docs/drusilla_flow.md](docs/drusilla_flow.md).
+
+The figure shows steps 3 to 5 of the overview for vertebrates and mammals
+with proteins; its numbers count the steps of this flow.
 
 <p align="center">
   <img src="figures/drusilla_flow.svg" alt="Drusilla flow: StringTie assembly, transcript filter, Drusilla ORFs and codon fix give the high-confidence genes; LightGBM filter and hint rescue treat the ab initio genes; both are merged into the final annotation" width="100%">
 </p>
 
-**Without proteins.** The Drusilla flow also runs without protein evidence:
-the Drusilla ORFs are merged with all *ab initio* genes, without codon fix,
-LightGBM filter and hint rescue. This is the recommended flow for insects,
-with Vipsania `Insecta` fine-tuned on the genome:
+### Insects
+
+For insects, Paludamentum recommends RNA-Seq or Iso-Seq reads, Vipsania with
+the model `Insecta` fine-tuned on the genome, and no protein evidence:
 
 ```bash
 paludamentum --nf_config local --genome genome.fa --model Insecta --finetune \
     --rnaseq_bam rnaseq.bam
 ```
 
-On 11 insect genomes, Drusilla ORFs merged with fine-tuned Vipsania genes
-reached a mean gene F1 of 75.2, as BRAKER3 with proteins (75.4), and more
-than Drusilla with Tiberius (66.0) or Vipsania alone (60.4) (evaluation of
-Lars Gabriel with gffcompare 0.12.10, see
-[docs/drusilla_flow.md](docs/drusilla_flow.md#insects)). An insect
-run with another flow (Tiberius, no fine-tuning, no transcripts, proteins)
-gets a warning in the Nextflow log.
+The run then goes through the steps of the overview as follows; the numbers
+in the figure are those of the overview.
 
 <p align="center">
-  <img src="figures/no_protein_flow.svg" alt="Drusilla flow without proteins: StringTie assembly, transcript filter and Drusilla ORFs, whose subsequence isoforms are collapsed, give the high-confidence genes, which are merged with all ab initio genes of Vipsania, fine-tuned on the genome; no codon fix, no LightGBM filter, no hint rescue" width="100%">
+  <img src="figures/insect_flow.svg" alt="Insect flow: the reads are aligned and assembled with StringTie into one transcript set (step 3), which is filtered, and Drusilla predicts its ORFs with the insect model (step 4); Vipsania, fine-tuned on the genome, predicts the ab initio genes (step 1); all ab initio genes are merged with the ORFs (step 5) and post-processed into vipsania_evidence.gff3 (step 6); step 2, protein evidence, does not run; other choices get a warning" width="100%">
 </p>
+
+1. ***Ab initio* prediction.** Vipsania fine-tunes its `Insecta` model on the
+   genome, then annotates the genome with it. This is one GPU task on the
+   whole genome (about 4 h on an A100), not one task per genome chunk.
+2. **Protein evidence** does not run. With it go the stop and start codon fix
+   of the ORFs, the LightGBM filter and the hint rescue, which lowered the
+   accuracy on insects.
+3. **Transcript evidence.** Short reads are aligned with HISAT2, Iso-Seq reads
+   with minimap2 (a BAM, a pyVARUS directory or a StringTie assembly is used
+   as given), and all reads are assembled into one StringTie transcript set.
+4. **High-confidence genes.** Transcripts are kept if they are at least
+   300 nt long, with a coverage of at least 3 and a TPM of at least 1.
+   Drusilla, with its insect model, predicts the ORFs of the kept
+   transcripts, and isoforms whose CDS is part of another one are collapsed.
+   These ORFs are the HC genes (`intermediate/drusilla_orfs.gtf`).
+5. **Integration.** All *ab initio* genes, without any filter, are merged
+   with the HC genes; transcripts with identical CDS are collapsed.
+6. **Post-processing and quality control** as for every run; the final
+   annotation is `vipsania_evidence.gff3`.
+
+On 11 insect genomes this flow reached a mean gene F1 of 75.2, as BRAKER3
+with proteins (75.4), and more than Drusilla with Tiberius (66.0), Vipsania
+alone (60.4) or Tiberius alone (57.6) (evaluation of Lars Gabriel, gffcompare
+0.12.10, see [docs/drusilla_flow.md](docs/drusilla_flow.md#insects)). On
+*Drosophila melanogaster* and *Bombyx mori* Paludamentum gives the same as
+his standalone merge, 84.88 and 74.12 against 84.49 and 73.85.
+
+An insect run that differs from this flow still runs, but the Nextflow log
+warns and names each difference: Tiberius instead of Vipsania (also the
+Tiberius `insecta` and `lepidoptera` models, which run the Drusilla flow
+too), Vipsania without fine-tuning, no RNA-Seq or Iso-Seq, or protein
+evidence (then the ORFs get the codon fix, but there is still no LightGBM
+filter). The recommendation is `recommended` of the clade `Insecta` in
+[conf/hc_genes.yaml](conf/hc_genes.yaml).
 
 ## Containers and HPC
 
