@@ -11,12 +11,13 @@ them; they do not depend on Paludamentum.
 | [Vipsania](https://github.com/Gaius-Augustus/Vipsania) (`vipsania/`) | gene finder | supported, see [vipsania.md](vipsania.md) |
 | [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (`drusilla/`) | ORF annotator for assembled transcripts | high-confidence genes for vertebrate models, see [Drusilla flow](drusilla_flow.md) |
 
-> **Status (v0.5.0).** Paludamentum is the entry point: `paludamentum`
+> **Status (v0.6.0).** Paludamentum is the entry point: `paludamentum`
 > launches the pipeline with Tiberius or Vipsania. Earlier versions were a
 > submodule of Tiberius and were launched by `tiberius.py`; that direction is
 > reversed since v0.3.0. v0.4.0 adds the [Drusilla flow](drusilla_flow.md) for
 > vertebrate models, v0.5.0 the [post-processing and quality
-> control](postprocessing.md) of the final annotation.
+> control](postprocessing.md) of the final annotation, v0.6.0 the Drusilla
+> flow without proteins, recommended for insects.
 
 ## Repository layout
 
@@ -106,5 +107,10 @@ smoke tests use `tiberius/test_data/Panthera_pardus` and
   - [x] ncRNA: pybarrnap, tRNAscan-SE, Infernal/Rfam, FEELnc
   - [x] OMArk and gffcompare
   - [x] GO terms with FANTASIA-Lite (GPU)
+- [x] v0.6.0: Drusilla flow without proteins (docs/drusilla_flow.md#without-proteins):
+  - [x] transcripts without proteins for clades with a Drusilla model; `COLLAPSE_ORFS`
+  - [x] clade `Insecta` (Drusilla model `insects`, no LightGBM model) and the
+        `recommended` flow of a clade, with a warning for runs that differ
+  - [x] gffcompare 0.12.10 (image `paludamentum-postprocess:0.1.2`)
 - [ ] BUSCO rescue of *ab initio* genes dropped by the Drusilla flow (decide with the completeness numbers)
 - [ ] `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation
