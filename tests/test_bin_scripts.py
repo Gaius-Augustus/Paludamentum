@@ -41,71 +41,6 @@ def test_chunks_are_balanced_and_capped():
     assert len(sg.make_groups(seven, 1000, 3)) == 3
 
 
-# ---------------------------------------------------------------- check_stop_codons.py
-
-def test_passing_gff_keeps_gene_and_transcript_lines(tmp_path: Path):
-    (tmp_path / "g.fa").write_text(">c1\nATGAAATAAATGCCCCCC\n")
-    (tmp_path / "in.gff").write_text(
-        "##gff-version 3\n"
-        "c1\tx\tgene\t1\t18\t.\t+\t.\tID=g1\n"
-        "c1\tx\ttranscript\t1\t9\t.\t+\t.\tID=t1;Parent=g1\n"
-        "c1\tx\texon\t1\t9\t.\t+\t.\tID=t1.e1;Parent=t1\n"
-        "c1\tx\tCDS\t1\t9\t.\t+\t0\tID=t1.c1;Parent=t1\n"
-        "c1\tx\ttranscript\t10\t18\t.\t+\t.\tID=t2;Parent=g1\n"
-        "c1\tx\tCDS\t10\t18\t.\t+\t0\tID=t2.c1;Parent=t2\n"       # no stop codon
-        "c1\tx\tgene\t10\t18\t.\t-\t.\tID=g2\n"
-        "c1\tx\ttranscript\t10\t18\t.\t-\t.\tID=t3;Parent=g2\n"
-        "c1\tx\tCDS\t10\t18\t.\t-\t0\tID=t3.c1;Parent=t3\n"
-    )
-    proc = run("check_stop_codons.py", "in.gff", "g.fa", "--write-passing-gff", "out.gff", cwd=tmp_path)
-    assert proc.returncode == 0, proc.stderr
-    out = rows((tmp_path / "out.gff").read_text())
-    assert [(r[2], r[8]) for r in out] == [
-        ("gene", "ID=g1"), ("transcript", "ID=t1;Parent=g1"),
-        ("exon", "ID=t1.e1;Parent=t1"), ("CDS", "ID=t1.c1;Parent=t1"),
-    ]
-
-
-# ---------------------------------------------------------------- extend_cds_with_stop_codon.py
-
-# ATGAAA, stop TAA split as T | intron GTAAGTTTAG | AA, then CCC
-SPLIT_STOP_GENOME = "ATGAAAT" + "GTAAGTTTAG" + "AACCC"
-SPLIT_STOP_GENOME_RC = SPLIT_STOP_GENOME[::-1].translate(str.maketrans("ACGT", "TGCA"))
-
-
-def split_stop_gff(strand: str, cds: list[tuple[int, int]], stops: list[tuple[int, int]]) -> str:
-    lo = min(s for s, _ in cds + stops)
-    hi = max(e for _, e in cds + stops)
-    text = (f"c1\tx\tgene\t{lo}\t{hi}\t.\t{strand}\t.\tID=g1\n"
-            f"c1\tx\tmRNA\t{lo}\t{hi}\t.\t{strand}\t.\tID=t1;Parent=g1\n")
-    text += "".join(f"c1\tx\tCDS\t{s}\t{e}\t.\t{strand}\t0\tID=cds.t1;Parent=t1\n" for s, e in cds)
-    text += "".join(f"c1\tx\tstop_codon\t{s}\t{e}\t.\t{strand}\t0\tParent=t1\n" for s, e in stops)
-    return text
-
-
-@pytest.mark.parametrize("strand, genome, cds, stops, want_cds, want_exons", [
-    # stop codon split by an intron: one CDS segment on each side, no CDS in the intron
-    ("+", SPLIT_STOP_GENOME, [(1, 6)], [(7, 7), (18, 19)],
-     [(1, 7, "0"), (18, 19, "2")], [(1, 7), (18, 19)]),
-    ("-", SPLIT_STOP_GENOME_RC, [(17, 22)], [(16, 16), (4, 5)], [(4, 5, "2"), (16, 22, "0")], [(4, 5), (16, 22)]),
-    # stop codon next to the CDS, and one already inside it
-    ("+", "ATGAAATAACCC", [(1, 6)], [(7, 9)], [(1, 9, "0")], [(1, 9)]),
-    ("+", "ATGAAATAACCC", [(1, 9)], [(7, 9)], [(1, 9, "0")], [(1, 9)]),
-])
-def test_stop_codon_is_added_to_the_cds(tmp_path: Path, strand, genome, cds, stops, want_cds, want_exons):
-    (tmp_path / "g.fa").write_text(f">c1\n{genome}\n")
-    (tmp_path / "in.gff").write_text(split_stop_gff(strand, cds, stops))
-    proc = run("extend_cds_with_stop_codon.py", "in.gff", cwd=tmp_path)
-    assert proc.returncode == 0, proc.stderr
-    out = rows(proc.stdout)
-    assert [(int(r[3]), int(r[4]), r[7]) for r in out if r[2] == "CDS"] == want_cds
-    assert [(int(r[3]), int(r[4])) for r in out if r[2] == "exon"] == want_exons
-    (tmp_path / "ext.gff").write_text(proc.stdout)
-    proc = run("check_stop_codons.py", "ext.gff", "g.fa", "--write-passing-gff", "out.gff", cwd=tmp_path)
-    assert proc.returncode == 0, proc.stderr
-    assert any(r[2] == "CDS" for r in rows((tmp_path / "out.gff").read_text()))   # valid stop, kept
-
-
 # ---------------------------------------------------------------- merge_annotations.py
 
 def merge(tmp_path: Path, *contents: str) -> subprocess.CompletedProcess:
@@ -189,26 +124,6 @@ def test_species_ranking_only_for_orthodb_ids(tmp_path: Path):
     proc = run("rank_species_from_diamond.py", str(hits), "5", cwd=tmp_path)
     assert proc.returncode == 0 and (tmp_path / "top_species.txt").read_text() == ""
     assert "empty" in proc.stderr
-
-
-# ---------------------------------------------------------------- hc_module.py
-
-def test_transcript_gff3_has_distinct_gene_and_mrna_ids(tmp_path: Path):
-    pytest.importorskip("Bio")
-    sys.path.insert(0, str(BIN))
-    hc_module = load("hc_module")
-    pep = tmp_path / "hc.pep"
-    pep.write_text(">STRG.1.1.p1 STRG.1.1.p1 GENE.STRG.1.1~~STRG.1.1.p1 ORF type:complete len:4 (+),score=1 STRG.1.1:10-21(+)\nMKR*\n")
-    gtf = tmp_path / "st.gtf"
-    gtf.write_text('c1\tStringTie\texon\t1\t50\t.\t+\t.\tgene_id "STRG.1"; transcript_id "STRG.1.1";\n')
-    out = tmp_path / "out.gff3"
-    hc_module.from_pep_file_to_gff3(str(pep), str(gtf), str(out))
-    lines = rows(out.read_text())
-    gene = next(r for r in lines if r[2] == "gene")
-    mrna = next(r for r in lines if r[2] == "mRNA")
-    gene_id = gene[8].split(";")[0].removeprefix("ID=")
-    assert mrna[8].startswith("ID=STRG.1.1.p1;Parent=" + gene_id)
-    assert gene_id != "STRG.1.1.p1"
 
 
 # ---------------------------------------------------------------- filterIntronsFindStrand.pl

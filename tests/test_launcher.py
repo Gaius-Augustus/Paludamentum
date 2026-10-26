@@ -112,7 +112,7 @@ def test_container_tags_of_base_config():
     assert "latest" not in tags.values()
 
 
-IMAGE_LABELS = {"container", "tiberius", "vipsania", "drusilla", "hint_rescue", "postprocess", "busco", "feelnc",
+IMAGE_LABELS = {"container", "tiberius", "vipsania", "drusilla", "postprocess", "busco", "feelnc",
                 "omark", "fantasia"}
 
 

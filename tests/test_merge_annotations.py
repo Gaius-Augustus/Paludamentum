@@ -48,7 +48,7 @@ def test_noncoding_transcript_keeps_type_and_has_no_biotype(tmp_path):
 
 
 def test_merged_output_can_be_merged_again(tmp_path):
-    """The ab initio GFF3 is merged again with the HC genes (MERGE_GENEFINDER_TRAIN)."""
+    """merge_annotations.py --mode full is idempotent: merging a merged file again gives the same output."""
     first = tmp_path / "first.gff3"
     first.write_text("\n".join("\t".join(r) for r in merge(tmp_path, CODING_GTF)) + "\n")
     again = features(merge(tmp_path, first.read_text()), "chr1")

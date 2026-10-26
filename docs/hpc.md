@@ -109,7 +109,7 @@ the run, so the work directory still needs the peak space of the whole run.
 | Label | Meaning |
 | --- | --- |
 | `container` | runs in the evidence tools image pinned in `base.config` |
-| `tiberius`, `vipsania`, `drusilla`, `hint_rescue` | runs in that image instead (see [containers.md](containers.md)); never combined with `container` |
+| `tiberius`, `vipsania`, `drusilla` | runs in that image instead (see [containers.md](containers.md)); never combined with `container` |
 | `postprocess`, `busco`, `feelnc`, `omark`, `fantasia` | post-processing images: compleasm, gffcompare, tRNAscan-SE, Infernal, pybarrnap, the report; BUSCO; FEELnc; OMArk; FANTASIA-Lite (see [postprocessing.md](postprocessing.md)) |
 | `gpu` | needs a GPU; gets `containerOptions = '--nv'` (FANTASIA_ANNOTATE: `--nv` and a bind, set by `withName` in `base.config`) |
 | `bigmem` | high memory task, 100 GB by default (also compleasm and BUSCO on the genome, cmscan) |

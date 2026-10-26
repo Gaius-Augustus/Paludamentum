@@ -2,12 +2,10 @@ nextflow.enable.dsl=2
 
 include { drusillaSetting } from '../lib_nf/functions.nf'
 
-// Processes of the Drusilla flow: the StringTie pre-filter, the Drusilla ORF
-// annotation, the stop and start codon fix of the ORFs, the LightGBM filter of
-// the gene finder predictions, and the hint rescue of partial gene finder genes.
-// Each process references single params.drusilla values, not the whole block:
-// Nextflow hashes every referenced value, so a changed option only reruns the
-// processes that use it.
+// Processes of the Drusilla flow: the StringTie pre-filter, model download,
+// the ORF annotation and the subsequence collapse. The LightGBM filter and
+// the hint rescue of the previous pipeline are gone (replaced by the unified
+// combine_genesets integration in subworkflows/hc_combined.nf).
 
 process FILTER_STRINGTIE {
   label 'container'
@@ -88,9 +86,7 @@ process DOWNLOAD_DRUSILLA_MODEL {
   """
 }
 
-// All ORF predictions (the subsequence collapse follows in FIX_ORFS or
-// COLLAPSE_ORFS), with LORF classes, and the 3' and 5' truncated ORFs that the
-// stop and start fix can recover.
+// All ORF predictions (the subsequence collapse follows in COLLAPSE_ORFS).
 process DRUSILLA_ANNOTATE {
   label 'gpu', 'drusilla', 'bigmem'
   input:
@@ -169,56 +165,9 @@ process DRUSILLA_ANNOTATE {
   """
 }
 
-// Stop codon fix (fix_stop): complete ORFs with an early stop and truncated
-// ORFs are extended to a stop codon supported by a protein alignment.
-// Start codon fix (fix_start): complete ORFs of the LORF classes LORF_NOUPSTOP
-// and upLORF are extended to a start codon hint of miniprothint.
-// Then isoforms whose CDS is a subsequence of another one are collapsed.
-process FIX_ORFS {
-  label 'drusilla'
-  publishDir "${params.outdir}/intermediate", pattern: "drusilla_orfs.gtf", mode: 'copy', overwrite: true
-  input:
-    path orfs,     stageAs: 'orfs.raw.gtf'
-    path partial,  stageAs: 'orfs.partial.gtf'
-    path partial5, stageAs: 'orfs.partial5.gtf'
-    path miniprot_gff
-    path hints_gff
-    path genome
-
-  output:
-    path "drusilla_orfs.gtf", emit: gtf
-
-  script:
-  def fixStop  = params.drusilla.fix_stop == null || params.drusilla.fix_stop.toString().toLowerCase() in ['true', '1', 'yes']
-  def fixStart = fixStop && (params.drusilla.fix_start == null || params.drusilla.fix_start.toString().toLowerCase() in ['true', '1', 'yes'])
-  def fix = !fixStop ? "cp orfs.raw.gtf orfs.fixed.gtf" : """\
-  fix_stop_by_miniprot.py \\
-      --orfs orfs.raw.gtf \\
-      --partial orfs.partial.gtf \\
-      --partial5 orfs.partial5.gtf \\
-      --miniprot ${miniprot_gff} \\
-      --hints ${hints_gff} \\
-      --genome ${genome} \\
-      --out orfs.fixed.gtf""" + (fixStart ? """ \\
-      --fix-starts \\
-      --fix-starts-classes LORF_NOUPSTOP upLORF \\
-      --max-start-scan 30""" : '')
-  """
-  ${fix}
-  drusilla filter-subseq \\
-      --orfs-gtf orfs.fixed.gtf \\
-      --out-gtf drusilla_orfs.gtf \\
-      --report-tsv dropped_subsequences.tsv
-  """
-
-  stub:
-  """
-  touch drusilla_orfs.gtf
-  """
-}
-
-// Without proteins: the subsequence collapse of FIX_ORFS alone. Isoforms
-// whose CDS is a subsequence of another one are collapsed; no codon is changed.
+// Subsequence collapse: isoforms whose CDS is a subsequence of another one are
+// dropped. No codon is changed; the unified HC flow (combine_genesets.py)
+// handles start/stop refinements through its tiering rules.
 process COLLAPSE_ORFS {
   label 'drusilla'
   publishDir "${params.outdir}/intermediate", pattern: "drusilla_orfs.gtf", mode: 'copy', overwrite: true
@@ -239,168 +188,5 @@ process COLLAPSE_ORFS {
   stub:
   """
   touch drusilla_orfs.gtf
-  """
-}
-
-// Scores each gene finder transcript as wrong, partial or correct from protein
-// alignment and hint features. Transcripts with P(partial) + P(correct) >=
-// lgb_threshold get their most likely class; those in lgb_keep are kept, those
-// of class partial are the candidates of the hint rescue.
-process GENEFINDER_LGB_FILTER {
-  label 'drusilla'
-  publishDir "${params.outdir}/intermediate", pattern: "*_lgb_{filtered.gtf,scores.tsv}", mode: 'copy', overwrite: true
-  input:
-    val prefix
-    path ab_initio
-    path miniprot_gff
-    path hints_gff
-    path genome
-    path lgb_model
-
-  output:
-    path "${prefix}_lgb_filtered.gtf", emit: gtf
-    path "${prefix}_lgb_partial.gtf", emit: partial
-    path "${prefix}_lgb_scores.tsv", emit: scores
-
-  script:
-  def keep = (params.drusilla.lgb_keep ?: 'correct').toString().split(/[,\s]+/).findAll { k -> k }.join('|')
-  def sha = drusillaSetting(params, 'lgb_model_sha256')
-  def sha256 = sha ? "--sha256 ${sha}" : ''
-  """
-  gff_to_cds_gtf.py ${ab_initio} > ab_initio.gtf
-  compute_orf_features.py \\
-      --orfs-gtf ab_initio.gtf \\
-      --miniprot-gff ${miniprot_gff} \\
-      --hints-gff ${hints_gff} \\
-      --genome ${genome} \\
-      --out features.tsv
-  apply_lgb_model_gtf.py \\
-      --model ${lgb_model} ${sha256} \\
-      --features features.tsv \\
-      --in-gtf ab_initio.gtf \\
-      --out-gtf lgb_scored.gtf \\
-      --threshold ${params.drusilla.lgb_threshold}
-  grep -E 'lgb_class "(${keep})"' lgb_scored.gtf > ${prefix}_lgb_filtered.gtf || true
-  grep -E 'lgb_class "partial"' lgb_scored.gtf > ${prefix}_lgb_partial.gtf || true
-  mv lgb_scored.scores.tsv ${prefix}_lgb_scores.tsv
-  """
-
-  stub:
-  """
-  touch ${prefix}_lgb_filtered.gtf ${prefix}_lgb_partial.gtf ${prefix}_lgb_scores.tsv
-  """
-}
-
-// Hint rescue, part 1: loci of partial gene finder transcripts without a kept
-// transcript on the same strand, each with the hints of its best protein chain;
-// loci without a chain get no hints (Tiberius predicts them ab initio). With
-// drusilla.rescue_orf_filter (off by default, as benchmarked), loci where a
-// Drusilla ORF already has all introns of the chain are skipped.
-// Also checks on CPU that the rescue Tiberius has --hints (branch
-// hint_integration); HINTS_OK=false leaves the loci empty.
-// Both rescue processes carry the label 'hint_rescue' (image with a --hints
-// Tiberius) and never the label 'container'.
-process HINT_RESCUE_LOCI {
-  label 'hint_rescue'
-  input:
-    path partial_gtf
-    path correct_gtf
-    path orfs_gtf
-    path miniprot_gff
-    path hints_gff
-    path genome
-
-  output:
-    tuple path("rescue/combined_loci.fa"), path("rescue/combined_hints.gff"),
-          path("rescue/loci_manifest.tsv"), env('HINTS_OK'), emit: loci
-
-  script:
-  def tiberius = params.drusilla.rescue_tiberius ?: '\$(command -v tiberius.py)'
-  // ORF-agreement filter, off unless rescue_orf_filter is set
-  def orfFilter = (params.drusilla.rescue_orf_filter?.toString()?.toLowerCase() in ['true', '1', 'yes']) ? ' --orf_filter' : ''
-  """
-  mkdir -p rescue
-  if python3 "${tiberius}" --help 2>&1 | grep -q -- '--hints'; then
-      HINTS_OK=true
-      ${params.tools.samtools} faidx ${genome}
-      chainedHints.py ${hints_gff} ${miniprot_gff} --output chained_hints.gff
-      prepare_hint_rescue_loci.py \\
-          --partial_gtf ${partial_gtf} \\
-          --correct_gtf ${correct_gtf} \\
-          --chained_hints chained_hints.gff \\
-          --orfs_gtf ${orfs_gtf} \\
-          --genome ${genome} \\
-          --outdir rescue \\
-          --flank ${params.drusilla.rescue_flank}${orfFilter}
-  else
-      HINTS_OK=false
-  fi
-  touch rescue/combined_loci.fa rescue/combined_hints.gff rescue/loci_manifest.tsv
-  """
-
-  stub:
-  """
-  mkdir -p rescue
-  echo '>stub' > rescue/combined_loci.fa
-  touch rescue/combined_hints.gff rescue/loci_manifest.tsv
-  HINTS_OK=true
-  """
-}
-
-// Hint rescue, part 2: Tiberius predicts the loci with the chain hints (loci
-// without a chain ab initio). Predictions on the strand of the locus that
-// overlap its hint region (any prediction for a locus without hints) are
-// mapped back to the genome, and identical CDS structures are collapsed.
-// DRUSILLA_HC runs it only if HINT_RESCUE_LOCI found --hints and loci, so no
-// GPU task is booked for a rescue that cannot run.
-process HINT_RESCUE_TIBERIUS {
-  label 'gpu', 'hint_rescue', 'bigmem'
-  publishDir "${params.outdir}/intermediate", pattern: "hint_rescue.gtf", mode: 'copy', overwrite: true
-  input:
-    tuple path(fasta), path(hints), path(manifest)
-    // the model: a name in model_cfg/ of the image, or '' and a configuration
-    // file; use_weights: weights holds the extracted weights of the model
-    val model_name
-    path model_file
-    val use_weights
-    path weights
-
-  output:
-    path "hint_rescue.gtf", emit: gtf
-
-  script:
-  def tiberius = params.drusilla.rescue_tiberius ?: '\$(command -v tiberius.py)'
-  def cfg = model_name ? "\"\$(dirname \"${tiberius}\")/model_cfg/${model_name}.yaml\"" : "${model_file}"
-  // Batch size as in RUN_TIBERIUS: params.tiberius.batch_size, else the int32 cap
-  // Loci are short: a small seq_len avoids padding every locus to a genome chunk
-  def seqLen = params.drusilla.rescue_seq_len
-  def batch = params.tiberius?.batch_size ? "BATCH_ARG='--batch_size ${params.tiberius.batch_size}'" :
-      "BATCH_ARG=\$(tiberius_batch_size.py --model_cfg ${cfg}" +
-      (seqLen ? " --seq_len ${seqLen}" : '') + ")"
-  // Staged weights: --model instead of --model_cfg, as in RUN_TIBERIUS
-  // (one argument per line, read into an array)
-  def model = use_weights ?
-      "MODEL_OUT=\$(tiberius_model_args.py --model_cfg ${cfg}" + (seqLen ? " --seq_len ${seqLen}" : '') + ")\n" +
-      "mapfile -t MODEL_ARGS <<< \"\$MODEL_OUT\"" :
-      "MODEL_ARGS=(--model_cfg ${model_name ? "\"${model_name}\"" : model_file})"
-  """
-  ${batch}
-  ${model}
-  python3 "${tiberius}" \\
-      --genome ${fasta} \\
-      "\${MODEL_ARGS[@]}" \\
-      --hints ${hints} \\
-      --hint_weight ${params.drusilla.rescue_hint_weight} \\
-      --out rescue_raw.gtf${seqLen ? " --seq_len ${seqLen}" : ''} \${BATCH_ARG:-}
-  filter_and_merge_rescue_gtf.py rescue_raw.gtf ${hints} ${manifest} rescue_genome.gtf
-  # the Tiberius of this image counts the phases of minus-strand CDS from the
-  # wrong end (bin/fix_cds_phases.py); the structures are kept
-  fix_cds_phases.py rescue_genome.gtf > hint_rescue.gtf
-  """
-
-  stub:
-  // names the model, which the stub-run tests check
-  """
-  echo "# model: ${model_name ?: model_file}, staged weights: ${use_weights}" > hint_rescue.gtf
   """
 }

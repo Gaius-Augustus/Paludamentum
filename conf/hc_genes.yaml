@@ -1,75 +1,33 @@
-# High-confidence (HC) gene step per clade of the gene finder model.
+# Clade of the gene finder model (Tiberius target_species of
+# params.tiberius.model_cfg, or the Vipsania model). Case is ignored. In
+# evidence modes, Paludamentum runs the same unified HC flow regardless of
+# clade (combine_genesets.py); this table has two jobs:
+#   1. decide whether `--drop-lone-single-exon tiberius` is passed to
+#      combine_genesets.py (set for Insecta / Lepidoptera clades),
+#   2. provide the Drusilla model name for the clade (`drusilla_model`,
+#      a model of drusilla/model_cfg/ or of `drusilla models list`), and
+#   3. hold the `recommended` flow for a warning when a run differs from it.
 #
-# The clade is the target_species of the Tiberius model configuration
-# (params.tiberius.model_cfg), or the Vipsania model (params.vipsania.model:
-# a clade name, or a model ID listed under vipsania_models). Case is ignored.
-#
-# hc: drusilla      Drusilla ORFs of the filtered StringTie assembly. Needs the
-#                   clade's Drusilla model (drusilla_model: a model of
-#                   drusilla/model_cfg/ or of `drusilla models list`). With
-#                   protein evidence, the stop and start codons of the ORFs are
-#                   fixed with the protein alignments, and a clade with a
-#                   LightGBM model (lgb_model: URL or file; lgb_model_sha256:
-#                   sha256 of the archive, null for no check) gets the LightGBM
-#                   filter and the hint rescue of the gene finder genes. A clade
-#                   without lgb_model, and any run without proteins, merges the
-#                   ORFs with all gene finder genes. The Drusilla flow is the
-#                   only HC step that runs without protein evidence.
-# hc: transdecoder  ORFs of TransDecoder or TD2 (orf_finder), supported by
-#                   protein alignments. The default for clades not listed.
-#
-# orf_finder: td1 (TransDecoder 5.7.1) or td2 (TD2 1.1.0, PSAURON-scored ORFs),
-# for the TransDecoder flow. The top-level value is the default; a clade can
-# set its own.
-#
-# recommended: the most accurate flow measured for the clade. A run of the
-# clade that differs from it gets a warning that names the differences and
-# repeats note. Keys: genefinder (tiberius | vipsania), finetune (Vipsania),
-# transcripts (RNA-Seq or Iso-Seq given), drusilla (the Drusilla flow selects
-# the HC genes), proteins (protein evidence given). A key that is not set is
-# not checked.
-#
-# When Drusilla and LightGBM models are released for another clade, add the
-# clade here with hc: drusilla. params.drusilla.run, params.drusilla.model,
-# params.drusilla.lgb_model and params.transdecoder override this table for
-# one run; params.hc_table points at another table.
-
-orf_finder: td2
-
-# params.drusilla.run = true forces the Drusilla flow for any clade; a clade
-# without Drusilla models of its own then uses those of this clade.
-drusilla_forced: Vertebrata
+# params.drusilla.model overrides the clade's drusilla_model.
+# params.hc_table points at another table.
 
 clades:
   Vertebrata:
     vipsania_models: [etb1go6q]
-    hc: drusilla
     drusilla_model: vertebrates
-    lgb_model: https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz
-    lgb_model_sha256: d5bf3a9774914c6ca6421507c4cb956ef813b0bd2305bf45717af5f5eb42f1da
   Mammalia:
-    hc: drusilla
     drusilla_model: vertebrates
-    lgb_model: https://bioinf.uni-greifswald.de/bioinf/drusilla/models/drusilla_lgb_3class_v1.tar.gz
-    lgb_model_sha256: d5bf3a9774914c6ca6421507c4cb956ef813b0bd2305bf45717af5f5eb42f1da
-  # No LightGBM model: the LightGBM filter lowered the gene F1 on insects. The
-  # numbers of note are the mean gene F1 on 11 insect genomes (Lars Gabriel,
-  # 2026-10-08; docs/drusilla_flow.md, "Without proteins").
   Insecta: &insecta
     vipsania_models: [58hsuobw]
-    hc: drusilla
     drusilla_model: insects
     recommended:
-      genefinder: vipsania
       finetune: true
       transcripts: true
-      drusilla: true
-      proteins: false
+      proteins: true
       note: >-
-        Recommended for insects: Vipsania with the model Insecta, fine-tuned on the genome
-        (vipsania.finetune: true), RNA-Seq or Iso-Seq evidence, the Drusilla flow and no protein
-        evidence. This flow reached a mean gene F1 of 75.2 on 11 insect genomes (BRAKER3 75.4,
-        Drusilla with Tiberius 66.0, Vipsania alone 60.4, Tiberius alone 57.6); see
-        docs/drusilla_flow.md.
+        Vipsania with the model Insecta, fine-tuned on the genome
+        (vipsania.finetune: true), RNA-Seq or Iso-Seq evidence, and
+        protein evidence (odb12Partitions: [Arthropoda]). Insect runs
+        also get --drop-lone-single-exon tiberius in combine_genesets.
   # the Lepidoptera model of Tiberius (target_species Lepidoptera)
   Lepidoptera: *insecta

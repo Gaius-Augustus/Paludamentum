@@ -17,3 +17,6 @@ timeline*.html
 report*.html
 trace*.txt
 dag*.html
+
+graphify-out/
+!graphify-out/GRAPH_REPORT.md

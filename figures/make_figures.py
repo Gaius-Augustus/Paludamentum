@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes figures/overview.svg, figures/drusilla_flow.svg, figures/insect_flow.svg and
+"""Writes figures/overview.svg, figures/combined_flow.svg, figures/insect_flow.svg and
 figures/postprocess_flow.svg."""
 import re
 import sys
@@ -86,197 +86,249 @@ class Fig:
 
 
 def overview():
-    f = Fig(1340, 606, "Paludamentum overview",
-            "Inputs (genome, proteins, short reads, Iso-Seq reads), the six processing steps "
-            "(ab initio prediction, protein evidence, transcript evidence, high-confidence genes, "
-            "integration, post-processing and quality control) and the output files of Paludamentum.")
-    A, B, C, E, D = 30, 290, 580, 870, 1110
-    wA, wB, wC, wE, wD = 220, 260, 260, 210, 200
+    """Five-step overview of the unified pipeline."""
+    f = Fig(1400, 606, "Paludamentum overview",
+            "Inputs (genome, proteins, short reads, Iso-Seq reads), the five processing steps "
+            "(ab initio predictions with both gene finders, protein evidence, transcript evidence, "
+            "combined high-confidence genes with combine_genesets, post-processing and quality control) "
+            "and the output files of Paludamentum.")
+    A, B, C, E, D = 30, 290, 580, 870, 1170
+    wA, wB, wC, wE, wD = 220, 260, 270, 280, 200
     h, r = 88, [80, 198, 316, 434]
     for x, w, s in ((A, wA, "INPUTS"), (B, E + wE - B, "PROCESSING"), (D, wD, "OUTPUTS")):
         f.text(x, 52, s, 13, "bold", SUB, style=' letter-spacing="1.5"')
         f.add(f'<path d="M{x},62 h{w}" stroke="#d9dee4" stroke-width="1.5"/>')
 
     f.doc(A, r[0], wA, h, "green", "Genome", "FASTA", tag="required")
-    f.doc(A, r[1], wA, h, "blue", "Proteins", "FASTA and/or OrthoDB v12", tag="optional")
+    f.doc(A, r[1], wA, h, "blue", "Proteins", "FASTA and/or OrthoDB v12",
+          tag="required with reads")
     f.doc(A, r[2], wA, h, "red", "Short reads", "FASTQ, BAM, SRA or pyVARUS", tag="optional")
     f.doc(A, r[3], wA, h, "yellow", "Iso-Seq reads", "FASTQ, SRA or pyVARUS", tag="optional")
 
-    f.box(B, r[0], wB, h, "green", "Ab initio prediction",
-          ["Tiberius or Vipsania,", "genome chunks in parallel on GPUs"], 1)
+    f.box(B, r[0], wB, h, "green", "Ab initio predictions",
+          ["Tiberius and Vipsania", "(Vipsania --finetune) in parallel on GPUs"], 1)
     f.box(B, r[1], wB, h, "blue", "Protein evidence",
           ["miniprot, miniprot-boundary-scorer,", "miniprothint"], 2)
     f.box(B, r[2], wB, r[3] + h - r[2], "orange", "Transcript evidence",
           ["HISAT2 for short reads,", "minimap2 for Iso-Seq reads", "",
            "Libraries with a low alignment", "rate are dropped.", "",
-           "StringTie assembles transcripts."], 3)
+           "StringTie: one assembly", "of all reads"], 3)
 
-    f.box(C, r[0], wC, h, "grey", "Integration",
-          ["HC genes are merged with the", "ab initio predictions"], 5)
-    f.box(C, r[1], wC, r[3] + h - r[1], "purple", "High-confidence genes",
-          ["TransDecoder flow: ORFs of the", "assembled transcripts (TD2 or", "TransDecoder) that the protein",
-           "evidence supports", "",
-           "Drusilla flow (vertebrates,", "insects): Drusilla ORFs; with", "proteins, vertebrates also get a",
-           "filter of the ab initio predictions", "",
-           "Without reads: from the protein", "alignments alone"], 4)
+    f.box(C, r[0], wC, r[3] + h - r[0], "purple", "Combined high-confidence genes",
+          ["TD2 (shorten + DIAMOND +", "revise) and Drusilla predict",
+           "ORFs on the one StringTie", "assembly.", "",
+           "DIAMOND runs on all four", "protein sets (Tiberius, Vipsania,",
+           "revised TD2, Drusilla),", "bedtools genomecov writes the",
+           "depth, bam2hints the introns.", "",
+           "combine_genesets.py", "integrates the four gene sets",
+           "with the RNA and protein", "evidence into the final",
+           "annotation. Insect clades", "add --drop-lone-single-exon",
+           "tiberius."], 4)
 
     f.box(E, r[0], wE, r[3] + h - r[0], "grey", "Post-processing",
           ["and quality control", "",
            "Sanity filter: broken CDS", "and internal stops removed", "",
-           "UTRs from the StringTie", "assemblies", "",
+           "UTRs from the StringTie", "assembly", "",
            "GFF3 (validated), GTF,", "protein and CDS FASTA", "",
            "Optional: BUSCO, compleasm,", "OMArk, gffcompare, ncRNA,", "GO terms (FANTASIA-Lite)", "",
-           "report.html sums it up"], 6)
+           "report.html sums it up"], 5)
 
-    f.doc(D, r[0], wD, h, "grey", "Final annotation", "<tool>_evidence.gff3", mono=True)
-    f.doc(D, r[1], wD, h, "grey", "Sequences, GTF", "<tool>_evidence_*.fa", mono=True)
+    f.doc(D, r[0], wD, h, "grey", "Final annotation", "combined_evidence.gff3", mono=True)
+    f.doc(D, r[1], wD, h, "grey", "Sequences, GTF", "combined_evidence_*.fa", mono=True)
     y0 = r[2]
     f.add(f'<rect x="{D}" y="{y0}" width="{wD}" height="{r[3] + h - y0}" rx="10" fill="#fafbfc" '
           f'stroke="#b6bec8" stroke-width="1.4" stroke-dasharray="5 4"/>')
     f.text(D + 14, y0 + 28, "Also written", 14, "bold", INK)
-    for i, (name, what) in enumerate((("intermediate/", "ab initio and HC genes"),
+    for i, (name, what) in enumerate((("intermediate/", "the four gene sets,"),
+                                      ("", "combine_genesets report"),
                                       ("qc/, report.html", "quality control"),
-                                      ("hintsfile.gff", "protein and transcript hints"))):
-        f.text(D + 14, y0 + 58 + 48 * i, name, 11.5, fill=INK, mono=True)
-        f.text(D + 14, y0 + 75 + 48 * i, what)
+                                      ("hintsfile.gff", "all hints"))):
+        f.text(D + 14, y0 + 58 + 38 * i, name, 11.5, fill=INK, mono=True)
+        f.text(D + 14, y0 + 75 + 38 * i, what)
 
+    # input -> processing arrows
     for i, c in enumerate(("green", "blue", "red", "yellow")):
         y = r[i] + h / 2
         f.arrow([(A + wA, y), (B, y)], c)
+    # processing -> combined HC
     f.arrow([(B + wB, r[0] + h / 2), (C, r[0] + h / 2)], "green")
     f.arrow([(B + wB, r[1] + h / 2), (C, r[1] + h / 2)], "blue")
     ym = (r[2] + r[3] + h) / 2
     f.arrow([(B + wB, ym), (C, ym)], "orange")
-    f.arrow([(C + wC / 2, r[1]), (C + wC / 2, r[0] + h)], "purple")
-    f.arrow([(C + wC, r[0] + h / 2), (E, r[0] + h / 2)], "grey")
+    # combined HC -> post-processing (one arrow, middle)
+    yc = (r[0] + r[3] + h) / 2
+    f.arrow([(C + wC, yc), (E, yc)], "purple")
+    # post-processing -> outputs (fan to the four output rows)
     f.arrow([(E + wE, r[0] + h / 2), (D, r[0] + h / 2)], "grey")
     f.arrow([(E + wE, r[1] + h / 2), (D, r[1] + h / 2)], "grey")
     f.arrow([(E + wE, (r[2] + r[3] + h) / 2), (D, (r[2] + r[3] + h) / 2)], "grey")
 
-    f.text(A, 556, "Genome only: steps 1 and 6 run, for example to parallelize a gene finder over several GPUs.")
-    f.text(A, 577, "Reads need proteins, except in the Drusilla flow (vertebrates, insects; recommended for insects "
-                   "without proteins). <tool> is tiberius or vipsania.")
+    f.text(A, r[3] + h + 40,
+           "Modes abinitio and proteins run step 1 (one gene finder) and step 5 only; their output stem is <tool>_ab_initio / <tool>_evidence.")
     return f
 
 
-def drusilla():
-    f = Fig(1160, 510, "Drusilla flow of Paludamentum",
-            "For vertebrate models: one StringTie assembly, a transcript filter, Drusilla ORFs and a "
-            "codon fix give the high-confidence genes; a LightGBM filter and a hint rescue treat the "
-            "ab initio predictions; both are merged into the final annotation.")
-    w, h = 160, 88
-    X = [20, 202, 384, 566, 748]
-    M, wM = 968, 168
-    ya, yb, yc = 44, 190, 336
+def combined_flow():
+    """Zoom into step 4 (combined HC genes). Replaces the earlier drusilla_flow figure."""
+    f = Fig(1200, 540, "Combined HC-gene step of Paludamentum",
+            "The unified HC-gene step of Paludamentum: Tiberius and Vipsania predict genes on the genome; "
+            "StringTie assembles one transcript set; TD2 (with shorten + classify + revise) and Drusilla "
+            "predict ORFs on it; DIAMOND runs on all four protein sets; bedtools genomecov writes the "
+            "coverage, bam2hints the introns; combine_genesets.py integrates everything into "
+            "combined.gff3.")
 
-    f.doc(X[0], ya, w, h, "red", "Read alignments", "short reads, Iso-Seq")
-    f.box(X[1], ya, w, h, "orange", "StringTie", ["one assembly of", "all reads"], 1)
-    f.box(X[2], ya, w, h, "orange", "Transcript filter", ["length, coverage,", "TPM"], 2)
-    f.box(X[3], ya, w, h, "purple", "Drusilla", ["ORFs, also truncated", "at transcript ends"], 3)
-    f.box(X[4], ya, w, h, "purple", "Codon fix", ["stop and start codons;", "isoforms collapsed"], 4)
-
-    f.box(X[3], yb, w, h, "blue", "Protein evidence", ["miniprot alignments,", "miniprothint hints"])
-
-    f.doc(X[1], yc, w, h, "green", "Ab initio genes", "Tiberius or Vipsania")
-    f.box(X[2], yc, w, h, "green", "LightGBM filter", ["wrong, partial", "or correct"], 5)
-    f.box(X[4], yc, w, h, "green", "Hint rescue", ["Tiberius with", "protein hints"], 6)
-
-    f.box(M, yb, wM, h, "grey", "Merge", ["ORFs, kept and rescued", "ab initio genes"], 7)
-    f.doc(M, yc, wM, h, "grey", "Final annotation", "<tool>_evidence.gff3", mono=True)
-
+    w, h = 170, 90
+    ya, yb, yc, yd = 54, 184, 314, 410       # four rows: ab initio, StringTie, ORF callers, DIAMOND
+    cols = [20, 212, 404, 596, 788, 980]
     cy = lambda y: y + h / 2
-    for i, c in enumerate(("red", "orange", "orange", "purple")):
-        f.arrow([(X[i] + w, cy(ya)), (X[i + 1], cy(ya))], c)
-    # Drusilla ORFs to the merge
-    xm = M + wM / 2
-    f.arrow([(X[4] + w, cy(ya)), (xm, cy(ya)), (xm, yb)], "purple")
-    f.text((X[4] + w + xm) / 2 + 4, cy(ya) - 9, "HC genes", anchor="middle")
-    # protein evidence to codon fix, hint rescue and filter
-    xt = X[4] + w / 2
-    f.arrow([(X[3] + w, cy(yb)), (xt, cy(yb)), (xt, ya + h)], "blue")
-    f.arrow([(xt, cy(yb)), (xt, yc)], "blue")
-    f.dot(xt, cy(yb), "blue")
-    xl = X[2] + w / 2
-    f.arrow([(X[3], cy(yb)), (xl, cy(yb)), (xl, yc)], "blue")
-    # ab initio lane
-    f.arrow([(X[1] + w, cy(yc)), (X[2], cy(yc))], "green")
-    f.arrow([(X[2] + w, cy(yc)), (X[4], cy(yc))], "green")
-    f.text((X[2] + w + X[4]) / 2, cy(yc) - 26, "partial, no transcript", anchor="middle")
-    f.text((X[2] + w + X[4]) / 2, cy(yc) - 9, "kept at the locus", anchor="middle")
-    xj, yk = 938, yc + h + 30
-    f.arrow([(X[4] + w, cy(yc)), (xj, cy(yc))], "green", head=False)
-    f.arrow([(xl, yc + h), (xl, yk), (xj, yk), (xj, cy(yb)), (M, cy(yb))], "green")
-    f.dot(xj, cy(yc), "green")
-    f.text((xl + xj) / 2, yk + 19, "correct: kept", anchor="middle")
-    f.arrow([(xm, yb + h), (xm, yc)], "grey")
+
+    # inputs on the left
+    f.doc(cols[0], ya, w, h, "green", "Genome", "FASTA")
+    f.doc(cols[0], yb, w, h, "red", "Reads", "RNA-Seq / Iso-Seq", tag="required with proteins")
+    f.doc(cols[0], yc, w, h, "blue", "Proteins", "FASTA / OrthoDB v12", tag="required")
+
+    # Row 1 — two gene finders on the genome
+    f.box(cols[1], ya, w, h, "green", "Tiberius", ["ab initio prediction", "on the genome"], 1)
+    f.box(cols[2], ya, w, h, "green", "Vipsania", ["--finetune then", "annotate the genome"], 1)
+
+    # Row 2 — StringTie
+    f.box(cols[1], yb, cols[2] + w - cols[1], h, "orange", "StringTie",
+          ["HISAT2 + minimap2 align the reads;", "one assembly of all reads (StringTie, or --mix)"], 2)
+
+    # Row 3 — ORF callers on the StringTie assembly
+    f.box(cols[3], yb, w, h, "purple", "TD2 + revise",
+          ["LongOrfs, Predict,", "shorten, revise with", "two DIAMOND runs"], 3)
+    f.box(cols[4], yb, w, h, "purple", "Drusilla",
+          ["filter StringTie,", "predict ORFs,", "collapse isoforms"], 3)
+
+    # Row 4 — four DIAMOND runs
+    f.box(cols[1], yc, w, h, "blue", "DIAMOND",
+          ["tiberius.pep", "vs protein DB", "(14-col outfmt)"])
+    f.box(cols[2], yc, w, h, "blue", "DIAMOND",
+          ["vipsania.pep", "vs protein DB", "(14-col outfmt)"])
+    f.box(cols[3], yc, w, h, "blue", "DIAMOND",
+          ["td2.pep (revised)", "vs protein DB", "(14-col outfmt)"])
+    f.box(cols[4], yc, w, h, "blue", "DIAMOND",
+          ["drusilla.pep", "vs protein DB", "(14-col outfmt)"])
+
+    # miniprothint / BAM-side evidence
+    f.box(cols[3], ya, w, h, "blue", "miniprot +",
+          ["miniprothint:", "scored alignments,", "hc.gff"])
+    f.box(cols[4], ya, w, h, "red", "bedtools / bam2hints",
+          ["rna_cov.bg.gz,", "introns.gff from the", "merged BAM"])
+
+    # combine_genesets block
+    f.box(cols[5], yb, w, h, "grey", "combine_genesets.py",
+          ["4 gene sets +", "4 DIAMOND +", "miniprot/hints +", "coverage +", "introns"], 4)
+    f.doc(cols[5], yd - 16, w, h, "grey", "combined.gff3", "final annotation", mono=True)
+
+    # arrows
+    for i in range(2):
+        f.arrow([(cols[0] + w, cy(ya)), (cols[1], cy(ya))], "green", head=i == 0)
+    f.arrow([(cols[1] + w, cy(ya)), (cols[2], cy(ya))], "green", head=False)
+    f.arrow([(cols[0] + w, cy(yb)), (cols[1], cy(yb))], "red")
+    # StringTie -> both ORF callers
+    f.arrow([(cols[2] + w, cy(yb)), (cols[3], cy(yb))], "orange")
+    f.arrow([(cols[3] + w, cy(yb)), (cols[4], cy(yb))], "orange", head=False)
+    # ORF callers -> combine_genesets
+    f.arrow([(cols[4] + w, cy(yb)), (cols[5], cy(yb))], "purple")
+    # gene finders -> their DIAMOND runs (down)
+    f.arrow([(cols[1] + w / 2, ya + h), (cols[1] + w / 2, yc)], "green")
+    f.arrow([(cols[2] + w / 2, ya + h), (cols[2] + w / 2, yc)], "green")
+    # ORF callers -> their DIAMOND runs (down)
+    f.arrow([(cols[3] + w / 2, yb + h), (cols[3] + w / 2, yc)], "purple")
+    f.arrow([(cols[4] + w / 2, yb + h), (cols[4] + w / 2, yc)], "purple")
+    # proteins -> DIAMOND, miniprot (bus down the left)
+    xbus = cols[0] + w + 20
+    f.arrow([(cols[0] + w, cy(yc)), (xbus, cy(yc)), (xbus, cy(ya)), (cols[3], cy(ya))], "blue")
+    f.dot(xbus, cy(yc), "blue")
+    for x in (cols[1], cols[2], cols[3], cols[4]):
+        f.arrow([(xbus, cy(yc) + 10), (x + w / 2, cy(yc) + 10), (x + w / 2, yc)], "blue", head=False)
+    # DIAMOND bus into combine_genesets
+    xdbus = cols[5] - 20
+    f.arrow([(cols[4] + w, cy(yc)), (xdbus, cy(yc)), (xdbus, cy(yb) + 20), (cols[5], cy(yb) + 20)], "blue")
+    # bam2hints / miniprothint into combine
+    f.arrow([(cols[4] + w, cy(ya)), (xdbus, cy(ya)), (xdbus, cy(yb) - 20), (cols[5], cy(yb) - 20)], "red")
+    f.arrow([(cols[3] + w / 2, ya + h / 2 - 2), (cols[3] + w / 2, ya + h / 2 - 2)], "blue", head=False)
+    # combine -> output
+    f.arrow([(cols[5] + w / 2, yb + h), (cols[5] + w / 2, yd - 16)], "grey")
+
+    # legend bottom
+    f.text(20, yd + h + 10, "Numbers correspond to the overview figure (step 1 ab initio, step 2 proteins, step 3 transcripts, step 4 combine).")
+    f.text(20, yd + h + 30, "Insect clades (Insecta, Lepidoptera) add --drop-lone-single-exon tiberius to combine_genesets.py.")
     return f
 
 
 def insect():
-    f = Fig(1310, 574, "Insect flow of Paludamentum",
-            "The recommended flow for insects, without protein evidence, numbered with the steps of the "
-            "overview: Vipsania, fine-tuned on the genome, predicts the ab initio genes (1); reads are "
-            "aligned and assembled with StringTie into one transcript set (3), which is filtered, and "
-            "Drusilla predicts the ORFs of the kept transcripts with its insect model, the high-confidence "
-            "genes (4); all ab initio genes are merged with the ORFs (5) and post-processed into "
-            "vipsania_evidence.gff3 (6). Step 2, protein evidence, does not run, and with it no codon fix, "
-            "LightGBM filter or hint rescue. Runs that differ get a warning.")
-    A, wA = 30, 200                    # inputs
-    X, w = [258, 424, 590, 756], 148   # transcript lane
-    M, wM = 930, 150                   # merge
-    O, wO = 1104, 180                  # post-processing and output
-    ya, yb, yc, h, hc = 80, 230, 380, 104, 116
+    """The unified HC flow applied to insect runs: --drop-lone-single-exon tiberius is passed."""
+    f = Fig(1310, 580, "Insect run of Paludamentum",
+            "The unified HC-gene step applied to an insect gene-finder model: Tiberius and Vipsania both run "
+            "(Vipsania with --finetune on the insect model), both ORF callers run on the StringTie assembly, "
+            "and combine_genesets receives --drop-lone-single-exon tiberius for insect clades.")
+    A, wA = 30, 200                     # inputs
+    X, w = [258, 440, 622, 804], 164    # processing lane
+    M, wM = 1000, 162                   # combine
+    O, wO = 30 + 1310 - 230, 180        # not used, kept for layout spacing
+
+    ya, yb, yc, h, hc = 80, 220, 362, 108, 118
     cy = lambda y: y + h / 2
 
-    for x, wid, label in ((A, wA, "INPUTS"), (X[0], M + wM - X[0], "PROCESSING"), (O, wO, "OUTPUT")):
+    for x, wid, label in ((A, wA, "INPUTS"), (X[0], M + wM - X[0], "PROCESSING"),
+                          (M + wM + 20, 128, "OUTPUT")):
         f.text(x, 52, label, 13, "bold", SUB, style=' letter-spacing="1.5"')
         f.add(f'<path d="M{x},62 h{wid}" stroke="#d9dee4" stroke-width="1.5"/>')
 
     f.doc(A, ya, wA, h, "red", "RNA-Seq or Iso-Seq", "FASTQ, BAM, SRA, pyVARUS", tag="required")
     f.doc(A, yb, wA, h, "green", "Genome", "FASTA", tag="required")
-    f.doc(A, yc, wA, h, "grey", "Proteins", "not needed", tag="a warning if given", dashed=True, fill="#ffffff")
+    f.doc(A, yc, wA, h, "blue", "Proteins", "FASTA / OrthoDB v12", tag="required")
 
-    f.box(X[0], ya, w, h, "orange", "Alignment", ["HISAT2, minimap2;", "BAM as given"], 3)
-    f.box(X[1], ya, w, h, "orange", "StringTie", ["one assembly", "of all reads"], 3)
-    f.box(X[2], ya, w, h, "purple", "Filter", ["length, coverage", "and TPM of the", "transcripts"], 4)
-    f.box(X[3], ya, w, h, "purple", "Drusilla", ["model insects: ORFs", "= HC genes; nested", "isoforms collapsed"], 4)
-    f.box(X[0], yb, X[3] + w - X[0], h, "green", "Vipsania",
-          ["model Insecta, fine-tuned on the genome before it annotates it:",
-           "one GPU task on the whole genome (about 4 h on an A100)"], 1)
-    f.box(M, ya, wM, yb + h - ya, "grey", "Merge",
-          ["Drusilla ORFs", "and all", "ab initio genes,", "no filter;", "identical CDS", "collapsed"], 5)
-    f.box(O, ya, wO, h, "grey", "Post-processing", ["sanity filter, UTRs", "from StringTie,", "GFF3, GTF, FASTA"], 6)
-    f.doc(O, yb, wO, h, "grey", "Final annotation", "vipsania_evidence.gff3", mono=True)
+    f.box(X[0], ya, w, h, "orange", "Alignment",
+          ["HISAT2, minimap2;", "BAM as given"], 3)
+    f.box(X[1], ya, w, h, "orange", "StringTie",
+          ["one assembly", "of all reads"], 3)
+    f.box(X[2], ya, w, h, "purple", "TD2 + revise",
+          ["LongOrfs, Predict,", "shorten + classify", "with two DIAMOND"], 4)
+    f.box(X[3], ya, w, h, "purple", "Drusilla",
+          ["model insects:", "ORFs on the", "kept StringTie"], 4)
 
+    f.box(X[0], yb, X[3] + w - X[0], h, "green", "Both gene finders in parallel",
+          ["Tiberius (insect model)   +   Vipsania Insecta, --finetune on the genome",
+           "(Vipsania fine-tune is one GPU task on the whole genome)"], 1)
+
+    f.box(X[0], yc, X[3] + w - X[0], h, "blue", "Protein evidence (required)",
+          ["miniprot + miniprot-boundary-scorer + miniprothint;",
+           "DIAMOND (14-col) on all four protein sets"], 2)
+
+    f.box(M, ya, wM, yc + h - ya, "grey", "combine_genesets.py",
+          ["Tiberius + Vipsania +", "revised TD2 + Drusilla,",
+           "all 4 DIAMOND tables,", "miniprot / hc.gff hints,",
+           "introns + rna_cov.bg.gz;", "",
+           "Insecta clade adds", "--drop-lone-single-exon", "tiberius"], 4)
+
+    f.doc(M, yc + h + 20, wM, h, "grey", "Final annotation", "combined_evidence.gff3", mono=True)
+
+    # arrows: reads -> alignment -> stringtie -> TD2/Drusilla -> combine
     for i, c in enumerate(("red", "orange", "orange", "purple")):
         x0 = A + wA if i == 0 else X[i - 1] + w
         f.arrow([(x0, cy(ya)), (X[i], cy(ya))], c)
     f.arrow([(X[3] + w, cy(ya)), (M, cy(ya))], "purple")
+    # genome -> gene finders -> combine
     f.arrow([(A + wA, cy(yb)), (X[0], cy(yb))], "green")
     f.arrow([(X[3] + w, cy(yb)), (M, cy(yb))], "green")
-    f.arrow([(M + wM, cy(ya)), (O, cy(ya))], "grey")
-    f.arrow([(O + wO / 2, ya + h), (O + wO / 2, yb)], "grey")
+    # proteins -> protein evidence -> combine
+    f.arrow([(A + wA, cy(yc)), (X[0], cy(yc))], "blue")
+    f.arrow([(X[3] + w, cy(yc)), (M, cy(yc))], "blue")
+    # combine -> final
+    f.arrow([(M + wM / 2, yc + h), (M + wM / 2, yc + h + 20)], "grey")
 
-    # what is not in this flow, the warning and the accuracy
-    f.box(X[0], yc, X[1] + w - X[0], hc, "grey", "Not in this flow",
-          ["step 2: no protein alignments,", "no stop and start codon fix,", "no LightGBM filter, no hint rescue",
-           "(they lowered the accuracy on insects)"], dashed=True, fill="#ffffff")
-    f.box(X[2], yc, M + wM - X[2], hc, "yellow", "Other choices get a warning",
-          ["Tiberius instead of Vipsania, Vipsania without fine-tuning,",
-           "no RNA-Seq or Iso-Seq, or protein evidence: the Nextflow log",
-           "names each difference (recommended of Insecta in",
-           "conf/hc_genes.yaml); the run goes on."])
-    f.box(O, yc, wO, hc, "green", "Gene F1", ["this flow       75.2", "BRAKER3         75.4", "Tiberius        57.6",
-                                              "mean of 11 insects"])
-    f.text(A, yc + hc + 34, "Numbers: the steps of the overview figure. Gene F1: mean over 11 RefSeq insects "
-           "(Lars Gabriel), gffcompare 0.12.10 --strict-match -e 3 -T on the CDS;")
-    f.text(A, yc + hc + 55, "BRAKER3 with protein evidence.")
+    f.text(A, yc + h + 50 + h, "The unified HC flow is the same for every clade; insect clades add --drop-lone-single-exon tiberius to combine_genesets.")
+    f.text(A, yc + h + 70 + h, "A run that differs from the clade's recommended flow in conf/hc_genes.yaml gets a warning (gene finder, fine-tune, transcripts, proteins).")
     return f
 
 
 def postprocess():
     f = Fig(1160, 764, "Post-processing and quality control of Paludamentum",
-            "The final annotation of step 5 (or the ab initio genes) runs through the sanity filter, "
+            "The final annotation of step 4 (or the ab initio genes) runs through the sanity filter, "
             "gets UTRs from the StringTie assemblies when there are transcripts, and is written as GFF3, "
             "GTF, proteins and CDS. Gene set statistics always run, evidence support in evidence modes; "
             "completeness, OMArk, gffcompare, ncRNA and GO terms are switched on by options. "
@@ -292,7 +344,7 @@ def postprocess():
         f.text(x, 52, s, 13, "bold", SUB, style=' letter-spacing="1.5"')
         f.add(f'<path d="M{x},62 h{w}" stroke="#d9dee4" stroke-width="1.5"/>')
 
-    f.doc(A, r[0], wA, h, "grey", "Annotation", "from step 5", tag="or the ab initio genes")
+    f.doc(A, r[0], wA, h, "grey", "Annotation", "from step 4", tag="or the ab initio genes")
     f.doc(A, r[1], wA, h, "orange", "StringTie", "assembled transcripts", tag="modes with transcripts")
     f.doc(A, r[2], wA, h, "green", "Genome", "FASTA")
 
@@ -328,7 +380,7 @@ def postprocess():
              ("purple", "gffcompare", "--reference_annotation",
               [("CDS compared with a reference annotation", SUB)]),
              ("purple", "ncRNA", "--ncrna",
-              [("rRNA, tRNA, Rfam families;\u00a0", SUB),
+              [("rRNA, tRNA, Rfam families; ", SUB),
                ("lncRNA with transcripts", COL["orange"][1])]),
              ("purple", "GO terms", "--fantasia",
               [("FANTASIA-Lite: GO terms by ProtT5 embeddings", SUB)]))
@@ -375,13 +427,13 @@ def postprocess():
         f.add(f'<rect x="{A}" y="{yy - 12}" width="22" height="16" rx="4" fill="{fill}" stroke="{stroke}" stroke-width="1.4"/>')
         f.text(A + 32, yy + 1, s)
 
-    f.text(A, yr + 50, "<stem> is <tool>_evidence, or <tool>_ab_initio in mode abinitio;", fill=SUB)
+    f.text(A, yr + 50, "<stem> is combined_evidence in evidence modes, else <tool>_ab_initio / <tool>_evidence;", fill=SUB)
     f.text(A, yr + 71, "<tool> is tiberius or vipsania. Evidence runs without a gene finder skip post-processing.")
     return f
 
 
 out = sys.argv[1]
-for name, fig in (("overview", overview()), ("drusilla_flow", drusilla()),
+for name, fig in (("overview", overview()), ("combined_flow", combined_flow()),
                   ("insect_flow", insect()), ("postprocess_flow", postprocess())):
     with open(f"{out}/{name}.svg", "w") as fh:
         fh.write(fig.svg())

@@ -1,6 +1,8 @@
 // Shared functions of the Paludamentum pipeline.
 
 // Gene finders that the pipeline can run. Each one has a params block of the same name.
+// Note: in evidence modes both gene finders always run (unified HC flow in HC_COMBINED);
+// resolveGenefinder / genefinderEnabled are only consulted in abinitio and proteins modes.
 def genefinders() {
     return ['tiberius', 'vipsania']
 }
@@ -17,8 +19,8 @@ def truthy(v) {
     return v?.toString()?.trim()?.toLowerCase() in ['true', '1', 'yes', 'y', 'on']
 }
 
-// Name of the selected gene finder: params.genefinder, else the block with run=true.
-// Falls back to 'tiberius', which keeps evidence-only runs (no gene finder) working.
+// Name of the selected gene finder for ab initio / proteins mode: params.genefinder,
+// else the block with run=true. Falls back to 'tiberius'.
 def resolveGenefinder(p) {
     if( p.genefinder ) {
         def chosen = p.genefinder.toString().trim().toLowerCase()
@@ -32,7 +34,8 @@ def resolveGenefinder(p) {
     return enabled ? enabled[0] : 'tiberius'
 }
 
-// True if the selected gene finder shall run (<genefinder>.run).
+// True if the selected gene finder shall run (<genefinder>.run). In ab initio
+// and proteins modes only; evidence modes always run both.
 def genefinderEnabled(p) {
     return truthy(p[resolveGenefinder(p)]?.run)
 }
@@ -42,11 +45,7 @@ def modes() {
     return ['abinitio', 'proteins', 'rnaseq', 'isoseq', 'mixed']
 }
 
-// Mode of a run from its inputs. Transcript evidence (short reads, BAM, Iso-Seq,
-// pyVARUS directories) without protein evidence gives the transcript mode as
-// well: main.nf stops such a run unless the Drusilla flow selects the
-// high-confidence genes, which needs no proteins (hcMethod). The caller counts
-// rnaseq_varus in hasBAM and isoseq_varus in hasIso.
+// Mode of a run from its inputs.
 def inferMode(boolean hasPaired, boolean hasSingle, boolean hasIso, boolean hasBAM, boolean hasProteins) {
   def hasShortReads = hasPaired || hasSingle || hasBAM
   if( hasShortReads && hasIso ) return 'mixed'
@@ -80,9 +79,8 @@ def tiberiusTargetSpecies(cfg) {
     return tiberiusModelValue(cfg, 'target_species')
 }
 
-// HC gene step per clade (params.hc_table, conf/hc_genes.yaml): orf_finder and
-// clades (clade name -> hc, drusilla_model, lgb_model, lgb_model_sha256,
-// orf_finder, vipsania_models).
+// Clade table (params.hc_table, conf/hc_genes.yaml). Only used to look up
+// the clade of the gene finder model (insect flag + recommended warning).
 def hcTable(p) {
     def path = p.hc_table?.toString()?.trim() ?: "${projectDir}/conf/hc_genes.yaml"
     def f = file(path)
@@ -96,162 +94,59 @@ def hcTable(p) {
 // spelling when listed), entry: its table entry, or null when not listed].
 // Tiberius: target_species of the model configuration. Vipsania: the model,
 // a clade name or one of the clade's vipsania_models. Case is ignored.
+// In evidence modes both gene finders run; the clade is read from whichever
+// model is set (Tiberius first, then Vipsania).
 def hcClade(p) {
-    def gf = resolveGenefinder(p)
-    def name = null
-    if( gf == 'tiberius' && p.tiberius?.model_cfg ) name = tiberiusTargetSpecies(p.tiberius.model_cfg)
-    else if( gf == 'vipsania' ) name = p.vipsania?.model?.toString()?.trim() ?: null
-    if( !name ) return [name: null, entry: null]
-    def key = name.toLowerCase()
-    def clades = hcTable(p).clades
-    def hit = (clades instanceof Map) ? clades.find { k, v ->
-        k.toString().toLowerCase() == key ||
-            (gf == 'vipsania' && v instanceof Map && (v.vipsania_models instanceof List) &&
-             v.vipsania_models.any { m -> m.toString().toLowerCase() == key })
-    } : null
-    if( !hit ) return [name: name, entry: null]
-    return [name: hit.key.toString(), entry: (hit.value instanceof Map) ? hit.value : [:]]
-}
-
-// ORF finder of the TransDecoder flow: params.transdecoder, else orf_finder of
-// the clade in the HC table, else the table's orf_finder, else td2.
-def orfFinder(p) {
-    def td = p.transdecoder?.toString()?.trim()?.toLowerCase()
-    if( !td ) {
-        def own = hcClade(p).entry?.orf_finder
-        td = (own ?: hcTable(p).orf_finder ?: 'td2').toString().trim().toLowerCase()
+    def tibCfg = p.tiberius?.model_cfg
+    def vipMod = p.vipsania?.model?.toString()?.trim()
+    def candidates = []
+    if( tibCfg ) {
+        def ts = tiberiusTargetSpecies(tibCfg)
+        if( ts ) candidates << ts
     }
-    if( !(td in ['td1', 'td2']) )
-        error "The ORF finder must be 'td1' or 'td2' (params.transdecoder, or orf_finder in the HC table), got '${td}'."
-    return td
+    if( vipMod ) candidates << vipMod
+    for( name in candidates ) {
+        def key = name.toLowerCase()
+        def clades = hcTable(p).clades
+        def hit = (clades instanceof Map) ? clades.find { k, v ->
+            k.toString().toLowerCase() == key ||
+                (v instanceof Map && (v.vipsania_models instanceof List) &&
+                 v.vipsania_models.any { m -> m.toString().toLowerCase() == key })
+        } : null
+        if( hit ) return [name: hit.key.toString(), entry: (hit.value instanceof Map) ? hit.value : [:]]
+    }
+    return [name: candidates ? candidates[0] : null, entry: null]
 }
 
-// Drusilla model (key 'model'), LightGBM model ('lgb_model') and its sha256
-// ('lgb_model_sha256'): params.drusilla, else the clade's entry in the HC
-// table. With params.drusilla.run = true, a clade without Drusilla models of
-// its own takes those of the table's drusilla_forced clade. A
-// params.drusilla.lgb_model is checked only against
-// params.drusilla.lgb_model_sha256 (null: not checked).
+// Drusilla model (key 'model'): params.drusilla.model, else the clade's
+// drusilla_model in the HC table. Needed in the unified HC flow to annotate
+// ORFs with the right clade's Drusilla weights.
 def drusillaSetting(p, String key) {
+    if( key != 'model' )
+        error "drusillaSetting: only 'model' is supported, got '${key}'."
     def d = p.drusilla ?: [:]
+    if( d.model ) return d.model
     def entry = hcClade(p).entry ?: [:]
-    def run = d.run?.toString()?.trim()?.toLowerCase()
-    if( run && run != 'auto' && truthy(d.run) && !entry.drusilla_model && !entry.lgb_model ) {
-        def table = hcTable(p)
-        def forced = table.drusilla_forced?.toString()?.toLowerCase()
-        def fallback = (forced && table.clades instanceof Map) ?
-            table.clades.find { k, _v -> k.toString().toLowerCase() == forced }?.value : null
-        if( fallback instanceof Map ) entry = fallback
-    }
-    if( key == 'model' )            return d.model ?: entry.drusilla_model ?: null
-    if( key == 'lgb_model' )        return d.lgb_model ?: entry.lgb_model ?: null
-    if( key == 'lgb_model_sha256' ) return d.lgb_model_sha256 ?: (d.lgb_model ? null : entry.lgb_model_sha256 ?: null)
-    error "drusillaSetting: unknown key '${key}'."
-}
-
-// True if the Drusilla flow runs the hint rescue (params.drusilla.rescue).
-// The rescue predicts the partial genes of the LightGBM filter again, so it
-// runs only where the filter runs (drusillaLgb).
-def rescueEnabled(p) {
-    return p.drusilla?.rescue == null || truthy(p.drusilla.rescue)
-}
-
-// True if the Drusilla flow runs the LightGBM filter of the gene finder genes:
-// the clade (or params.drusilla) has a LightGBM model, and there is protein
-// evidence, from which the filter computes its features. Without it the
-// Drusilla ORFs are merged with all gene finder genes.
-def drusillaLgb(p, boolean hasProteins) {
-    return hasProteins && drusillaSetting(p, 'lgb_model') as boolean
-}
-
-// Tiberius model of the hint rescue: params.drusilla.rescue_model_cfg, else the
-// model of a Tiberius run, else vertebrates.
-// [file: model configuration to stage, or null; name: model in model_cfg/ of the
-// rescue image, or null; weights: true if params.tiberius.model_dir holds its
-// weights; note: text or null]. A value without '/' and without a .yaml/.yml
-// suffix is a name.
-def rescueModel(p) {
-    def own = p.drusilla?.rescue_model_cfg?.toString()?.trim()
-    if( own ) {
-        def isName = !own.contains('/') && !(own ==~ /.*\.ya?ml$/)
-        return [file: isName ? null : own, name: isName ? own : null, weights: false, note: null]
-    }
-    def tiberiusRun = resolveGenefinder(p) == 'tiberius'
-    if( tiberiusRun && p.tiberius?.model_cfg )
-        return [file: p.tiberius.model_cfg.toString(), name: null, weights: p.tiberius?.model_dir as boolean, note: null]
-    def note = tiberiusRun ?
-        "params.tiberius.result is set without params.tiberius.model_cfg, so the hint rescue uses the Tiberius model vertebrates. Set params.drusilla.rescue_model_cfg for another model." : null
-    return [file: null, name: 'vertebrates', weights: false, note: note]
-}
-
-// TransDecoder result of hcMethod.
-def hcTransdecoder(clade, note) {
-    return [method: 'transdecoder', clade: clade, note: note]
-}
-
-// High-confidence gene step of an evidence run: [method: 'drusilla' |
-// 'transdecoder', clade: clade of the gene finder model or null, note: text or
-// null]. params.drusilla.run 'auto' follows hc of the clade in the HC table
-// (conf/hc_genes.yaml) for runs with transcripts and a gene finder; true and
-// false force the choice. The Drusilla flow needs a Drusilla model only; a
-// clade without a LightGBM model runs it without the filter (drusillaLgb).
-def hcMethod(p, String mode) {
-    def run = p.drusilla?.run
-    def auto = run == null || run.toString().trim().toLowerCase() == 'auto'
-    def hasTranscripts = mode in ['rnaseq', 'isoseq', 'mixed']
-    def clade = hcClade(p)
-    def hc = (clade.entry?.hc ?: 'transdecoder').toString().trim().toLowerCase()
-    if( !(hc in ['drusilla', 'transdecoder']) )
-        error "hc of clade ${clade.name} in the HC table must be 'drusilla' or 'transdecoder', got '${hc}'."
-    def missing = []
-    if( !p.drusilla?.weights && !drusillaSetting(p, 'model') ) missing << 'Drusilla model (params.drusilla.model)'
-    if( !auto && !truthy(run) ) return hcTransdecoder(clade.name, null)
-    if( auto ) {
-        if( !hasTranscripts || !genefinderEnabled(p) )
-            return hcTransdecoder(clade.name, null)
-        if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.result && !p.tiberius?.model_cfg )
-            return hcTransdecoder(clade.name, "params.tiberius.result is set without params.tiberius.model_cfg, so the pipeline cannot tell which clade the prediction comes from; using the TransDecoder high-confidence genes. Set params.tiberius.model_cfg, or params.drusilla.run = true, for the Drusilla flow.")
-        if( resolveGenefinder(p) == 'tiberius' && p.tiberius?.model_cfg && !clade.name )
-            return hcTransdecoder(clade.name, "params.tiberius.model_cfg (${p.tiberius.model_cfg}) has no target_species, so the pipeline cannot tell its clade; using the TransDecoder high-confidence genes. Set params.drusilla.run = true for the Drusilla flow.")
-        if( hc != 'drusilla' )
-            return hcTransdecoder(clade.name, null)
-        if( missing )
-            return hcTransdecoder(clade.name, "The HC table selects the Drusilla flow for ${clade.name}, but there is no ${missing.join(' and no ')}, neither for the clade in the HC table nor in the params; using the TransDecoder high-confidence genes.")
-        return [method: 'drusilla', clade: clade.name, note: null]
-    }
-    if( !hasTranscripts )     error "params.drusilla.run = true needs transcripts (mode rnaseq, isoseq or mixed), the mode is '${mode}'."
-    if( !genefinderEnabled(p) ) error "params.drusilla.run = true needs a gene finder (tiberius.run or vipsania.run)."
-    if( missing ) error "params.drusilla.run = true needs a ${missing.join(' and a ')}; the HC table has none for clade ${clade.name ?: 'unknown'}, nor a drusilla_forced clade with one."
-    return [method: 'drusilla', clade: clade.name, note: rescueEnabled(p) ? rescueModel(p).note : null]
+    return entry.drusilla_model ?: null
 }
 
 // The most accurate flow measured for the clade of the gene finder model, as
 // the key 'recommended' of its entry in the HC table (conf/hc_genes.yaml):
-// genefinder, finetune (Vipsania), transcripts, drusilla (the Drusilla flow
-// selects the HC genes), proteins (true: given, false: not given), and note
-// (the measured accuracy). Keys that are not set are not checked. Returns
-// null if the clade has no recommendation or the run follows it, else the
-// warning, which names every difference.
+// genefinder, finetune (Vipsania), transcripts, proteins (true: given, false:
+// not given), and note (the measured accuracy). Returns null if the clade
+// has no recommendation or the run follows it, else the warning.
 def cladeAdvice(p, String mode, boolean hasProteins, Map hc) {
     def clade = hcClade(p)
     def rec = clade.entry?.recommended
     if( !(rec instanceof Map) ) return null
-    def tool = resolveGenefinder(p)
-    def running = genefinderEnabled(p)
     def transcripts = mode in ['rnaseq', 'isoseq', 'mixed']
     def diff = []
-    def wantTool = rec.genefinder?.toString()?.trim()?.toLowerCase()
-    if( wantTool && (!running || tool != wantTool) )
-        diff << (running ? "the gene finder is ${tool}, not ${wantTool}" : "no gene finder runs (${wantTool}.run)")
-    if( running && tool == 'vipsania' && rec.finetune != null && !p.vipsania?.result &&
+    if( rec.finetune != null && !p.vipsania?.result &&
         truthy(rec.finetune) != truthy(p.vipsania?.finetune) )
         diff << (truthy(rec.finetune) ? 'Vipsania is not fine-tuned on the genome (vipsania.finetune: true)' :
                                         'Vipsania is fine-tuned on the genome')
     if( rec.transcripts != null && truthy(rec.transcripts) != transcripts )
         diff << (transcripts ? 'there is RNA-Seq or Iso-Seq evidence' : 'there is no RNA-Seq or Iso-Seq evidence')
-    if( transcripts && rec.drusilla != null && truthy(rec.drusilla) != (hc.method == 'drusilla') )
-        diff << (hc.method == 'drusilla' ? 'the Drusilla flow selects the high-confidence genes' :
-                                           "the high-confidence genes are not those of the Drusilla flow (HC genes: ${hc.method})")
     if( rec.proteins != null && truthy(rec.proteins) != hasProteins )
         diff << (hasProteins ? 'protein evidence is given (proteins or odb12Partitions)' : 'there is no protein evidence')
     if( !diff ) return null
@@ -310,7 +205,7 @@ def bamCoordinateSorted(f) {
     try {
         new java.util.zip.GZIPInputStream(f.newInputStream()).withCloseable { s ->
             def head = s.readNBytes(8)
-            if( head.length < 8 || new String(head, 0, 4, 'ISO-8859-1') != 'BAM\u0001' )
+            if( head.length < 8 || new String(head, 0, 4, 'ISO-8859-1') != 'BAM' )
                 return false
             def lText = java.nio.ByteBuffer.wrap(head, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt()
             def text = s.readNBytes(Math.min(Math.max(lText, 0), 65536))

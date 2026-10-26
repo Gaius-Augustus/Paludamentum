@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="1200" height="620" role="img" aria-labelledby="t d">
+<title id="t">Paludamentum gene set integration</title>
+<desc id="d">Gene set integration in Paludamentum: Tiberius and Vipsania predict genes on the genome; reads are aligned and assembled with StringTie, on which TD2 and Drusilla predict ORFs; DIAMOND searches all four protein sets against the protein database; miniprot and miniprothint give protein hints, bedtools genomecov and bam2hints give coverage and intron hints; combine_genesets.py integrates everything into the final annotation.</desc>
+<defs>
+<style>
+.h{font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:bold;fill:#1f2933}
+.b{font-family:Helvetica,Arial,sans-serif;font-size:12.5px;fill:#52606d}
+.m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono',monospace;font-size:11.5px;fill:#1f2933}
+.mg{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'DejaVu Sans Mono',monospace;font-size:11.5px;fill:#52606d}
+.l{font-family:Helvetica,Arial,sans-serif;font-size:11px;font-weight:bold}
+.n{font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:bold;fill:#ffffff}
+</style>
+<marker id="a-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#4f9440"/></marker>
+<marker id="a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#4577ba"/></marker>
+<marker id="a-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#c0504d"/></marker>
+<marker id="a-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#cf7f1f"/></marker>
+<marker id="a-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#8a63a8"/></marker>
+<marker id="a-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0.8 L10,5 L0,9.2 Z" fill="#5b6675"/></marker>
+</defs>
+
+<rect x="1" y="1" width="1198" height="618" rx="14" fill="#ffffff" stroke="#d9dee4"/>
+
+<!-- Inputs -->
+<path d="M20,46 q0,-6 6,-6 h128 q6,0 6,6 V115 q-35,-15 -70,0 t-70,0 Z" fill="#dfeaf8" stroke="#4577ba" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="90" y="66" class="h" text-anchor="middle">Proteins</text>
+<text x="90" y="87" class="b" text-anchor="middle">FASTA · OrthoDB v12</text>
+
+<path d="M20,192 q0,-6 6,-6 h128 q6,0 6,6 V261 q-35,-15 -70,0 t-70,0 Z" fill="#e3f1e0" stroke="#4f9440" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="90" y="212" class="h" text-anchor="middle">Genome</text>
+<text x="90" y="233" class="b" text-anchor="middle">FASTA</text>
+
+<path d="M20,344 q0,-6 6,-6 h128 q6,0 6,6 V413 q-35,-15 -70,0 t-70,0 Z" fill="#f9dedc" stroke="#c0504d" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="90" y="364" class="h" text-anchor="middle">Reads</text>
+<text x="90" y="385" class="b" text-anchor="middle">RNA-Seq · Iso-Seq</text>
+
+<!-- Step 3: transcripts -->
+<rect x="196" y="312" width="180" height="136" rx="10" fill="#fde6cf" stroke="#cf7f1f" stroke-width="1.6"/>
+<circle cx="220" cy="337" r="11" fill="#cf7f1f"/>
+<text x="220" y="341.5" class="n" text-anchor="middle">3</text>
+<text x="239" y="342" class="h">Transcripts</text>
+<text x="210" y="368" class="b">HISAT2 / minimap2</text>
+<text x="210" y="386" class="b">→ merged BAM</text>
+<text x="210" y="412" class="b">StringTie: one assembly</text>
+<text x="210" y="430" class="b">of all reads</text>
+
+<!-- Gene sets -->
+<rect x="412" y="160" width="170" height="60" rx="10" fill="#e3f1e0" stroke="#4f9440" stroke-width="1.6"/>
+<circle cx="436" cy="181" r="11" fill="#4f9440"/>
+<text x="436" y="185.5" class="n" text-anchor="middle">1</text>
+<text x="455" y="186" class="h">Tiberius</text>
+<text x="426" y="208" class="b" font-style="italic">ab initio</text>
+
+<rect x="412" y="236" width="170" height="60" rx="10" fill="#e3f1e0" stroke="#4f9440" stroke-width="1.6"/>
+<circle cx="436" cy="257" r="11" fill="#4f9440"/>
+<text x="436" y="261.5" class="n" text-anchor="middle">1</text>
+<text x="455" y="262" class="h">Vipsania</text>
+<text x="426" y="284" class="b">--finetune, then predict</text>
+
+<rect x="412" y="312" width="170" height="60" rx="10" fill="#ebe1f2" stroke="#8a63a8" stroke-width="1.6"/>
+<circle cx="436" cy="333" r="11" fill="#8a63a8"/>
+<text x="436" y="337.5" class="n" text-anchor="middle">4</text>
+<text x="455" y="338" class="h">TD2</text>
+<text x="426" y="360" class="b">ORFs, shorten + revise</text>
+
+<rect x="412" y="388" width="170" height="60" rx="10" fill="#ebe1f2" stroke="#8a63a8" stroke-width="1.6"/>
+<circle cx="436" cy="409" r="11" fill="#8a63a8"/>
+<text x="436" y="413.5" class="n" text-anchor="middle">4</text>
+<text x="455" y="414" class="h">Drusilla</text>
+<text x="426" y="436" class="b">ORF prediction</text>
+
+<!-- DIAMOND -->
+<rect x="620" y="112" width="150" height="350" rx="10" fill="#ebe1f2" stroke="#8a63a8" stroke-width="1.6"/>
+<text x="695" y="137" class="h" text-anchor="middle">DIAMOND</text>
+<text x="695" y="155" class="b" text-anchor="middle">vs protein DB</text>
+<rect x="632" y="170" width="126" height="40" rx="7" fill="#ffffff" stroke="#8a63a8" stroke-width="1.2"/>
+<text x="695" y="194" class="m" text-anchor="middle">tiberius.pep</text>
+<rect x="632" y="246" width="126" height="40" rx="7" fill="#ffffff" stroke="#8a63a8" stroke-width="1.2"/>
+<text x="695" y="270" class="m" text-anchor="middle">vipsania.pep</text>
+<rect x="632" y="322" width="126" height="40" rx="7" fill="#ffffff" stroke="#8a63a8" stroke-width="1.2"/>
+<text x="695" y="346" class="m" text-anchor="middle">td2.pep</text>
+<rect x="632" y="398" width="126" height="40" rx="7" fill="#ffffff" stroke="#8a63a8" stroke-width="1.2"/>
+<text x="695" y="422" class="m" text-anchor="middle">drusilla.pep</text>
+
+<!-- Step 2: protein hints -->
+<rect x="810" y="40" width="180" height="76" rx="10" fill="#dfeaf8" stroke="#4577ba" stroke-width="1.6"/>
+<circle cx="834" cy="64" r="11" fill="#4577ba"/>
+<text x="834" y="68.5" class="n" text-anchor="middle">2</text>
+<text x="853" y="69" class="h">Protein hints</text>
+<text x="824" y="96" class="b">miniprot → miniprothint</text>
+
+<!-- Combine -->
+<rect x="810" y="200" width="180" height="220" rx="10" fill="#ebe1f2" stroke="#8a63a8" stroke-width="1.6"/>
+<circle cx="834" cy="225" r="11" fill="#8a63a8"/>
+<text x="834" y="229.5" class="n" text-anchor="middle">4</text>
+<text x="853" y="230" class="h">Combine</text>
+<text x="824" y="256" class="m">combine_genesets.py</text>
+<text x="824" y="284" class="b">4 gene sets</text>
+<text x="824" y="302" class="b">+ DIAMOND hits</text>
+<text x="824" y="320" class="b">+ protein hints</text>
+<text x="824" y="338" class="b">+ coverage, introns</text>
+<text x="824" y="368" class="b">→ high-confidence genes</text>
+
+<!-- RNA hints -->
+<rect x="810" y="486" width="180" height="68" rx="10" fill="#ebe1f2" stroke="#8a63a8" stroke-width="1.6"/>
+<circle cx="834" cy="510" r="11" fill="#8a63a8"/>
+<text x="834" y="514.5" class="n" text-anchor="middle">4</text>
+<text x="853" y="515" class="h">RNA hints</text>
+<text x="824" y="540" class="b">genomecov, bam2hints</text>
+
+<!-- Output -->
+<path d="M1030,278 q0,-6 6,-6 h138 q6,0 6,6 V347 q-37.5,-15 -75,0 t-75,0 Z" fill="#eceff3" stroke="#5b6675" stroke-width="1.6" stroke-linejoin="round"/>
+<text x="1105" y="298" class="h" text-anchor="middle">Final annotation</text>
+<text x="1105" y="319" class="mg" text-anchor="middle">combined.gff3</text>
+
+<!-- Arrows: proteins -->
+<path d="M160,78 L810,78" fill="none" stroke="#4577ba" stroke-width="2" marker-end="url(#a-blue)"/>
+<path d="M695,78 L695,112" fill="none" stroke="#4577ba" stroke-width="2" marker-end="url(#a-blue)"/>
+<circle cx="695" cy="78" r="3.5" fill="#4577ba"/>
+<text x="703" y="100" class="l" fill="#4577ba">protein DB</text>
+
+<!-- Arrows: genome -->
+<path d="M160,228 L180,228 M180,190 L180,266" fill="none" stroke="#4f9440" stroke-width="2"/>
+<path d="M180,190 L412,190" fill="none" stroke="#4f9440" stroke-width="2" marker-end="url(#a-green)"/>
+<path d="M180,266 L412,266" fill="none" stroke="#4f9440" stroke-width="2" marker-end="url(#a-green)"/>
+
+<!-- Arrows: reads and transcripts -->
+<path d="M160,380 L196,380" fill="none" stroke="#c0504d" stroke-width="2" marker-end="url(#a-red)"/>
+<path d="M376,342 L412,342" fill="none" stroke="#cf7f1f" stroke-width="2" marker-end="url(#a-orange)"/>
+<path d="M376,418 L412,418" fill="none" stroke="#cf7f1f" stroke-width="2" marker-end="url(#a-orange)"/>
+<path d="M286,448 L286,520 L810,520" fill="none" stroke="#cf7f1f" stroke-width="2" stroke-linejoin="round" marker-end="url(#a-orange)"/>
+<text x="296" y="512" class="l" fill="#cf7f1f">merged BAM</text>
+
+<!-- Arrows: gene sets to DIAMOND -->
+<path d="M582,190 L632,190" fill="none" stroke="#4f9440" stroke-width="2" marker-end="url(#a-green)"/>
+<path d="M582,266 L632,266" fill="none" stroke="#4f9440" stroke-width="2" marker-end="url(#a-green)"/>
+<path d="M582,342 L632,342" fill="none" stroke="#8a63a8" stroke-width="2" marker-end="url(#a-purple)"/>
+<path d="M582,418 L632,418" fill="none" stroke="#8a63a8" stroke-width="2" marker-end="url(#a-purple)"/>
+
+<!-- Arrows into combine and output -->
+<path d="M770,304 L810,304" fill="none" stroke="#8a63a8" stroke-width="2" marker-end="url(#a-purple)"/>
+<path d="M900,116 L900,200" fill="none" stroke="#4577ba" stroke-width="2" marker-end="url(#a-blue)"/>
+<path d="M900,486 L900,420" fill="none" stroke="#8a63a8" stroke-width="2" marker-end="url(#a-purple)"/>
+<path d="M990,310 L1030,310" fill="none" stroke="#5b6675" stroke-width="2" marker-end="url(#a-grey)"/>
+
+<!-- Footnote -->
+<text x="20" y="586" class="b">Numbers refer to the steps in the overview figure. The genome is also used by the read alignment and miniprot (not drawn).</text>
+<text x="20" y="604" class="b">Insect clades: single-exon genes are dropped from the Tiberius predictions.</text>
+</svg>

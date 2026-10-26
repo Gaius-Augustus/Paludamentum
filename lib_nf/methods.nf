@@ -12,7 +12,7 @@
 // separated by blank lines, one line each. Inline Markdown only (*italic*,
 // **bold**, `code`); no lists, no further headings, no links.
 
-include { references; citationKeys; shortCite; withProteins; withLgb } from './citations.nf'
+include { references; citationKeys; shortCite; withProteins } from './citations.nf'
 
 // ---- citations
 
@@ -85,31 +85,51 @@ def methodsGeneFinder(Map ctx, Map run, String version) {
         return s.join(' ')
     }
 
+    def clade = run.clade ? ", a model of the clade ${run.clade}" : ''
+    if( run.genefinder == 'both' ) {
+        def tibModel = run.tiberiusModel ? "`${file(run.tiberiusModel.toString()).baseName}`" : null
+        def vipModel = run.model ? "`${run.model}`" : null
+        if( run.tiberiusResult )
+            s << "An existing Tiberius ${cite(ctx, ['tiberius'])} prediction (`${run.tiberiusResult}`) was reused " +
+                 'instead of running the gene finder.'
+        else {
+            def clades = tibModel && run.tiberiusModel && !run.tiberiusModel.toString().startsWith('mammalia') ?
+                " ${cite(ctx, ['tiberius_clades'])}" : ''
+            s << "Genes were predicted *ab initio* with Tiberius ${cite(ctx, ['tiberius'])}" +
+                 (tibModel ? " using the model ${tibModel}${clades}" : '') + '.'
+        }
+        if( run.vipsaniaResult )
+            s << "An existing Vipsania ${cite(ctx, ['vipsania'])} prediction (`${run.vipsaniaResult}`) was reused."
+        else {
+            s << "A second set of *ab initio* predictions was made with Vipsania ${cite(ctx, ['vipsania'])}" +
+                 (vipModel ? " using the pretrained model ${vipModel}" : '') + '.'
+            if( run.finetune )
+                s << 'Vipsania was first finetuned on the target genome, which it then annotated as a whole.'
+        }
+        return s.join(' ')
+    }
+
     def tool = run.genefinder == 'tiberius' ? 'Tiberius' : 'Vipsania'
     def model = run.model ? "`${run.model}`" : null
-    def clade = run.clade && run.model && run.clade.toString().toLowerCase() != run.model.toString().toLowerCase() ?
+    def cladeTxt = run.clade && run.model && run.clade.toString().toLowerCase() != run.model.toString().toLowerCase() ?
         ", a model of the clade ${run.clade}" : ''
-    if( run.result ) {
-        s << "An existing prediction of ${tool} ${cite(ctx, [run.genefinder])}, `${run.result}`" +
-             (model ? ", made with the model ${model}${clade}," : '') +
+    def resultFile = run.genefinder == 'tiberius' ? run.tiberiusResult : run.vipsaniaResult
+    if( resultFile ) {
+        s << "An existing prediction of ${tool} ${cite(ctx, [run.genefinder])}, `${resultFile}`" +
+             (model ? ", made with the model ${model}${cladeTxt}," : '') +
              ' was used as the *ab initio* gene set instead of running the gene finder; ' +
              'its genes and transcripts were renumbered.'
         return s.join(' ')
     }
-    def split = "The genome was split into at most ${run.splitMaxFiles} chunks of whole sequences of at least " +
-                "${bpText(run.splitMinSize)} each (or an equal share of the genome if that was larger)"
     if( run.genefinder == 'tiberius' ) {
         def clades = model && !run.model.toString().startsWith('mammalia') ? " ${cite(ctx, ['tiberius_clades'])}" : ''
         s << "Genes were predicted *ab initio* with Tiberius ${cite(ctx, ['tiberius'])}" +
-             (model ? " using the model ${model}${clades}${clade}" : '') + '.'
-        s << split + ', Tiberius predicted the genes of each chunk on a GPU, and the predictions of the chunks were merged.'
+             (model ? " using the model ${model}${clades}${cladeTxt}" : '') + '.'
     } else {
         s << "Genes were predicted *ab initio* with Vipsania ${cite(ctx, ['vipsania'])}" +
-             (model ? " using the pretrained model ${model}${clade}" : '') + '.'
+             (model ? " using the pretrained model ${model}${cladeTxt}" : '') + '.'
         if( run.finetune )
             s << 'The model was first finetuned on the target genome, which Vipsania then annotated as a whole.'
-        else
-            s << split + ', Vipsania predicted the genes of each chunk on a GPU, and the predictions of the chunks were merged.'
     }
     return s.join(' ')
 }
@@ -152,7 +172,10 @@ def methodsTranscripts(Map ctx, Map run) {
     def s = []
     def shortReads = run.mode in ['rnaseq', 'mixed']
     def longReads = run.mode in ['isoseq', 'mixed']
-    def drusilla = run.hc == 'drusilla'
+    // Evidence modes always use ONE StringTie assembly of all reads (the
+    // combine_genesets flow). Keeps the same assembly rule the Drusilla flow
+    // used before the unification.
+    def oneAssembly = run.mode in ['rnaseq', 'isoseq', 'mixed']
     def aligned = []
 
     if( shortReads && run.shortFastq ) {
@@ -193,9 +216,9 @@ def methodsTranscripts(Map ctx, Map run) {
              'the intron hints that pyVARUS made from them; the genome MD5 checksum of each pyVARUS run was ' +
              'checked against the genome of this run, and intron hints of several sources were summed per intron.'
 
-    // StringTie assemblies (cited at the first mention)
+    // StringTie: one merged assembly of all reads (combine_genesets flow)
     def st = cite(ctx, ['stringtie'])
-    if( drusilla ) {
+    if( oneAssembly ) {
         if( run.stringtieFiles && !transcriptReads(run) )
             s << "The provided StringTie ${st} assembly of all reads was used as the transcript assembly; no reads were aligned."
         else if( run.mode == 'mixed' && run.mixVarus )
@@ -210,22 +233,6 @@ def methodsTranscripts(Map ctx, Map run) {
             s << "The merged short-read alignments were assembled into one transcript set with StringTie ${st}."
         else
             s << "The merged Iso-Seq alignments were assembled into one transcript set with StringTie ${st}, using `stringtie -L`."
-    } else if( !transcriptReads(run) && run.stringtieFiles ) {
-        s << 'No reads were aligned; ' +
-             (run.stringtieFiles == 1 ? "the provided StringTie ${st} assembly was" :
-                                        "the ${run.stringtieFiles} provided StringTie ${st} assemblies were") +
-             ' merged with `stringtie --merge` into one transcript set.'
-    } else {
-        def parts = []
-        if( (shortReads && (run.shortFastq || run.shortBam)) || (longReads && run.isoFastq) )
-            parts << 'the alignments of each library were assembled with StringTie' +
-                     (longReads && run.isoFastq ? ' (Iso-Seq libraries with `-L`)' : '')
-        if( varus ) parts << 'the StringTie assemblies of pyVARUS were added'
-        if( run.stringtieFiles )
-            parts << (run.stringtieFiles == 1 ? 'the provided StringTie assembly was added' :
-                      "${run.stringtieFiles} provided StringTie assemblies were added")
-        s << capitalized(parts.join(', ')).replaceFirst('StringTie', "StringTie ${st}") +
-             ', and all assemblies were merged with `stringtie --merge` into one transcript set.'
     }
     if( !bams && !varus )
         s << (withProteins(run) ? 'Without reads, the hints of the run were protein hints only.' :
@@ -243,73 +250,35 @@ def methodsHighConfidence(Map ctx, Map run) {
         s << 'Without transcript evidence, the high-confidence (HC) genes were the gene structures of the ' +
              "high-confidence protein alignments selected by miniprothint ${cite(ctx, ['galba'])}."
         s << stopCheck
-    } else if( run.hc == 'drusilla' ) {
-        def d = run.drusillaSettings ?: [:]
-        def dr = cite(ctx, ['drusilla'])
-        def filter = "Assembled transcripts were kept if they were at least ${numText(d.minLength)} nt long, " +
-                     "with a coverage of at least ${numText(d.minCov)} and a TPM of at least ${numText(d.minTpm)}"
-        if( d.longLength != null && d.minTpmLong != null )
-            filter += " (at least ${numText(d.minTpmLong)} for transcripts of ${numText(d.longLength)} nt or longer)"
-        def lgb = withLgb(run)
-        s << (lgb ? "High-confidence (HC) genes were predicted, and the *ab initio* predictions filtered, with the " +
-                    "Drusilla flow ${dr}." :
-                    "High-confidence (HC) genes were predicted with the Drusilla flow ${dr}" +
-                    (withProteins(run) ? ', without the LightGBM filter of the *ab initio* predictions, for which ' +
-                                         'the clade has no model.' : ', which needs no protein evidence.'))
-        s << filter + '.'
-        def model = d.model ? "the model `${d.model}`" : d.weights ? "the weights `${d.weights}`" : 'its model'
-        s << "Drusilla predicted the ORFs of the kept transcripts with ${model}, including ORFs truncated " +
-             'at the 5\' or 3\' end of a transcript' +
-             (d.minCodingLength ? ", and discarded ORFs with a CDS shorter than ${numText(d.minCodingLength)} nt." : '.')
-        if( d.fixStop ) {
-            s << 'ORFs with a premature stop codon and truncated ORFs were extended to a stop codon supported by a ' +
-                 "miniprot ${cite(ctx, ['miniprot'])} alignment" +
-                 (d.fixStart ? ', and ORFs without an upstream in-frame stop codon were extended to a start codon ' +
-                               'hint of miniprothint.' : '.')
-        }
-        s << 'Isoforms whose CDS was a subsequence of the CDS of another isoform were collapsed, and the remaining ' +
-             'ORFs were the HC genes.'
-        def keep = (d.lgbKeep ?: ['correct']).collect { k -> "*${k}*" }
-        if( lgb )
-            s << "A LightGBM ${cite(ctx, ['lightgbm'])} model (`${d.lgbModel}`) classified each *ab initio* transcript as wrong, " +
-                 'partial or correct from features of the miniprot alignments and the miniprothint hints that overlap ' +
-                 "it, and the transcripts with P(partial) + P(correct) of at least ${numText(d.lgbThreshold)} whose most " +
-                 "likely class was ${joinOr(keep)} were kept."
-        if( lgb && run.rescue ) {
-            def rmodel = d.rescueModel ? " with the model `${d.rescueModel}`" : ''
-            s << 'Loci of transcripts classified as partial that did not overlap a kept transcript on the same ' +
-                 "strand were predicted again by Tiberius ${cite(ctx, ['tiberius'])}${rmodel} (hint rescue): each " +
-                 "locus, with ${bpText(d.rescueFlank)} flanks, was given the intron, start and stop codon hints of " +
-                 'its best-scoring chain of miniprot alignments with a hint weight of ' +
-                 "${numText(d.rescueHintWeight)}, and loci without a protein chain were predicted *ab initio*" +
-                 (d.rescueOrfFilter ? '; loci where a Drusilla ORF already had all introns of the chain were skipped.' : '.') +
-                 ' Rescued transcripts on the strand of the hints that overlapped the hinted region were kept, ' +
-                 'identical ones were collapsed, and their CDS phases were recomputed from the start codon.'
-        }
-    } else {
-        def finder = run.orfFinder == 'td2' ?
-            "TD2 ${cite(ctx, ['td2'])}, which scores the candidate ORFs with PSAURON ${cite(ctx, ['psauron'])}" +
-                (run.td2PredictArgs ? " (`TD2.Predict ${run.td2PredictArgs}`)" : '') :
-            "TransDecoder ${cite(ctx, ['transdecoder'])}"
-        def dmd = cite(ctx, ['diamond'])
-        s << "ORFs of the merged transcripts were predicted with ${finder}."
-        s << 'ORFs that were 5\' partial or internal were also trimmed to their first methionine, both versions ' +
-             "were searched against the protein database with DIAMOND ${dmd} blastp, reporting five targets per query, " +
-             'and the comparison of their hits decided whether an ORF was revised to the trimmed, complete start; ' +
-             'the revised ORFs were searched again.'
-        s << 'Complete ORFs with a DIAMOND hit of e-value at most 1e-5, at least 50 % identity and at least 90 % ' +
-             'coverage of both the ORF and the database protein became high-confidence (HC) genes, the longest ' +
-             'such ORF per assembled transcript, mapped to genome coordinates.'
-        s << stopCheck
+        return s.join(' ')
     }
-
-    if( !run.genefinder ) return s.join(' ')
-    def abInitio = run.hc == 'drusilla' && transcripts && withLgb(run) ?
-        (run.rescue ? 'the kept and the rescued *ab initio* transcripts' : 'the kept *ab initio* transcripts') :
-        'the *ab initio* predictions'
-    s << "The HC genes and ${abInitio} were merged into one annotation: transcripts were clustered into loci by " +
-         'shared exon sequence on the same strand, transcripts with identical coding sequences were collapsed, ' +
-         'and genes and transcripts were renumbered.'
+    // Unified HC flow (combine_genesets): both ORF callers + the four
+    // DIAMOND searches + bedtools genomecov coverage + bam2hints introns.
+    def dmd = cite(ctx, ['diamond'])
+    def dr  = cite(ctx, ['drusilla'])
+    def td2 = cite(ctx, ['td2'])
+    def psa = cite(ctx, ['psauron'])
+    s << "High-confidence (HC) genes were derived from two ORF callers on the StringTie transcript assembly: " +
+         "TD2 ${td2} (which scores candidate ORFs with PSAURON ${psa}" +
+         (run.td2PredictArgs ? ", `TD2.Predict ${run.td2PredictArgs}`" : '') + ") and Drusilla ${dr}."
+    s << "For TD2, 5' partial and internal ORFs were also trimmed to their first methionine, both versions were " +
+         "searched against the protein database with DIAMOND ${dmd} blastp (five targets per query), and " +
+         'the comparison of their hits decided whether an ORF was revised to the trimmed, complete start; the ' +
+         'revised ORFs were converted back to genome coordinates with `cdna_alignment_orf_to_genome_orf.pl` of ' +
+         "TransDecoder ${cite(ctx, ['transdecoder'])}."
+    s << 'For Drusilla, assembled transcripts were pre-filtered by length, StringTie coverage and TPM; Drusilla ' +
+         'predicted their ORFs, and isoforms whose CDS was a subsequence of another were collapsed.'
+    def insect = run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
+    def dropFlag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
+    s << "The four gene sets (Tiberius, Vipsania, revised TD2, Drusilla) were integrated by `combine_genesets.py`: " +
+         "DIAMOND blastp was run on each gene set's proteins (14-column outfmt, including query and subject lengths), " +
+         'bedtools genomecov produced a per-base read-depth bedGraph of the merged read alignments, and bam2hints ' +
+         'produced intron hints. combine_genesets.py merged transcripts with identical CDS, clustered them into loci ' +
+         'on the same strand, tiered each unique structure from its supporting tool set, adjusted the tier with RNA, ' +
+         "protein and DIAMOND features, and kept each locus whose best model reached a tier of ${numText(run.minLocus)}${dropFlag}; " +
+         'single-exon Tiberius-only models were demoted on insect runs. The result is the final annotation (no ' +
+         'separate merge with the *ab initio* predictions is needed, because they already enter the integration).'
+    s << stopCheck
     return s.join(' ')
 }
 
@@ -326,7 +295,8 @@ def methodsPostprocessing(Map ctx, Map run) {
     else
         s << "A sanity filter flagged ${checks}, without changing the annotation."
     if( transcripts && run.utr ) {
-        def longread = run.hc != 'drusilla' && run.mode in ['isoseq', 'mixed'] && (run.isoFastq || run.isoVarus)
+        // One merged StringTie assembly feeds UTRs (no separate long-read assembly in the combined flow)
+        def longread = false
         s << 'Coding transcripts without UTRs received UTRs from the StringTie assemblies of the run: a multi-exon ' +
              'transcript matched an assembled transcript that contained all its CDS introns, a single-exon ' +
              'transcript an overlapping assembled transcript without an intron in its CDS, and of several matches ' +

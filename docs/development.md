@@ -107,10 +107,17 @@ smoke tests use `tiberius/test_data/Panthera_pardus` and
   - [x] ncRNA: pybarrnap, tRNAscan-SE, Infernal/Rfam, FEELnc
   - [x] OMArk and gffcompare
   - [x] GO terms with FANTASIA-Lite (GPU)
-- [x] v0.6.0: Drusilla flow without proteins (docs/drusilla_flow.md#without-proteins):
+- [x] v0.6.0: Drusilla flow without proteins:
   - [x] transcripts without proteins for clades with a Drusilla model; `COLLAPSE_ORFS`
-  - [x] clade `Insecta` (Drusilla model `insects`, no LightGBM model) and the
-        `recommended` flow of a clade, with a warning for runs that differ
+  - [x] clade `Insecta` (Drusilla model `insects`) and the `recommended`
+        flow of a clade, with a warning for runs that differ
   - [x] gffcompare 0.12.10 (image `paludamentum-postprocess:0.1.2`)
-- [ ] BUSCO rescue of *ab initio* genes dropped by the Drusilla flow (decide with the completeness numbers)
+- [x] v0.7.0: unified combined HC flow (`combine_genesets.py`): both gene
+      finders, both ORF callers (TD2 with partial-ORF rescue + Drusilla),
+      four DIAMOND runs (14-col), `bedtools genomecov` coverage, same for
+      every clade. Insect clades add `--drop-lone-single-exon tiberius`.
+      Retired the TransDecoder HC filter, the LightGBM filter and the hint
+      rescue; retired `docs/hint_rescue_comparison.md` and
+      `docs/orf_finder_comparison.md`.
+- [ ] Benchmarks of `combine_genesets.py` on vertebrate / mammal / insect genomes
 - [ ] `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation

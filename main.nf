@@ -1,20 +1,19 @@
 nextflow.enable.dsl=2
 
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
-include { MERGE_GENEFINDER_TRAIN } from './modules/genefinder.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; hcMethod; rescueEnabled; rescueModel; varusInputs; orfFinder; drusillaSetting; drusillaLgb; cladeAdvice; truthy } from './lib_nf/functions.nf'
+include { PROTEIN_FROM_GFF } from './modules/genefinder.nf'
+include { MERGE_BAMS as MERGE_BAMS_ALL } from './modules/rnaseq.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; varusInputs; hcClade; cladeAdvice; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { methodsText } from './lib_nf/methods.nf'
-include { HC_FORMAT_FILTER } from './modules/hc.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
 include { PROTEIN_EVIDENCE } from './subworkflows/protein_evidence.nf'
-include { GENEFINDER } from './subworkflows/genefinder.nf'
+include { GENEFINDER as GENEFINDER_TIBERIUS } from './subworkflows/genefinder.nf'
 include { RNASEQ_EVIDENCE } from './subworkflows/rnaseq_evidence.nf'
 include { ISOSEQ_EVIDENCE } from './subworkflows/isoseq_evidence.nf'
-include { HC_GENES } from './subworkflows/hc_genes.nf'
 include { AB_INITIO } from './subworkflows/ab_initio.nf'
-include { DRUSILLA_HC } from './subworkflows/drusilla.nf'
+include { HC_COMBINED } from './subworkflows/hc_combined.nf'
 include { STRINGTIE_ASSEMBLE_MIX } from './modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_MIX } from './modules/varus.nf'
 include { POSTPROCESS; buscoLineage } from './subworkflows/postprocess.nf'
@@ -54,9 +53,6 @@ workflow {
     }
     def hasProteins = proteinsList.size() > 0 || odb12List.size() > 0
 
-    def genefinder    = resolveGenefinder(params)
-    def genefinderRun = genefinderEnabled(params)
-
     def MODE = params.mode ? normalizeMode(params.mode) \
       : inferMode(hasPaired, hasSingle, hasIso || nIsoVarus > 0, hasBAM || nVarus > 0 || hasStringtie, hasProteins)
     // A forced mode without its inputs would end without the main outputs.
@@ -69,76 +65,57 @@ workflow {
       log.warn "stringtie is not used in mode '${MODE}'."
     if( MODE == 'proteins' && !hasProteins )
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions)."
+    // Evidence modes (rnaseq / isoseq / mixed) always require proteins now:
+    // combine_genesets reads DIAMOND, miniprot and miniprothint.
+    def transcriptMode = MODE in ['rnaseq', 'isoseq', 'mixed']
+    if( transcriptMode && !hasProteins )
+      error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions): the unified HC-gene step runs DIAMOND, miniprot and miniprothint on the four gene sets."
     log.info "Running mode: ${MODE}"
-    log.info "Gene finder : ${genefinderRun ? genefinder : 'none'}"
-    def hc = hcMethod(params, MODE)
-    if( hc.note ) log.warn hc.note
-    def useDrusilla = hc.method == 'drusilla'
-    // Transcripts without proteins: only the Drusilla flow selects HC genes
-    // without protein evidence (clades with a Drusilla model in hc_table).
-    if( MODE != 'abinitio' && !hasProteins && !useDrusilla )
-      error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions): the high-confidence genes " +
-            "of the TransDecoder flow are selected by protein homology. Only the Drusilla flow, for a clade with a " +
-            "Drusilla model in the HC table (conf/hc_genes.yaml" + (hc.clade ? ", this run: clade ${hc.clade}" : '') +
-            ") and a gene finder, runs without proteins."
-    // LightGBM filter and hint rescue of the Drusilla flow: with a LightGBM
-    // model and protein evidence only (drusillaLgb in lib_nf/functions.nf)
-    def useLgb = useDrusilla && drusillaLgb(params, hasProteins)
-    def useRescue = useLgb && rescueEnabled(params)
-    if( MODE != 'abinitio' && MODE != 'proteins' ) {
-      // conf/hc_genes.yaml (params.hc_table) chooses per clade of the gene finder model
-      def clade = hc.clade ? "clade ${hc.clade}, " : ''
-      log.info "HC genes    : ${hc.method} (" + clade +
-               (useDrusilla ? "Drusilla model ${drusillaSetting(params, 'model') ?: params.drusilla.weights}" : "ORF finder ${orfFinder(params)}") + ")" +
-               (useDrusilla && !hasProteins ? ' (no protein evidence)' : '')
-      // the hint rescue predicts the partial genes of the LightGBM filter again
-      if( useDrusilla && !useLgb )
-        log.info "HC filter   : none, the ORFs are merged with all gene finder genes, no hint rescue (" +
-                 (drusillaSetting(params, 'lgb_model') ? 'no protein evidence for the LightGBM filter' : "no LightGBM model for clade ${hc.clade ?: 'unknown'}") + ")"
+
+    // Both gene finders always run in evidence modes; abinitio / proteins
+    // modes still pick one via params.genefinder or <tool>.run.
+    if( transcriptMode ) {
+      log.info "Gene finders: tiberius + vipsania"
+      if( !params.tiberius?.model_cfg && !params.tiberius?.result )
+        error "params.tiberius.model_cfg is required (both gene finders run in evidence modes)."
+      if( !params.vipsania?.model && !params.vipsania?.result )
+        error "params.vipsania.model is required (both gene finders run in evidence modes)."
+    } else {
+      def gfRun = genefinderEnabled(params)
+      def gfSel = gfRun ? resolveGenefinder(params) : null
+      log.info "Gene finder : ${gfRun ? gfSel : 'none'}"
     }
-    // The most accurate flow measured for the clade (recommended in hc_table)
-    def advice = cladeAdvice(params, MODE, hasProteins, hc)
+
+    // Clade of the gene finder model (Tiberius target_species or Vipsania
+    // model). Insecta / Lepidoptera triggers --drop-lone-single-exon in
+    // combine_genesets. cladeAdvice warns when the run differs from the
+    // recommended flow of the clade.
+    def clade = hcClade(params)
+    def advice = cladeAdvice(params, MODE, hasProteins, [clade: clade.name])
     if( advice ) log.warn advice
-    // The Drusilla flow filters one assembly of all reads by its coverage and
-    // TPM, so a given assembly must be that one assembly.
-    def stringtieOnly = hasStringtie && useDrusilla
+
+    // The combine_genesets flow needs ONE StringTie assembly of all reads
+    // (TPM and coverage of StringTie, plus a merged BAM for bedtools
+    // genomecov and bam2hints). A given StringTie assembly must be that one.
+    def stringtieOnly = hasStringtie && transcriptMode
     if( stringtieOnly && (stringtieFiles.size() > 1 || hasPaired || hasSingle || hasBAM || hasIso
                           || nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
-      error "stringtie: the Drusilla flow (clades with hc: drusilla in hc_table) needs one StringTie assembly of all reads, " +
-            "with the coverage and TPM that StringTie writes. Pass a single StringTie GTF and no other RNA-Seq or " +
-            "Iso-Seq input, or set drusilla.run = false to merge several assemblies in the TransDecoder flow."
+      error "stringtie: the unified HC flow needs one StringTie assembly of all reads and the BAM that produced it; pass a single StringTie GTF plus the rnaseq_bam / isoseq that it came from, or let the pipeline assemble."
 
     // What this run does, for the references (citations.md) and the methods
     // text (methods.md) of the run: lib_nf/citations.nf, lib_nf/methods.nf
-    def gfParams = params[genefinder] ?: [:]
-    def gfModel = genefinder == 'tiberius' ?
-        (params.tiberius?.model_cfg ? file(params.tiberius.model_cfg.toString()).baseName : null) :
-        params.vipsania?.model?.toString()?.trim() ?: null
-    def drp = params.drusilla ?: [:]
-    def drusillaSettings = null
-    if( useDrusilla ) {
-        // the stop and start fix needs protein alignments
-        def fixStop = hasProteins && (drp.fix_stop == null || truthy(drp.fix_stop))
-        def lgbModel = useLgb ? drusillaSetting(params, 'lgb_model')?.toString() : null
-        def rm = rescueModel(params)
-        drusillaSettings = [
-            model: drp.weights ? null : drusillaSetting(params, 'model'),
-            weights: drp.weights ? file(drp.weights.toString()).name : null,
-            lgbModel: lgbModel ? lgbModel.tokenize('/').last().replaceFirst(/\.(tar\.gz|tgz|txt)$/, '') : null,
-            minLength: drp.min_length, minCov: drp.min_cov, minTpm: drp.min_tpm,
-            longLength: drp.long_length, minTpmLong: drp.min_tpm_long, minCodingLength: drp.min_coding_length,
-            fixStop: fixStop, fixStart: fixStop && (drp.fix_start == null || truthy(drp.fix_start)),
-            lgbThreshold: drp.lgb_threshold, lgbKeep: (drp.lgb_keep ?: 'correct').toString().tokenize(', \t'),
-            rescueModel: rm.name ?: file(rm.file.toString()).baseName,
-            rescueFlank: drp.rescue_flank, rescueHintWeight: drp.rescue_hint_weight,
-            rescueOrfFilter: truthy(drp.rescue_orf_filter),
-        ]
-    }
+    def tibModel = params.tiberius?.model_cfg ? file(params.tiberius.model_cfg.toString()).baseName : null
+    def vipModel = params.vipsania?.model?.toString()?.trim() ?: null
+    def gfModel = transcriptMode ? (tibModel ?: vipModel) :
+        (resolveGenefinder(params) == 'tiberius' ? tibModel : vipModel)
     def run = [
         // keys of citationKeys (lib_nf/citations.nf)
-        mode: MODE, genefinder: genefinderRun ? genefinder : null, tiberiusModel: params.tiberius?.model_cfg,
-        hc: hc.method, orfFinder: hc.method == 'transdecoder' ? orfFinder(params) : null,
-        rescue: useRescue, odb12: odb12List.size() > 0,
+        mode: MODE,
+        genefinder: transcriptMode ? 'both' : (genefinderEnabled(params) ? resolveGenefinder(params) : null),
+        tiberiusModel: params.tiberius?.model_cfg,
+        hc: transcriptMode ? 'combined' : null,
+        orfFinder: transcriptMode ? 'td2' : null,
+        odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
         isoFastq: hasIso, isoVarus: nIsoVarus > 0,
         busco: params.qc?.busco_lineage && truthy(params.qc?.busco),
@@ -146,50 +123,50 @@ workflow {
         omark: truthy(params.qc?.omark), gffcompare: params.qc?.reference_annotation as boolean,
         ncrna: truthy(params.ncrna?.run), lncrna: truthy(params.ncrna?.lncrna), fantasia: truthy(params.fantasia?.run),
         // further facts of the methods text (methodsText in lib_nf/methods.nf)
-        model: gfModel, clade: hc.clade,
-        result: genefinderRun && gfParams.result ? file(gfParams.result.toString()).name : null,
-        finetune: genefinder == 'vipsania' && truthy(params.vipsania?.finetune),
-        splitMinSize: gfParams.min_split_size ?: 20000000, splitMaxFiles: gfParams.max_files ?: 20,
+        model: gfModel, clade: clade.name,
+        tiberiusResult: params.tiberius?.result ? file(params.tiberius.result.toString()).name : null,
+        vipsaniaResult: params.vipsania?.result ? file(params.vipsania.result.toString()).name : null,
+        finetune: truthy(params.vipsania?.finetune),
         proteinFiles: proteinsList.size(), odb12Partitions: odb12List,
         scoringMatrix: params.scoring_matrix ? file(params.scoring_matrix.toString()).name : null,
         shortPaired: hasPaired, shortSingle: hasSingle,
         shortSra: asList(params.rnaseq_sra_paired).size() > 0 || asList(params.rnaseq_sra_single).size() > 0,
         isoSra: asList(params.isoseq_sra).size() > 0,
         minAlignmentRate: params.min_alignment_rate ?: 80,
-        stringtieFiles: stringtieFiles.size(), mixVarus: MODE == 'mixed' && useDrusilla && hasMixVarus,
-        td2PredictArgs: params.td2_predict_args ?: null, drusillaSettings: drusillaSettings,
+        stringtieFiles: stringtieFiles.size(), mixVarus: MODE == 'mixed' && transcriptMode && hasMixVarus,
+        td2PredictArgs: params.td2_predict_args ?: null,
         sanityFilter: truthy(params.postprocess?.sanity_filter), utr: truthy(params.postprocess?.utr),
         maxUtrExtension: params.postprocess?.max_utr_extension,
         buscoLineage: buscoLineage(params.qc?.busco_lineage),
         geneSupport: truthy(params.qc?.gene_support), statistics: truthy(params.qc?.statistics),
         trnascanHighConfidence: truthy(params.ncrna?.trnascan_high_confidence),
         fantasiaMinScore: params.fantasia?.min_score,
+        minLocus: (params.combine?.min_locus != null) ? params.combine.min_locus : 4,
     ]
     def version = workflow.manifest.version ?: 'unknown'
     file("${outdir}/citations.md").text = citationsText(run, version)
     file("${outdir}/methods.md").text = methodsText(run, version)
 
-    // Mixed mode with Drusilla: one stringtie --mix assembly of both BAMs.
+    // Mixed mode: one stringtie --mix assembly of both merged BAMs.
     // pyVARUS directories have no BAM; varus assemble makes that assembly.
     def mixVarus = []
-    if( MODE == 'mixed' && useDrusilla ) {
+    if( MODE == 'mixed' && transcriptMode ) {
       if( hasMixVarus ) {
         if( asList(params.mixed_varus).size() > 1 )
           error "mixed_varus takes one directory (the output of varus assemble --short --long), got ${asList(params.mixed_varus).size()}."
         if( nVarus != 1 || nIsoVarus != 1 || hasPaired || hasSingle || hasBAM || hasIso )
-          error "mixed_varus is the one StringTie assembly of the Drusilla flow, made from one short-read and one " +
+          error "mixed_varus is the one StringTie assembly of the unified HC flow, made from one short-read and one " +
                 "Iso-Seq pyVARUS BAM. Pass exactly one rnaseq_varus and one isoseq_varus directory (the runs whose " +
                 "BAMs varus assemble used) and no other short-read or Iso-Seq input."
         mixVarus = varusInputs(params.mixed_varus, 'mixed_varus', 'mixed')
       } else if( nVarus > 0 || nIsoVarus > 0 ) {
-        error "The Drusilla flow in mixed mode needs one StringTie assembly of the short reads and the Iso-Seq " +
+        error "The unified HC flow in mixed mode needs one StringTie assembly of the short reads and the Iso-Seq " +
               "reads together, and pyVARUS directories have no BAM to make it. Run " +
               "`varus assemble GENOME --short A/VARUS.bam --long B/VARUS.bam --outdir M` " +
               "(`varus replay` rebuilds a dropped BAM) and pass M as mixed_varus."
       }
     } else if( hasMixVarus ) {
-      log.warn "mixed_varus is not used: it serves only the Drusilla flow in mixed mode " +
-               "(this run: mode ${MODE}${MODE == 'mixed' ? ', TransDecoder HC genes' : ''})."
+      log.warn "mixed_varus is not used in mode '${MODE}'."
     }
 
     def inp  = INPUTS(params)
@@ -202,106 +179,120 @@ workflow {
     def hints     = nextflow.Channel.empty()   // hintsfile.gff (gene support)
     def genome_chunks = nextflow.Channel.empty()   // genome chunks of the gene finder (cmscan)
     def genefinder_versions = nextflow.Channel.empty()   // version line of the gene finder
+    def post_prefix = null                     // stem of the published files
 
     if( MODE == 'abinitio' ) {
       def ab = AB_INITIO(inp.genome, params)
       final_gff = ab.gff
       genome_chunks = ab.chunks
       genefinder_versions = ab.versions
+      post_prefix = resolveGenefinder(params)
+
+    } else if( MODE == 'proteins' ) {
+      // Proteins-only mode: run one gene finder as today, feed its proteins
+      // to PREPROCESS_PROTEINDB for species selection, publish the miniprot
+      // training GFF as the HC gene set. No combine, no transcript evidence.
+      def tool = resolveGenefinder(params)
+      def gf = GENEFINDER_TIBERIUS(inp.genome, params, tool, false)
+      genome_chunks = gf.chunks
+      genefinder_versions = gf.versions
+      def tib_prot = PROTEIN_FROM_GFF(tool, gf.gff, inp.genome)
+      def pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, tib_prot, params)
+      // Nothing to merge: the miniprot training genes become the HC genes
+      // (keep today's behaviour; the proteins-only path is unchanged).
+      // Publish via POSTPROCESS prefixed with the gene finder name.
+      final_gff = pe.prot_traingff
+      post_prefix = tool
 
     } else {
 
+      // Evidence modes: rnaseq / isoseq / mixed. Unified HC flow.
       def empty_file = EMPTY_FILE()
 
-      // Without proteins (Drusilla flow only, checked above) the gene finder
-      // runs on its own, and the protein outputs are empty.
-      def pe
-      if( hasProteins ) {
-        pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, params)
-      } else {
-        def gf = GENEFINDER(inp.genome, params, false)
-        pe = [genefinder_gff: gf.gff, genome_chunks: gf.chunks, genefinder_versions: gf.versions,
-              prot_hints: empty_file, scored_gff: [], prot_hc_hints: []]
-      }
-      genome_chunks = pe.genome_chunks
-      genefinder_versions = pe.genefinder_versions
+      // Run Tiberius first; its proteins feed PREPROCESS_PROTEINDB (species
+      // selection in large OrthoDB databases) and HC_COMBINED reuses the
+      // same prediction (same task hash => Nextflow cache hit).
+      def tib = GENEFINDER_TIBERIUS(inp.genome, params, 'tiberius', false)
+      def tib_prot = PROTEIN_FROM_GFF('tiberius', tib.gff, inp.genome)
 
-      // StringTie assemblies: one per BAM for TransDecoder. Drusilla uses one
-      // assembly of all reads, whose TPM and coverage its pre-filter reads.
-      def asm_mode = !useDrusilla ? 'per_sample' : (MODE == 'mixed' ? 'none' : 'merged')
+      def pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, tib_prot, params)
 
-      // Use fully-qualified Channel to avoid any name shadowing issues
+      // One StringTie assembly of all reads; one merged BAM for coverage
+      // (BAM2COV) and intron hints (BAM2HINTS).
       def re = (MODE in ['mixed','rnaseq']) \
-        ? RNASEQ_EVIDENCE(inp.genome, params, asm_mode) \
+        ? RNASEQ_EVIDENCE(inp.genome, params, 'merged') \
         : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
-
       def ie = (MODE in ['mixed','isoseq']) \
-        ? ISOSEQ_EVIDENCE(inp.genome, params, asm_mode) \
+        ? ISOSEQ_EVIDENCE(inp.genome, params, 'merged') \
         : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
 
+      // Assembly channel
       def asm_gtf  = nextflow.Channel.empty()
       def stringtie_gtf = nextflow.Channel.fromList(stringtieFiles)
-
       if( stringtieOnly ) {
         asm_gtf  = stringtie_gtf
       } else if( MODE == 'mixed' ) {
-        if( !useDrusilla )  asm_gtf = re.asm_gtf.mix(ie.asm_gtf)
-        else if( mixVarus ) asm_gtf = VARUS_INPUT_MIX(nextflow.Channel.fromList(mixVarus), nextflow.Channel.value(file(params.genome))).gtf
-        else                asm_gtf = STRINGTIE_ASSEMBLE_MIX(re.bam, ie.bam).gtf
+        if( mixVarus ) asm_gtf = VARUS_INPUT_MIX(nextflow.Channel.fromList(mixVarus), nextflow.Channel.value(file(params.genome))).gtf
+        else           asm_gtf = STRINGTIE_ASSEMBLE_MIX(re.bam, ie.bam).gtf
       } else if( MODE == 'rnaseq' ) {
         asm_gtf  = re.asm_gtf
       } else if( MODE == 'isoseq' ) {
         asm_gtf  = ie.asm_gtf
       }
-      // TransDecoder flow: the given assemblies are merged with those of the reads
-      if( hasStringtie && !stringtieOnly ) asm_gtf = asm_gtf.mix(stringtie_gtf)
 
-      // UTRs: the Iso-Seq assemblies of the TransDecoder flow are long-read
-      // evidence; one assembly of all reads (Drusilla flow) counts as short reads
-      if( useDrusilla || stringtieOnly ) {
-        asm_short = asm_gtf
+      // One merged BAM of all reads for BAM2COV and BAM2HINTS. In mixed
+      // mode merge both evidence BAMs; otherwise use the one that was made.
+      def merged_bam
+      if( stringtieOnly ) {
+        // No reads to make a BAM: BAM2COV and BAM2HINTS get empty inputs.
+        merged_bam = empty_file
+      } else if( MODE == 'mixed' ) {
+        merged_bam = MERGE_BAMS_ALL(re.bam.mix(ie.bam)).bam
+      } else if( MODE == 'rnaseq' ) {
+        merged_bam = re.bam
       } else {
-        asm_short = (MODE in ['mixed','rnaseq']) ? re.asm_gtf : nextflow.Channel.empty()
-        asm_long  = (MODE in ['mixed','isoseq']) ? ie.asm_gtf : nextflow.Channel.empty()
-        if( hasStringtie ) asm_short = asm_short.mix(stringtie_gtf)
+        merged_bam = ie.bam
       }
 
+      // Intron hints for combine_genesets: the subworkflows already produce
+      // these per read type (BAM2HINTS inside RNASEQ_EVIDENCE / ISOSEQ_EVIDENCE).
+      // combine_genesets.py --introns accepts several files.
+      def introns_combine
+      if( stringtieOnly ) introns_combine = empty_file
+      else if( MODE == 'mixed' ) introns_combine = re.hints.mix(ie.hints).collect()
+      else if( MODE == 'rnaseq' ) introns_combine = re.hints
+      else                        introns_combine = ie.hints
+
+      def hc = HC_COMBINED(
+          inp.genome, asm_gtf, merged_bam, introns_combine,
+          pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
+          tib.gff, tib_prot, params
+      )
+
+      final_gff = hc.gff
+      genome_chunks = tib.chunks
+      genefinder_versions = tib.versions.mix(hc.versions)
+      post_prefix = 'combined'
+
+      // UTRs: use the one StringTie assembly as asm_short (same as today's
+      // Drusilla flow). Iso-Seq contributes to the one merged assembly, so
+      // asm_long stays empty.
+      asm_short = asm_gtf
+
+      // Hints for POSTPROCESS (gene support): protein + RNA + Iso-Seq hints.
       def all_hints = CONCAT_HINTS(pe.prot_hints, re.hints, ie.hints)
       hints = all_hints.hints
-
-      // The HC genes are evidence-backed gene models that MERGE_GENEFINDER_TRAIN
-      // below merges into the final annotation; they are not a training set.
-      // No gene finder is trained in this pipeline: Tiberius takes
-      // tiberius.model_cfg and Vipsania downloads a pretrained model. The
-      // 'TRAIN' of the process name, and training.gff of the HC flow, are
-      // inherited from BRAKER, where the HC genes do train AUGUSTUS.
-      def hc_gff
-      def genefinder_final = pe.genefinder_gff
-      if( useDrusilla ) {
-        def dr = DRUSILLA_HC(asm_gtf, inp.genome, genefinder, pe.genefinder_gff, pe.scored_gff, pe.prot_hc_hints,
-                             hasProteins, useLgb, useRescue)
-        hc_gff           = dr.orfs
-        genefinder_final = dr.genefinder
-      } else if( MODE in ['mixed','rnaseq','isoseq'] ) {
-        hc_gff = HC_GENES(asm_gtf, inp.genome, pe.proteindb)
-      } else {
-        hc_gff = HC_FORMAT_FILTER(pe.prot_traingff, inp.genome)
-      }
-
-      if( genefinderRun ) {
-        final_gff = MERGE_GENEFINDER_TRAIN(genefinder, genefinder_final, hc_gff).merged
-      }
     }
 
     // Sanity filter, UTRs, GTF and sequences, quality control, ncRNA and GO
-    // terms of the final annotation. Evidence runs without a gene finder have
-    // no final annotation and end with the hints and the HC genes.
-    if( genefinderRun ) {
+    // terms of the final annotation. Evidence runs always have a final
+    // annotation now (HC_COMBINED or the proteins-only miniprot training GFF).
+    if( post_prefix ) {
       def runInfo = [
-          version: version, mode: MODE, genefinder: genefinder, model: gfModel,
-          hc: MODE in ['abinitio', 'proteins'] ? null : hc.method,
+          version: version, mode: MODE, genefinder: post_prefix, model: gfModel,
+          hc: MODE in ['abinitio', 'proteins'] ? null : 'combined',
       ]
-      POSTPROCESS(final_gff, inp.genome, genome_chunks, genefinder, genefinder_versions, MODE, asm_short, asm_long,
-                  hints, runInfo)
+      POSTPROCESS(final_gff, inp.genome, genome_chunks, post_prefix, genefinder_versions, MODE,
+                  asm_short, asm_long, hints, runInfo)
     }
 }

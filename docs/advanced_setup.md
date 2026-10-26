@@ -36,9 +36,8 @@ Without containers you install every tool and the gene finder yourself.
        --skip_singularity_check --check_tools --dry_run
    ```
 
-The [Drusilla flow](drusilla_flow.md) additionally needs Drusilla, LightGBM
-and, for the hint rescue, the Tiberius and bricks2marble branches of the hint
-rescue image, see [containers.md](containers.md).
+Evidence runs additionally need Drusilla and `bedtools genomecov`, see
+[containers.md](containers.md) and [drusilla_flow.md](drusilla_flow.md).
 
 ## Location of the checkout
 

@@ -289,7 +289,7 @@ def full_staged_dir(tmp_path: Path) -> Path:
 def test_report_with_every_file(tmp_path: Path):
     staged = full_staged_dir(tmp_path)
     (tmp_path / "run_info.json").write_text(json.dumps({
-        "version": "0.5.0", "mode": "rnaseq", "genefinder": "tiberius", "model": "vertebrates", "hc": "drusilla",
+        "version": "0.5.0", "mode": "rnaseq", "genefinder": "tiberius", "model": "vertebrates", "hc": "combined",
         "stem": "tiberius_evidence", "busco_lineage": "eukaryota_odb12", "outdir": "/abs/out"}))
     out = tmp_path / "out" / "report.html"
     out.parent.mkdir()
@@ -315,7 +315,7 @@ def test_report_with_every_file(tmp_path: Path):
     assert "Mean exons/transcript:      5.33" in text
     assert "287 &lt;x&gt;" in text and "software &lt;and&gt; data" in text
     # run summary, output files: the staged files, and the chart the report wrote (published to qc/)
-    assert "<td>drusilla</td>" in text and "<td>tiberius_evidence_with_ncRNA_go.gff3</td>" in text
+    assert "<td>combined</td>" in text and "<td>tiberius_evidence_with_ncRNA_go.gff3</td>" in text
     files = text.split('id="output-files"')[1].split("</section>")[0]
     listed = re.findall(r"<tr><td>([^<]+)</td>", files)
     assert listed[:4] == ["tiberius_evidence.gff3", "tiberius_evidence.gtf", "tiberius_evidence_proteins.fa",
