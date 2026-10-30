@@ -276,3 +276,75 @@ def test_bad_inputs_stop_the_run_early(params, message, tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, {**base, **params})
     assert proc.returncode != 0
     assert message in proc.stdout + proc.stderr, proc.stdout[-2000:] + proc.stderr[-1000:]
+
+
+# ---- user StringTie assembly (stringtie) --------------------------------------
+
+
+def fake_stringtie_gtf(tmp_path: Path, name: str = "stringtie.gtf") -> str:
+    path = tmp_path / name
+    path.write_text(
+        'chr1\tStringTie\ttranscript\t1\t100\t1000\t+\t.\t'
+        'gene_id "MSTRG.1"; transcript_id "MSTRG.1.1"; cov "5.0"; TPM "2.0";\n'
+        'chr1\tStringTie\texon\t1\t100\t1000\t+\t.\t'
+        'gene_id "MSTRG.1"; transcript_id "MSTRG.1.1"; cov "5.0"; TPM "2.0";\n'
+    )
+    return str(path)
+
+
+def test_stringtie_only_has_no_coverage_track(tmp_path: Path) -> None:
+    params = {"stringtie": fake_stringtie_gtf(tmp_path), **PROTEINS,
+              "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "COMBINE_GENESETS" in proc.stdout
+    assert "BAM2COV" not in proc.stdout
+    assert "STRINGTIE_ASSEMBLE" not in proc.stdout
+    assert {"combined_evidence.gff3", "intermediate/combined.gff3"} <= published, sorted(published)
+
+
+def test_stringtie_with_bam_makes_coverage_and_hints(tmp_path: Path) -> None:
+    params = {"stringtie": fake_stringtie_gtf(tmp_path), "rnaseq_bam": [R1], "mode": "rnaseq",
+              **PROTEINS, "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "BAM2COV" in proc.stdout and "BAM2HINTS" in proc.stdout
+    assert "STRINGTIE_ASSEMBLE" not in proc.stdout
+    assert "COMBINE_GENESETS" in proc.stdout
+
+
+def test_two_stringtie_files_are_rejected(tmp_path: Path) -> None:
+    params = {"stringtie": [fake_stringtie_gtf(tmp_path, "a.gtf"), fake_stringtie_gtf(tmp_path, "b.gtf")],
+              **PROTEINS, "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert proc.returncode != 0
+    assert "needs one StringTie assembly" in proc.stdout + proc.stderr
+
+
+def test_stringtie_with_varus_directory_is_rejected(tmp_path: Path) -> None:
+    varus = tmp_path / "varus_dir"
+    varus.mkdir()
+    params = {"stringtie": fake_stringtie_gtf(tmp_path), "rnaseq_varus": str(varus), **PROTEINS,
+              "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert proc.returncode != 0
+    assert "pyVARUS directory brings its own" in proc.stdout + proc.stderr
+
+
+# ---- regressions of the combined flow -----------------------------------------
+
+
+def test_mixed_two_short_and_two_isoseq_libraries(tmp_path: Path) -> None:
+    """Both read types once produced an input file named merged.hints.gff (collision)."""
+    iso = str(DATA / "isoseq.fastq")
+    params = {"rnaseq_paired": [[R1, R2], [R1, R2]], "isoseq": [iso, iso], **PROTEINS,
+              "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "COMBINE_GENESETS" in proc.stdout
+
+
+def test_proteins_mode_publishes_hints_and_gene_support(tmp_path: Path) -> None:
+    proc, published = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS})
+    assert_ok(proc)
+    assert {"hintsfile.gff", "qc/gene_support.tsv", "qc/gene_set_statistics.txt"} <= published, sorted(published)

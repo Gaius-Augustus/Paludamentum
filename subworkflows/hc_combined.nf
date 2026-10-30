@@ -8,7 +8,8 @@ nextflow.enable.dsl=2
 //
 //  1. Run both gene finders on the genome: Tiberius (passed in from main.nf,
 //     already executed to feed PROTEIN_EVIDENCE), and Vipsania --finetune.
-//  2. On the merged StringTie assembly, run both ORF callers:
+//  2. On the one StringTie assembly (STRINGTIE_MERGE passes it through and
+//     writes the GFF3 for TD2), run both ORF callers:
 //     - Drusilla (filter + annotate + collapse isoforms),
 //     - TD2 with the partial-ORF rescue: SHORTEN_INCOMPLETE_ORFS + two
 //       auxiliary 12-column DIAMOND runs + CDS_CLASSIFY_AND_REVISE, then
@@ -42,8 +43,9 @@ workflow HC_COMBINED {
     take:
     CH_GENOME
     asm_gtf                // channel: one or more StringTie assembly GTFs
-    merged_bam             // channel: one coordinate-sorted BAM of all RNA / Iso-Seq reads
-    intron_hints           // channel: introns.gff from BAM2HINTS
+    merged_bam             // channel: one coordinate-sorted BAM of all RNA / Iso-Seq reads, or an empty placeholder
+    have_bam               // value: false without a BAM (pyVARUS directories, a given assembly without reads)
+    intron_hints           // channel: the intron hints of BAM2HINTS (two files in mixed mode), or an empty placeholder
     proteindb              // path: preprocessed protein DB (one FASTA)
     miniprot_scored        // path: scored miniprot alignments (miniprot_parsed.gff)
     prot_train_gff         // path: miniprot_trainingGenes.gff
@@ -56,24 +58,31 @@ workflow HC_COMBINED {
     // ---- gene finders
     def vip = GENEFINDER_VIPSANIA(CH_GENOME, params_map, 'vipsania', false)
 
-    // ---- one StringTie assembly (merged if there are several)
+    // ---- the one StringTie assembly as GTF and GFF3 (merged only if there are several)
     def merged_asm = STRINGTIE_MERGE(asm_gtf.collect())
 
     // ---- Drusilla ORFs on the filtered StringTie assembly
-    def filt = FILTER_STRINGTIE(merged_asm.gtf)
     def d = params_map.drusilla ?: [:]
-    def drusillaModel = channel.value([])
-    def useModel = false
-    if( !d.weights && !d.cache_dir ) {
-        def manifest = "${projectDir}/drusilla/model_cfg/${drusillaSetting(params_map, 'model')}.yaml"
-        def url = tiberiusModelValue(manifest, 'weights_url')
-        if( url ) {
-            drusillaModel = DOWNLOAD_DRUSILLA_MODEL(url, tiberiusModelValue(manifest, 'weights_sha256') ?: '').model
-            useModel = true
+    def dru
+    if( d.result ) {
+        if( !file(d.result).exists() )
+            error "params.drusilla.result is set, but the file does not exist: ${d.result}"
+        dru = [gtf: channel.fromPath(d.result, checkIfExists: true).toList()]
+    } else {
+        def filt = FILTER_STRINGTIE(merged_asm.gtf)
+        def drusillaModel = channel.value([])
+        def useModel = false
+        if( !d.weights && !d.cache_dir ) {
+            def manifest = "${projectDir}/drusilla/model_cfg/${drusillaSetting(params_map, 'model')}.yaml"
+            def url = tiberiusModelValue(manifest, 'weights_url')
+            if( url ) {
+                drusillaModel = DOWNLOAD_DRUSILLA_MODEL(url, tiberiusModelValue(manifest, 'weights_sha256') ?: '').model
+                useModel = true
+            }
         }
+        def dru_raw = DRUSILLA_ANNOTATE(filt.gtf, CH_GENOME, useModel, drusillaModel)
+        dru        = COLLAPSE_ORFS(dru_raw.gtf)
     }
-    def dru_raw = DRUSILLA_ANNOTATE(filt.gtf, CH_GENOME, useModel, drusillaModel)
-    def dru     = COLLAPSE_ORFS(dru_raw.gtf)
 
     // ---- TD2 with the partial-ORF rescue
     def td        = TD_ALL(merged_asm.gtf, CH_GENOME)
@@ -95,8 +104,9 @@ workflow HC_COMBINED {
     def dia_td2 = DIAMOND_TD2(pep_td2,      db.db)
     def dia_dru = DIAMOND_DRU(pep_dru,      db.db)
 
-    // ---- RNA-Seq coverage
-    def cov = BAM2COV(merged_bam)
+    // ---- RNA-Seq coverage; without a BAM the placeholder goes on, and
+    // COMBINE_GENESETS runs combine_genesets.py without --coverage
+    def cov_bg = have_bam ? BAM2COV(merged_bam).bg : merged_bam
 
     // ---- integrate
     def clade  = hcClade(params_map)
@@ -105,7 +115,7 @@ workflow HC_COMBINED {
 
     def combined = COMBINE_GENESETS(
         tib_gff, vip.gff, dru.gtf, td2_gff.gff3,
-        intron_hints, cov.bg,
+        intron_hints, cov_bg,
         dia_tib.tsv, dia_vip.tsv, dia_dru.tsv, dia_td2.tsv,
         prot_train_gff, miniprot_scored, prot_hc_hints,
         insect, min_locus)

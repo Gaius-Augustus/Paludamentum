@@ -105,16 +105,17 @@ def hcClade(p) {
         if( ts ) candidates << ts
     }
     if( vipMod ) candidates << vipMod
-    for( name in candidates ) {
+    def hit = candidates.findResult { name ->
         def key = name.toLowerCase()
         def clades = hcTable(p).clades
-        def hit = (clades instanceof Map) ? clades.find { k, v ->
+        def match = (clades instanceof Map) ? clades.find { k, v ->
             k.toString().toLowerCase() == key ||
                 (v instanceof Map && (v.vipsania_models instanceof List) &&
                  v.vipsania_models.any { m -> m.toString().toLowerCase() == key })
         } : null
-        if( hit ) return [name: hit.key.toString(), entry: (hit.value instanceof Map) ? hit.value : [:]]
+        match ? [name: match.key.toString(), entry: (match.value instanceof Map) ? match.value : [:]] : null
     }
+    if( hit ) return hit
     return [name: candidates ? candidates[0] : null, entry: null]
 }
 

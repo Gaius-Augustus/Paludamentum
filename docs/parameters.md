@@ -117,7 +117,7 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
 | `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
 | `keep_downloads`           | `false`                                | Copy the reads downloaded from SRA to `sra_downloads/` in `outdir`. Off, they are kept in the work directory only, which saves a second copy of every library. |
-| `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. |
+| `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. If every RNA-Seq (or every Iso-Seq) library is dropped, the run stops with an error. |
 | `hc_table`                 | `"conf/hc_genes.yaml"`                 | Clade table for the combined HC flow: `drusilla_model` for each clade, insect clades trigger `--drop-lone-single-exon tiberius`, `recommended` of a clade warns a run that differs from it. Today Vertebrata, Mammalia (`drusilla_model: vertebrates`), Insecta, Lepidoptera (`drusilla_model: insects`). |
 | `td2_predict_args`         | none                                   | Options appended to `TD2.Predict`, for example `"--precise"`.                                                |
 | `combine.min_locus`        | `4`                                    | Minimum tier of the best model of a locus for `combine_genesets.py` to keep the locus. Everything else uses the script defaults; see `combine_genesets.py --help`. |
@@ -132,7 +132,7 @@ The location of the required executables is set by default so that they are avai
 | `tools.samtools`                     | `"samtools"`                            | Path to Samtools for BAM/FASTQ operations.                          |
 | `tools.transdecoder_util_gtf2fa`     | `"gtf_genome_to_cdna_fasta.pl"`         | Utility for converting GTF + genome → cDNA FASTA.                   |
 | `tools.transdecoder_util_orf2genome` | `"cdna_alignment_orf_to_genome_orf.pl"` | Maps the revised TD2 ORFs from transcript to genome coordinates.    |
-| `tools.transdecoder_gtf2gff`         | `"gtf_to_alignment_gff3.pl"`            | Converts GTF to alignment-style GFF3 (used by StringTie merge).     |
+| `tools.transdecoder_gtf2gff`         | `"gtf_to_alignment_gff3.pl"`            | Converts GTF to alignment-style GFF3 (writes the GFF3 that TD2 needs from the StringTie assembly). |
 | `tools.td2_longorfs`                 | `"TD2.LongOrfs"`                        | Long ORF detection of TD2.                                          |
 | `tools.td2_predict`                  | `"TD2.Predict"`                         | ORF prediction of TD2.                                              |
 | `tools.diamond`                      | `"diamond"`                             | DIAMOND, used both for species selection (12-col) and the four combine_genesets runs (14-col). |
@@ -154,7 +154,9 @@ list of BAM files. They skip the HISAT2 step. A BAM whose header does not say
 and `hints.gff` next to `VARUS.bam`, made as the pipeline makes them from a
 BAM. Pass the output directory instead of the BAM; this also works after
 `varus run --drop-bam`. The directories skip mapping, `bam2hints` and
-StringTie.
+StringTie. A pyVARUS directory brings no BAM: with pyVARUS input only,
+there is no coverage track, and `combine_genesets.py` runs without
+`--coverage` (the intron hints are used).
 
 ```yaml
 rnaseq_varus:                # short-read runs
@@ -172,11 +174,11 @@ for long reads).
 
 The hints of several sources of one read type (several directories, or
 directories and reads) are summed as `bam2hints` would count them on all
-reads. TransDecoder flow: each directory adds its assembly to the
-per-library assemblies. The Drusilla flow needs one assembly of all reads of
-a read type: in `rnaseq` and `isoseq` mode pass exactly one directory and no
-other reads of that type. In `mixed` mode it needs one `stringtie --mix`
-assembly of both read types:
+reads. In mixed mode both hint files (short reads and Iso-Seq) go to
+`combine_genesets.py`, which sums them per intron. The combined HC flow
+needs one assembly of all reads of a read type: in `rnaseq` and `isoseq`
+mode pass exactly one directory and no other reads of that type. In `mixed`
+mode it needs one `stringtie --mix` assembly of both read types:
 
 ```sh
 varus assemble genome.fa --short varus_short/VARUS.bam --long varus_long/VARUS.bam --outdir varus_mixed
@@ -188,15 +190,17 @@ isoseq_varus: /path/to/varus_long
 mixed_varus:  /path/to/varus_mixed
 ```
 
-Then pass no other short reads or Iso-Seq. `mixed_varus` is used only by the
-Drusilla flow in mixed mode. `varus replay` rebuilds a BAM deleted by
+Then pass no other short reads or Iso-Seq. `mixed_varus` is used only in
+mixed mode. `varus replay` rebuilds a BAM deleted by
 `--drop-bam`.
 
 ### StringTie assemblies
 
 A StringTie assembly made outside the pipeline goes to `stringtie`
-(`--stringtie`): one GTF, a list, or a glob. It replaces mapping and
-assembly, and it can be combined with reads and BAM files.
+(`--stringtie`): exactly one GTF; several files are an error. It replaces the
+assembly. It can be combined with reads, BAM files and Iso-Seq reads: these
+are mapped and merged into one BAM only, nothing is assembled. The BAM gives
+the coverage track and the intron hints.
 
 ```yaml
 stringtie: /path/to/stringtie.gtf
@@ -204,12 +208,15 @@ stringtie: /path/to/stringtie.gtf
 
 `stringtie` counts as short reads when the mode is inferred, so proteins and
 an assembly give the mode `rnaseq`; a forced `isoseq` or `mixed` accepts it
-as well. In the TransDecoder flow all given assemblies are merged with those
-of the reads (`stringtie --merge`). The Drusilla flow takes exactly one
-assembly and no other RNA-Seq or Iso-Seq input, and needs the `cov` and
-`TPM` attributes that StringTie writes when it assembles reads; an assembly
-without them (the output of `stringtie --merge`) stops the run. A missing
-file is an error. No intron hints are made for a given assembly.
+as well. The combined HC flow takes exactly one assembly and uses it as it
+is (no `stringtie --merge`). It cannot be combined with pyVARUS directories
+(`rnaseq_varus`, `isoseq_varus`, `mixed_varus`): that is an error. The GTF
+needs the `cov` and `TPM` attributes that StringTie writes when it assembles
+reads; an assembly without them (the output of `stringtie --merge`) stops
+the run. A missing file is an error. Without reads there is no BAM, so no
+coverage track and no intron hints: `combine_genesets.py` runs without
+`--coverage` and `--introns`, its RNA rules stay off, and `hintsfile.gff`
+holds protein hints only.
 
 ## Gene finder: Tiberius
 
@@ -250,6 +257,7 @@ Drusilla GPU task.
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `drusilla.model` | `drusilla_model` of the clade in `hc_table` | Released Drusilla model (`drusilla models list`): `vertebrates` or `insects`. |
+| `drusilla.result` | none | Existing Drusilla ORFs GTF: used as the Drusilla gene set instead of running `FILTER_STRINGTIE`, `DRUSILLA_ANNOTATE` and `COLLAPSE_ORFS`. The file is passed to `combine_genesets.py` as the `drusilla` input. |
 | `drusilla.weights`, `drusilla.config` | none | A local `.weights.h5` file and its architecture YAML instead of a released model. |
 | `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`), e.g. filled by `drusilla models download vertebrates`. Without it the archive of the model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task. |
 | `drusilla.batch_size` | automatic | Drusilla batch size. |
@@ -277,7 +285,7 @@ Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
 | `qc.omamer_db` | none | OMAmer database (e.g. `LUCA.h5`, about 15 GB). |
 | `qc.ete_taxa_path` | `~/.cache/paludamentum/ncbi_taxonomy` | NCBI taxonomy for OMArk: ete3's `taxa.sqlite`, built once on the submitting host from `taxdump.tar.gz`, which is downloaded there unless the directory holds it. |
 | `qc.reference_annotation` | none | Reference annotation (GFF3 or GTF, gzipped or not): `gffcompare` at CDS level, `qc/gffcompare.stats`. |
-| `qc.gene_support` | `true` | Hint support per transcript, `qc/gene_support.tsv` (evidence modes). |
+| `qc.gene_support` | `true` | Hint support per transcript, `qc/gene_support.tsv` (every mode but `abinitio`). |
 | `qc.statistics` | `true` | Gene set statistics and plots. |
 | `qc.report` | `true` | `report.html`. |
 | `ncrna.run` | `false` | rRNA, tRNA, Rfam and lncRNA genes, `<stem>_with_ncRNA.gff3`. |

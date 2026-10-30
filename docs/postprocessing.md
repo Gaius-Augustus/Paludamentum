@@ -16,7 +16,7 @@ final annotation and skip it.
 | [UTRs](#utrs) | modes `rnaseq`, `isoseq`, `mixed` | `postprocess.utr`, `postprocess.max_utr_extension` |
 | [Final files](#final-files-and-the-gff3-contract) | always | |
 | [Completeness](#completeness) | with `qc.busco_lineage` | `qc.busco_lineage`, `qc.busco_download_path`, `qc.compleasm`, `qc.busco` |
-| [Evidence support](#evidence-support-and-statistics) | evidence modes | `qc.gene_support` |
+| [Evidence support](#evidence-support-and-statistics) | every mode but `abinitio` (modes `proteins`, `rnaseq`, `isoseq`, `mixed`) | `qc.gene_support` |
 | [Gene set statistics](#evidence-support-and-statistics) | always | `qc.statistics` |
 | [OMArk](#omark) | `qc.omark: true` | `qc.omamer_db`, `qc.ete_taxa_path` |
 | [gffcompare](#gffcompare) | with `qc.reference_annotation` | `qc.reference_annotation` |
@@ -184,8 +184,10 @@ coordinates and strand, a CDS segment by an overlapping `CDSpart`, `exonpart`,
 | `C` | both | not written by Paludamentum; counted as both, as in BRAKER4 | |
 
 miniprothint's high-confidence hints (`hc.gff`) are not part of
-`hintsfile.gff`; the Drusilla flow uses them. Short reads and Iso-Seq both
-write `src=E` and cannot be told apart. Not in mode `abinitio` (no hints).
+`hintsfile.gff`; the combined HC flow uses them. Short reads and Iso-Seq both
+write `src=E` and cannot be told apart. In mode `proteins` `hintsfile.gff`
+holds the protein hints only. Without reads (a `--stringtie` assembly alone)
+it holds protein hints only as well. Not in mode `abinitio` (no hints).
 
 `qc/gene_set_statistics.txt` and the plots `qc/isoform_and_exon_structure.png`,
 `qc/transcript_lengths.png`, `qc/introns_per_gene.png` and, with the support

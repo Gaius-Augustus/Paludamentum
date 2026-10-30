@@ -9,15 +9,16 @@ from pathlib import Path
 
 import pytest
 
-from test_stub_run import (DATA, EVIDENCE, GENEFINDER, NEXTFLOW, assert_ok, citations, expected_outputs,
-                           run_pipeline)
+from test_stub_run import (DATA, EVIDENCE, GENEFINDER, BOTH_FINDERS, NEXTFLOW, assert_ok, citations_text,
+                           final_files, run_pipeline)
 
 pytestmark = [
     pytest.mark.nextflow,
     pytest.mark.skipif(NEXTFLOW is None, reason="nextflow executable not found"),
 ]
 
-TIBERIUS_RNASEQ = {**GENEFINDER["tiberius"], **EVIDENCE["rnaseq"]}
+# evidence modes run both gene finders; the published stem is combined_evidence
+COMBINED_RNASEQ = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
 
 
 def busco_cache(tmp_path: Path, lineage: str = "eukaryota_odb12", ready: bool = True) -> str:
@@ -48,31 +49,33 @@ def test_postprocess_abinitio_publishes_proteins(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("mode", ["proteins", "rnaseq"])
 def test_utrs_only_with_transcripts(mode: str, tmp_path: Path) -> None:
-    proc, published = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **EVIDENCE[mode]})
+    params = COMBINED_RNASEQ if mode == "rnaseq" else {**GENEFINDER["tiberius"], **EVIDENCE[mode]}
+    proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
     assert ("ADD_UTRS" in proc.stdout) == (mode == "rnaseq")
     assert ("qc/utr_report.tsv" in published) == (mode == "rnaseq")
 
 
 def test_utrs_can_be_switched_off(tmp_path: Path) -> None:
-    proc, published = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "postprocess": {"utr": False}})
+    proc, published = run_pipeline(tmp_path, {**COMBINED_RNASEQ, "postprocess": {"utr": False}})
     assert_ok(proc)
     assert "ADD_UTRS" not in proc.stdout
-    assert published == expected_outputs("tiberius", "rnaseq") - {"qc/utr_report.tsv"} | {"citations.md", "methods.md"}
+    assert final_files("combined_evidence") <= published
+    assert "qc/utr_report.tsv" not in published
 
 
 @pytest.mark.parametrize("ready", [True, False], ids=["cached", "download"])
 def test_completeness_with_a_lineage(ready: bool, tmp_path: Path) -> None:
     qc = {"busco_lineage": "eukaryota", "busco_download_path": busco_cache(tmp_path, ready=ready)}
-    proc, published = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "qc": qc})
+    proc, published = run_pipeline(tmp_path, {**COMBINED_RNASEQ, "qc": qc})
     assert_ok(proc)
     assert ("DOWNLOAD_BUSCO_LINEAGE" in proc.stdout) != ready
     assert {
         "qc/compleasm_genome/summary.txt", "qc/compleasm_proteins/summary.txt",
         "qc/busco_genome_short_summary.txt", "qc/busco_proteins_short_summary.txt", "qc/completeness.tsv",
-        "qc/tiberius_evidence_longest_isoform.gff3", "qc/tiberius_evidence_longest_isoform_proteins.fa",
+        "qc/combined_evidence_longest_isoform.gff3", "qc/combined_evidence_longest_isoform_proteins.fa",
     } <= published
-    text = citations(tmp_path)
+    text = citations_text(tmp_path)
     assert "**BUSCO**" in text and "**compleasm**" in text
 
 
@@ -83,7 +86,7 @@ def test_completeness_compleasm_only(tmp_path: Path) -> None:
     assert "BUSCO_GENOME" not in proc.stdout and "COMPLEASM_GENOME" in proc.stdout
     assert {"qc/completeness.tsv", "qc/compleasm_genome/summary.txt"} <= published
     assert "qc/busco_genome_short_summary.txt" not in published
-    assert "**BUSCO**" not in citations(tmp_path)
+    assert "**BUSCO**" not in citations_text(tmp_path)
 
 
 def rfam_dir(tmp_path: Path) -> str:
@@ -100,19 +103,25 @@ NCRNA_FILES = {"ncrna/rRNA.gff3", "ncrna/tRNAs.gff3", "ncrna/tRNAs.txt", "ncrna/
 
 @pytest.mark.parametrize("mode", ["abinitio", "rnaseq"])
 def test_ncrna(mode: str, tmp_path: Path) -> None:
-    params = {**GENEFINDER["tiberius"], **EVIDENCE[mode], "ncrna": {"run": True, "rfam_dir": rfam_dir(tmp_path)}}
+    base = COMBINED_RNASEQ if mode == "rnaseq" else GENEFINDER["tiberius"]
+    params = {**base, **EVIDENCE[mode], "ncrna": {"run": True, "rfam_dir": rfam_dir(tmp_path)}}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    stem = "tiberius_ab_initio" if mode == "abinitio" else "tiberius_evidence"
+    stem = "tiberius_ab_initio" if mode == "abinitio" else "combined_evidence"
     assert NCRNA_FILES | {f"{stem}_with_ncRNA.gff3"} <= published
     assert "DOWNLOAD_RFAM" not in proc.stdout
     # one cmscan task per genome chunk (the stub of SPLIT_GENOME makes two),
-    # on the chunks of the gene finder: the genome is split once
+    # on the chunks of the gene finder. Ab initio (Tiberius): split once. Rnaseq
+    # runs both finders; the genome may be split more than once (Vipsania splits
+    # when ncrna.run is on), so only require a split.
     assert proc.stdout.count("CMSCAN") >= 2
-    assert proc.stdout.count("SPLIT_GENOME") == 1, proc.stdout
+    if mode == "abinitio":
+        assert proc.stdout.count("SPLIT_GENOME") == 1, proc.stdout
+    else:
+        assert proc.stdout.count("SPLIT_GENOME") >= 1, proc.stdout
     lnc = {"ncrna/lncRNAs.gff3", "ncrna/feelnc_classifier.txt"}
     assert (lnc <= published) == (mode == "rnaseq")
-    text = citations(tmp_path)
+    text = citations_text(tmp_path)
     for tool in ("tRNAscan-SE", "Infernal", "Rfam", "barrnap"):
         assert f"**{tool}" in text, text
     assert ("**FEELnc**" in text) == (mode == "rnaseq")
@@ -147,25 +156,25 @@ def fantasia_dirs(tmp_path: Path) -> dict:
 
 @pytest.mark.parametrize("ncrna", [False, True], ids=["coding", "with-ncrna"])
 def test_fantasia(ncrna: bool, tmp_path: Path) -> None:
-    params = {**TIBERIUS_RNASEQ, "fantasia": fantasia_dirs(tmp_path)}
+    params = {**COMBINED_RNASEQ, "fantasia": fantasia_dirs(tmp_path)}
     if ncrna:
         params["ncrna"] = {"run": True, "rfam_dir": rfam_dir(tmp_path)}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    assert {"tiberius_evidence_go.gff3", "qc/fantasia/results.csv", "qc/fantasia/fantasia_summary.txt",
+    assert {"combined_evidence_go.gff3", "qc/fantasia/results.csv", "qc/fantasia/fantasia_summary.txt",
             "qc/fantasia/fantasia_go_terms.tsv", "qc/fantasia/fantasia_go_categories.png"} <= published
-    assert ("tiberius_evidence_with_ncRNA_go.gff3" in published) == ncrna
+    assert ("combined_evidence_with_ncRNA_go.gff3" in published) == ncrna
     # the GPU probe that fails a run without a usable GPU at the start
     assert "FANTASIA_GPU_CHECK" in proc.stdout
-    assert "**FANTASIA" in citations(tmp_path)
+    assert "**FANTASIA" in citations_text(tmp_path)
 
 
 def test_fantasia_on_cpu_needs_no_gpu_probe(tmp_path: Path) -> None:
     """fantasia.device = cpu: the embeddings on the CPU, no FANTASIA_GPU_CHECK."""
-    params = {**TIBERIUS_RNASEQ, "fantasia": {**fantasia_dirs(tmp_path), "device": "cpu"}}
+    params = {**COMBINED_RNASEQ, "fantasia": {**fantasia_dirs(tmp_path), "device": "cpu"}}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    assert {"tiberius_evidence_go.gff3", "qc/fantasia/results.csv"} <= published
+    assert {"combined_evidence_go.gff3", "qc/fantasia/results.csv"} <= published
     assert "FANTASIA_GPU_CHECK" not in proc.stdout
 
 
@@ -177,22 +186,22 @@ def test_fantasia_proteins_per_task(device: str, per_task, tasks: int, tmp_path:
     fantasia = {**fantasia_dirs(tmp_path), "device": device}
     if per_task is not None:
         fantasia["proteins_per_task"] = per_task
-    proc, published = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "fantasia": fantasia})
+    proc, published = run_pipeline(tmp_path, {**COMBINED_RNASEQ, "fantasia": fantasia})
     assert_ok(proc)
     assert proc.stdout.count("FANTASIA_ANNOTATE (chunk") == tasks
     assert "FANTASIA_MERGE" in proc.stdout
-    assert {"tiberius_evidence_go.gff3", "qc/fantasia/results.csv"} <= published
+    assert {"combined_evidence_go.gff3", "qc/fantasia/results.csv"} <= published
 
 
 def test_fantasia_proteins_per_task_is_a_whole_number(tmp_path: Path) -> None:
     fantasia = {**fantasia_dirs(tmp_path), "device": "cpu", "proteins_per_task": -5}
-    proc, _ = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "fantasia": fantasia})
+    proc, _ = run_pipeline(tmp_path, {**COMBINED_RNASEQ, "fantasia": fantasia})
     assert proc.returncode != 0
     assert "fantasia.proteins_per_task: a whole number >= 0, not '-5'" in proc.stdout + proc.stderr
 
 
 def test_fantasia_device_is_cuda_or_cpu(tmp_path: Path) -> None:
-    params = {**TIBERIUS_RNASEQ, "fantasia": {**fantasia_dirs(tmp_path), "device": "gpu"}}
+    params = {**COMBINED_RNASEQ, "fantasia": {**fantasia_dirs(tmp_path), "device": "gpu"}}
     proc, _ = run_pipeline(tmp_path, params)
     assert proc.returncode != 0
     assert "fantasia.device: cuda or cpu, not 'gpu'" in proc.stdout + proc.stderr
@@ -216,11 +225,11 @@ def test_omark_and_gffcompare(ready: bool, tmp_path: Path) -> None:
     if ready:
         (taxa / "taxa.sqlite").write_text("")
     qc = {"omark": True, "omamer_db": str(db), "reference_annotation": str(reference), "ete_taxa_path": str(taxa)}
-    proc, published = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "qc": qc})
+    proc, published = run_pipeline(tmp_path, {**COMBINED_RNASEQ, "qc": qc})
     assert_ok(proc)
     assert ("DOWNLOAD_NCBI_TAXONOMY" in proc.stdout) != ready
     assert {"qc/omark_summary.txt", "qc/gffcompare.stats"} <= published
-    text = citations(tmp_path)
+    text = citations_text(tmp_path)
     assert "**OMArk**" in text and "GffCompare" in text
 
 
@@ -232,9 +241,9 @@ def test_omark_needs_the_database(tmp_path: Path) -> None:
 
 def test_report_and_statistics_can_be_switched_off(tmp_path: Path) -> None:
     qc = {"report": False, "statistics": False, "gene_support": False}
-    proc, published = run_pipeline(tmp_path, {**TIBERIUS_RNASEQ, "qc": qc})
+    proc, published = run_pipeline(tmp_path, {**COMBINED_RNASEQ, "qc": qc})
     assert_ok(proc)
     assert "report.html" not in published
     assert not [f for f in published if f.endswith(".png")]
     assert "qc/gene_support.tsv" not in published
-    assert {"tiberius_evidence.gff3", "tiberius_evidence.gtf"} <= published
+    assert {"combined_evidence.gff3", "combined_evidence.gtf"} <= published

@@ -40,6 +40,12 @@ process STRINGTIE_ASSEMBLE_ISO {
 }
 
 
+// The one StringTie assembly as GTF and as GFF3 (gtf_to_alignment_gff3.pl,
+// for TD_REVISED_TO_GENOME). A single input is passed through as it is:
+// `stringtie --merge` drops the cov and TPM attributes that FILTER_STRINGTIE
+// reads (it stops without them), drops transcripts below TPM 1 (its -T
+// default) and renames the transcripts (MSTRG). Several inputs are merged
+// (stringtie --merge, merge_annotations.py when that fails).
 process STRINGTIE_MERGE {
     label 'container'
     input:
@@ -51,25 +57,27 @@ process STRINGTIE_MERGE {
 
     script:
     """
-    ls ${gtfs} > mergelist.txt
+    set -- ${gtfs}
+    if [ \$# -eq 1 ]; then
+        cp "\$1" stringtie.gtf
+    else
+        printf '%s\\n' "\$@" > mergelist.txt
 
-    set +e
-    ${params.tools.stringtie} --merge -o stringtie.gtf mergelist.txt
-    exitcode=\$?
-    set -e
+        set +e
+        ${params.tools.stringtie} --merge -o stringtie.gtf mergelist.txt
+        exitcode=\$?
+        set -e
 
-    if [ "\$exitcode" -ne 0 ]; then
-        echo "WARNING: stringtie --merge failed with code \$exitcode, using custom merge." >&2
+        if [ "\$exitcode" -ne 0 ]; then
+            echo "WARNING: stringtie --merge failed with code \$exitcode, using custom merge." >&2
 
-        merge_annotations.py --mode full \\
-            ${gtfs} > merged.gff3
+            merge_annotations.py --mode full "\$@" > merged.gff3
 
-        # convert to GTF for TD_ALL
-        ${params.tools.gffread} merged.gff3 -T -o stringtie.gtf
+            # convert to GTF for TD_ALL
+            ${params.tools.gffread} merged.gff3 -T -o stringtie.gtf
+        fi
     fi
 
-    # in both cases we now have stringtie.gtf
-    # (and we can make a GFF3 if needed)
     ${params.tools.transdecoder_gtf2gff} stringtie.gtf > stringtie.gff3
     """
 

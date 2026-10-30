@@ -161,6 +161,11 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
         rnaseq_bams = rnaseq_bams.mix(user_bams.sorted, SAMTOOLS_SORT(user_bams.unsorted).bam)
     }
 
+    // Every library below min_alignment_rate (FILTER_ALIGNMENT): no BAM, and
+    // the run would end without the HC genes and without a word.
+    rnaseq_bams = rnaseq_bams.ifEmpty {
+        error "RNA-Seq: every library was dropped, its alignment rate is below params.min_alignment_rate (${params_map.min_alignment_rate ?: 80} %); see the 'Removing' lines above."
+    }
     rnaseq_merged = MERGE_BAMS_RNA(rnaseq_bams)
     rnaseq_hints  = BAM2HINTS_RNA(rnaseq_merged.bam, CH_GENOME)
 

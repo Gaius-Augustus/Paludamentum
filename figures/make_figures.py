@@ -330,7 +330,7 @@ def postprocess():
     f = Fig(1160, 764, "Post-processing and quality control of Paludamentum",
             "The final annotation of step 4 (or the ab initio genes) runs through the sanity filter, "
             "gets UTRs from the StringTie assemblies when there are transcripts, and is written as GFF3, "
-            "GTF, proteins and CDS. Gene set statistics always run, evidence support in evidence modes; "
+            "GTF, proteins and CDS. Gene set statistics always run, evidence support in every mode but abinitio; "
             "completeness, OMArk, gffcompare, ncRNA and GO terms are switched on by options. "
             "report.html sums up all steps.")
     A, wA = 24, 180
@@ -371,7 +371,7 @@ def postprocess():
     # QC and annotation steps; color: what the step needs, pill: what switches it on
     steps = (("grey", "Gene set statistics", "always",
               [("genes, isoforms, exons, introns, lengths", SUB)]),
-             ("blue", "Evidence support", "evidence modes",
+             ("blue", "Evidence support", "all but abinitio",
               [("introns and CDS backed by protein or RNA-Seq hints", SUB)]),
              ("purple", "Completeness", "--busco_lineage",
               [("compleasm and BUSCO on genome and proteome", SUB)]),

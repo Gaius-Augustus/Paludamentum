@@ -106,7 +106,7 @@ Step 5 in detail (the color of a step says which data it needs, the label on
 it which option switches it on):
 
 <p align="center">
-  <img src="figures/postprocess_flow.svg" alt="Post-processing and quality control: the annotation runs through the sanity filter, gets UTRs from the StringTie assembly in modes with transcripts, and is written as GFF3, GTF, proteins and CDS; gene set statistics always run, evidence support in evidence modes, completeness, OMArk, gffcompare, ncRNA and GO terms with their options; report.html sums up all steps" width="100%">
+  <img src="figures/postprocess_flow.svg" alt="Post-processing and quality control: the annotation runs through the sanity filter, gets UTRs from the StringTie assembly in modes with transcripts, and is written as GFF3, GTF, proteins and CDS; gene set statistics always run, evidence support in every mode but abinitio, completeness, OMArk, gffcompare, ncRNA and GO terms with their options; report.html sums up all steps" width="100%">
 </p>
 
 ## Requirements
@@ -218,12 +218,12 @@ Paths must not contain spaces. All parameters are documented in
 | `odb12Partitions` | OrthoDB v12 partitions to download: `Metazoa`, `Vertebrata`, `Viridiplantae`, `Arthropoda`, `Fungi`, `Alveolata`, `Stramenopiles`, `Amoebozoa`, `Euglenozoa`, `Eukaryota` |
 | `rnaseq_paired`, `rnaseq_single` | short read FASTQ files (glob or list) |
 | `rnaseq_bam` | aligned short reads, for example from VARUS |
-| `stringtie` | StringTie assembly (GTF) made outside the pipeline, one file, a list or a glob; instead of or in addition to reads, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
-| `rnaseq_varus`, `isoseq_varus`, `mixed_varus` | [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) output directories, which bring their StringTie assembly and intron hints, see [docs/parameters.md](docs/parameters.md#pyvarus-output-directories) |
+| `stringtie` | StringTie assembly (GTF) made outside the pipeline, exactly one file; instead of reads, or with the reads it was made from, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
+| `rnaseq_varus`, `isoseq_varus`, `mixed_varus` | [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) output directories, which bring their StringTie assembly and intron hints but no BAM, so there is no coverage track; see [docs/parameters.md](docs/parameters.md#pyvarus-output-directories) |
 | `isoseq` | Iso-Seq FASTQ files |
 | `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra` | SRA run accessions, downloaded by the pipeline; an accession whose download fails twice is dropped with an `Error is ignored` note, and `-resume` tries it again |
 | `keep_downloads` | copy the reads downloaded from SRA to `sra_downloads/` in `outdir`; default false, they stay in the work directory only |
-| `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80 |
+| `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80. If all RNA-Seq (or all Iso-Seq) libraries are dropped, the run stops with an error |
 
 The mode is inferred from the inputs and can be forced with `mode`
 (`--mode`). A forced mode without its inputs is an error.
@@ -245,9 +245,8 @@ alignments, miniprothint hints and four DIAMOND tables. Both
 ### Existing StringTie assemblies
 
 If the transcripts are already assembled, pass the StringTie GTF with
-`--stringtie` (`stringtie` in the params file). The pipeline then neither
-maps reads nor runs StringTie for them; the assembly goes straight to the
-HC gene step.
+`--stringtie` (`stringtie` in the params file). The pipeline then does not
+run StringTie; the assembly goes to the HC gene step as it is.
 
 ```bash
 paludamentum --nf_config local --genome genome.fa \
@@ -264,16 +263,21 @@ combines with `--result`: an existing prediction and an existing assembly
 need no GPU, no mapping and no assembly step. Notes:
 
 - The combined HC flow needs exactly one StringTie assembly of all reads;
-  pass a single GTF and no other RNA-Seq or Iso-Seq input. The GTF must
-  come from `stringtie` on the reads (with `cov` and `TPM` attributes), not
-  from `stringtie --merge` (which drops them). Drusilla's StringTie
-  pre-filter reads these attributes.
+  several files are an error. The GTF must come from `stringtie` on the
+  reads (with `cov` and `TPM` attributes), not from `stringtie --merge`
+  (which drops them). Drusilla's StringTie pre-filter reads these
+  attributes.
+- The reads, BAMs and Iso-Seq reads that the assembly was made from may
+  come with it. They are mapped and merged into one BAM only; nothing is
+  assembled. The BAM gives the coverage track (`bedtools genomecov`) and
+  the intron hints (`bam2hints`).
+- pyVARUS directories (`rnaseq_varus`, `isoseq_varus`, `mixed_varus`)
+  cannot be combined with `--stringtie`; that is an error.
 - A run with only an assembly is reported as mode `rnaseq`, whatever reads
-  the assembly was made from. `hintsfile.gff` then has protein hints only;
-  intron hints from reads do not enter `combine_genesets.py`.
-- `bedtools genomecov` needs a BAM: without reads and only a `--stringtie`
-  assembly, combine_genesets receives an empty coverage track and skips the
-  coverage rules.
+  the assembly was made from. Without reads there is no BAM, so no coverage
+  track and no intron hints: `combine_genesets.py` runs without
+  `--coverage` and `--introns`, its RNA rules stay off, and
+  `hintsfile.gff` has protein hints only.
 
 ## Outputs
 
@@ -373,7 +377,9 @@ Steps of the combined HC flow:
 
 1. One StringTie assembly of all reads (short, Iso-Seq with `-L`, or both
    with `--mix`). A `--stringtie` assembly made outside the pipeline is
-   used as it is; it must carry the `cov` and `TPM` attributes.
+   used as it is; it must carry the `cov` and `TPM` attributes. The one
+   assembly is not passed through `stringtie --merge` (only the GFF3 that
+   TD2 needs is written from it); several assemblies would be merged.
 2. **Drusilla** filters the StringTie assembly (length, coverage, TPM) and
    predicts the ORFs of the kept transcripts with the clade's Drusilla
    model (`vertebrates` or `insects`, from `conf/hc_genes.yaml`; override
@@ -389,10 +395,16 @@ Steps of the combined HC flow:
    Drusilla), `PROTEIN_FROM_GFF` extracts proteins with gffread, and
    `DIAMOND_BLASTP_FULL` searches them against the protein database with
    the 14-column outfmt (`qseqid sseqid pident length mismatch gapopen
-   qstart qend sstart send evalue bitscore qlen slen`).
+   qstart qend sstart send evalue bitscore qlen slen`). It reads GFF3 and
+   GTF (the Drusilla ORFs) and keeps at most 10 isoforms per gene; an
+   isoform beyond the cap has no DIAMOND hit.
 5. `bedtools genomecov -ibam BAM -bg -split | gzip > rna_cov.bg.gz` writes
    the read-depth bedGraph, and `bam2hints --intronsonly` plus
-   `filterIntronsFindStrand.pl` writes the intron hints.
+   `filterIntronsFindStrand.pl` writes the intron hints. In mixed mode both
+   intron hint files (short reads and Iso-Seq) go to `combine_genesets.py`,
+   which sums them per intron. pyVARUS directories and a `--stringtie`
+   assembly without reads have no BAM: `combine_genesets.py` then runs
+   without `--coverage` (pyVARUS hints are still used).
 6. `combine_genesets.py` integrates all of the above. See
    [docs/drusilla_flow.md](docs/drusilla_flow.md) for the per-structure
    rules (merging, clustering, tiering with the four tool sets, RNA /

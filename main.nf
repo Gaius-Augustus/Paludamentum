@@ -95,12 +95,16 @@ workflow {
     if( advice ) log.warn advice
 
     // The combine_genesets flow needs ONE StringTie assembly of all reads
-    // (TPM and coverage of StringTie, plus a merged BAM for bedtools
-    // genomecov and bam2hints). A given StringTie assembly must be that one.
-    def stringtieOnly = hasStringtie && transcriptMode
-    if( stringtieOnly && (stringtieFiles.size() > 1 || hasPaired || hasSingle || hasBAM || hasIso
-                          || nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
-      error "stringtie: the unified HC flow needs one StringTie assembly of all reads and the BAM that produced it; pass a single StringTie GTF plus the rnaseq_bam / isoseq that it came from, or let the pipeline assemble."
+    // (with the cov and TPM attributes of StringTie). A given assembly
+    // (stringtie) is that one and nothing is assembled; the reads or BAMs it
+    // was made from may come with it (they give the coverage track and the
+    // intron hints), pyVARUS directories may not (they bring an assembly of
+    // their own).
+    def useStringtie = hasStringtie && transcriptMode
+    if( useStringtie && stringtieFiles.size() > 1 )
+      error "stringtie: the unified HC flow needs one StringTie assembly of all reads, got ${stringtieFiles.size()} files. Pass the one assembly (stringtie --mix for short and Iso-Seq reads together), or let the pipeline assemble."
+    if( useStringtie && (nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
+      error "stringtie: a pyVARUS directory brings its own StringTie assembly. Pass either the StringTie GTF (with the reads or BAMs it was made from) or the pyVARUS directories, not both."
 
     // What this run does, for the references (citations.md) and the methods
     // text (methods.md) of the run: lib_nf/citations.nf, lib_nf/methods.nf
@@ -203,6 +207,10 @@ workflow {
       // Publish via POSTPROCESS prefixed with the gene finder name.
       final_gff = pe.prot_traingff
       post_prefix = tool
+      // The protein hints as hintsfile.gff: the gene support of POSTPROCESS
+      // (GENE_SUPPORT, which GENE_SET_STATISTICS waits for) reads them.
+      def empty_file = EMPTY_FILE()
+      hints = CONCAT_HINTS(pe.prot_hints, empty_file, empty_file).hints
 
     } else {
 
@@ -218,18 +226,20 @@ workflow {
       def pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, tib_prot, params)
 
       // One StringTie assembly of all reads; one merged BAM for coverage
-      // (BAM2COV) and intron hints (BAM2HINTS).
+      // (BAM2COV) and intron hints (BAM2HINTS). With a given assembly the
+      // reads are mapped for the BAM only ('none': nothing is assembled).
+      def asmMode = useStringtie ? 'none' : 'merged'
       def re = (MODE in ['mixed','rnaseq']) \
-        ? RNASEQ_EVIDENCE(inp.genome, params, 'merged') \
+        ? RNASEQ_EVIDENCE(inp.genome, params, asmMode) \
         : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
       def ie = (MODE in ['mixed','isoseq']) \
-        ? ISOSEQ_EVIDENCE(inp.genome, params, 'merged') \
+        ? ISOSEQ_EVIDENCE(inp.genome, params, asmMode) \
         : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
 
       // Assembly channel
       def asm_gtf  = nextflow.Channel.empty()
       def stringtie_gtf = nextflow.Channel.fromList(stringtieFiles)
-      if( stringtieOnly ) {
+      if( useStringtie ) {
         asm_gtf  = stringtie_gtf
       } else if( MODE == 'mixed' ) {
         if( mixVarus ) asm_gtf = VARUS_INPUT_MIX(nextflow.Channel.fromList(mixVarus), nextflow.Channel.value(file(params.genome))).gtf
@@ -240,11 +250,15 @@ workflow {
         asm_gtf  = ie.asm_gtf
       }
 
-      // One merged BAM of all reads for BAM2COV and BAM2HINTS. In mixed
-      // mode merge both evidence BAMs; otherwise use the one that was made.
+      // One merged BAM of all reads for BAM2COV. In mixed mode merge both
+      // evidence BAMs; otherwise use the one that was made. pyVARUS
+      // directories and a given assembly without reads have no BAM: the
+      // placeholder stands for the coverage track then, and
+      // combine_genesets.py runs without --coverage (COMBINE_GENESETS).
+      def haveBam = (MODE in ['mixed', 'rnaseq'] && (hasPaired || hasSingle || hasBAM)) ||
+                    (MODE in ['mixed', 'isoseq'] && hasIso)
       def merged_bam
-      if( stringtieOnly ) {
-        // No reads to make a BAM: BAM2COV and BAM2HINTS get empty inputs.
+      if( !haveBam ) {
         merged_bam = empty_file
       } else if( MODE == 'mixed' ) {
         merged_bam = MERGE_BAMS_ALL(re.bam.mix(ie.bam)).bam
@@ -254,17 +268,17 @@ workflow {
         merged_bam = ie.bam
       }
 
-      // Intron hints for combine_genesets: the subworkflows already produce
-      // these per read type (BAM2HINTS inside RNASEQ_EVIDENCE / ISOSEQ_EVIDENCE).
-      // combine_genesets.py --introns accepts several files.
+      // Intron hints for combine_genesets: the subworkflows produce these per
+      // read type (BAM2HINTS, or the hints of a pyVARUS directory), an empty
+      // placeholder without reads. combine_genesets.py --introns accepts
+      // several files; COMBINE_GENESETS leaves empty ones out.
       def introns_combine
-      if( stringtieOnly ) introns_combine = empty_file
-      else if( MODE == 'mixed' ) introns_combine = re.hints.mix(ie.hints).collect()
+      if( MODE == 'mixed' )       introns_combine = re.hints.mix(ie.hints).collect()
       else if( MODE == 'rnaseq' ) introns_combine = re.hints
       else                        introns_combine = ie.hints
 
       def hc = HC_COMBINED(
-          inp.genome, asm_gtf, merged_bam, introns_combine,
+          inp.genome, asm_gtf, merged_bam, haveBam, introns_combine,
           pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
           tib.gff, tib_prot, params
       )

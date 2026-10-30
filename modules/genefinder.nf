@@ -186,9 +186,10 @@ process PROTEIN_FROM_GFF {
 
   script:
     """
-    # gffread malloc()s on genes with many isoforms; cap to a safe number
-    # because the resulting protein FASTA is only used by DIAMOND species
-    # ranking, so one representative per gene is enough.
+    # gffread malloc()s on genes with many isoforms; cap to a safe number.
+    # The proteins go to DIAMOND: the species ranking of PREPROCESS_PROTEINDB
+    # and the tables of combine_genesets.py (an isoform beyond the cap has no
+    # DIAMOND hit there). GFF3 and GTF (the Drusilla ORFs) are both handled.
     cap_isoforms_per_gene.py --max 10 ${ab_initio} > ab_initio.capped.gff3
     ${params.tools.gffread} ab_initio.capped.gff3 \\
         -g ${genome} \\

@@ -29,7 +29,9 @@ genome: /path/to/genome.fa
 #   - /path/to/varus_short
 
 # StringTie assembly (GTF) made outside the pipeline, from short reads, Iso-Seq
-# or both: instead of reads, or in addition to them (one file, a list or a glob).
+# or both: exactly one file, with the cov and TPM attributes. The reads it was
+# made from may come with it (coverage track and intron hints only, nothing is
+# assembled); pyVARUS directories may not. Without reads: no coverage, no introns.
 # stringtie: /path/to/stringtie.gtf
 
 # Single-end reads (list of FASTQ files, or one glob string)
@@ -137,6 +139,7 @@ vipsania:
 #   model: null                  # null = clade's drusilla_model in conf/hc_genes.yaml (vertebrates / insects)
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
 #   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
+#   result: /abs/path/orfs.filtered.gtf  # existing Drusilla ORFs: Drusilla does not run
 
 # ------------------------------------------------------------
 # combine_genesets.py (the HC integration step; evidence modes)

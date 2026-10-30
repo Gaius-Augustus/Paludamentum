@@ -219,8 +219,10 @@ def methodsTranscripts(Map ctx, Map run) {
     // StringTie: one merged assembly of all reads (combine_genesets flow)
     def st = cite(ctx, ['stringtie'])
     if( oneAssembly ) {
-        if( run.stringtieFiles && !transcriptReads(run) )
-            s << "The provided StringTie ${st} assembly of all reads was used as the transcript assembly; no reads were aligned."
+        if( run.stringtieFiles )
+            s << "The provided StringTie ${st} assembly of all reads was used as the transcript assembly" +
+                 (transcriptReads(run) ? '; the read alignments only gave the coverage track and the intron hints.' :
+                                         '; no reads were aligned.')
         else if( run.mode == 'mixed' && run.mixVarus )
             s << "The transcript assembly was the StringTie ${st} assembly of the short-read and the Iso-Seq " +
                  'alignments of pyVARUS together (`varus assemble --short --long`).'
@@ -270,12 +272,20 @@ def methodsHighConfidence(Map ctx, Map run) {
          'predicted their ORFs, and isoforms whose CDS was a subsequence of another were collapsed.'
     def insect = run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
     def dropFlag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
+    // the coverage track needs a BAM; pyVARUS directories and a given assembly without reads have none
+    def bams = (run.mode in ['rnaseq', 'mixed'] && (run.shortFastq || run.shortBam)) ||
+               (run.mode in ['isoseq', 'mixed'] && run.isoFastq)
+    def varusHints = (run.mode in ['rnaseq', 'mixed'] && run.shortVarus) || (run.mode in ['isoseq', 'mixed'] && run.isoVarus)
+    def rna = bams ? ', bedtools genomecov produced a per-base read-depth bedGraph of the merged read alignments, and ' +
+                     'bam2hints produced intron hints' :
+              varusHints ? ', and the intron hints of the pyVARUS runs were used (without alignments there was no coverage track)' :
+                           ' (without reads, no coverage track and no intron hints entered the integration)'
     s << "The four gene sets (Tiberius, Vipsania, revised TD2, Drusilla) were integrated by `combine_genesets.py`: " +
-         "DIAMOND blastp was run on each gene set's proteins (14-column outfmt, including query and subject lengths), " +
-         'bedtools genomecov produced a per-base read-depth bedGraph of the merged read alignments, and bam2hints ' +
-         'produced intron hints. combine_genesets.py merged transcripts with identical CDS, clustered them into loci ' +
-         'on the same strand, tiered each unique structure from its supporting tool set, adjusted the tier with RNA, ' +
-         "protein and DIAMOND features, and kept each locus whose best model reached a tier of ${numText(run.minLocus)}${dropFlag}; " +
+         "DIAMOND blastp was run on each gene set's proteins (14-column outfmt, including query and subject lengths)" +
+         rna + '. combine_genesets.py merged transcripts with identical CDS, clustered them into loci ' +
+         'on the same strand, tiered each unique structure from its supporting tool set, adjusted the tier with ' +
+         ((bams || varusHints) ? 'RNA, protein' : 'protein') + ' and DIAMOND features, and kept each locus whose best ' +
+         "model reached a tier of ${numText(run.minLocus)}${dropFlag}; " +
          'single-exon Tiberius-only models were demoted on insect runs. The result is the final annotation (no ' +
          'separate merge with the *ab initio* predictions is needed, because they already enter the integration).'
     s << stopCheck
