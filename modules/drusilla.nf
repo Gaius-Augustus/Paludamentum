@@ -1,6 +1,6 @@
 nextflow.enable.dsl=2
 
-include { drusillaSetting } from '../lib_nf/functions.nf'
+include { drusillaSetting; truthy } from '../lib_nf/functions.nf'
 
 // Processes of the Drusilla flow: the StringTie pre-filter, model download,
 // the ORF annotation and the subsequence collapse. The LightGBM filter and
@@ -117,6 +117,17 @@ process DRUSILLA_ANNOTATE {
   def extra = ''
   if( params.drusilla.batch_size )                extra += " --batch-size ${params.drusilla.batch_size}"
   if( params.drusilla.min_coding_length != null ) extra += " --min-coding-length ${params.drusilla.min_coding_length}"
+  // Transcript handling of Drusilla >= 0.2 (docs/drusilla_flow.md): both
+  // strands of unstranded transcripts, ORF completion into genomic flanks,
+  // several ORFs per transcript. All off unless set.
+  if( truthy(params.drusilla.unstranded_both_strands) ) extra += " --unstranded-both-strands"
+  def flank  = (params.drusilla.flank_bp ?: 0) as Integer
+  def flank3 = (params.drusilla.flank_3p_bp != null ? params.drusilla.flank_3p_bp : flank) as Integer
+  if( flank > 0 || flank3 > 0 ) {
+      extra += " --flank-bp ${flank} --flank-3p-bp ${flank3} --flank-keep"
+      if( params.drusilla.flank_min_tx_frac != null ) extra += " --flank-min-tx-frac ${params.drusilla.flank_min_tx_frac}"
+  }
+  if( params.drusilla.orfs_per_tx != null )           extra += " --orfs-per-tx ${params.drusilla.orfs_per_tx}"
   // shards > 1: the transcripts are split by gene into this many parts, each
   // annotated by its own process. On CPUs one process uses only 1-2 cores.
   def shards = (params.drusilla.shards ?: 1) as Integer

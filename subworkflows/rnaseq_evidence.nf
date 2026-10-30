@@ -1,6 +1,6 @@
 nextflow.enable.dsl=2
 
-include { HISAT2_BUILD; HISAT2_MAP_SINGLE; HISAT2_MAP_PAIRED; SAMTOOLS_SORT;
+include { HISAT2_BUILD; HISAT2_MAP_SINGLE; HISAT2_MAP_PAIRED; SAMTOOLS_SORT; STRAND_FIX_BAM;
           MERGE_BAMS as MERGE_BAMS_RNA;
           BAM2HINTS as BAM2HINTS_RNA } from '../modules/rnaseq.nf'
 
@@ -9,7 +9,7 @@ include { DOWNLOAD_SRA_PAIRED; DOWNLOAD_SRA_SINGLE } from '../modules/download.n
 include { STRINGTIE_ASSEMBLE_RNA } from '../modules/assembly.nf'
 include { EMPTY_FILE } from '../modules/util.nf'
 include { VARUS_INPUT as VARUS_INPUT_RNA; MERGE_INTRON_HINTS as MERGE_INTRON_HINTS_RNA } from '../modules/varus.nf'
-include { asList; varusInputs; bamCoordinateSorted } from '../lib_nf/functions.nf'
+include { asList; varusInputs; bamCoordinateSorted; truthy } from '../lib_nf/functions.nf'
 
 // Library name of a read file: the file name without the FASTQ suffixes and
 // without a trailing read-pair marker (_1, _R1, .1). Two libraries with the same
@@ -136,29 +136,45 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
         index = HISAT2_BUILD(CH_GENOME)
     }
 
-    rnaseq_bams = channel.empty()
+    // HISAT2 BAMs (one library each) and the user BAMs (rnaseq_bam)
+    lib_bams  = channel.empty()
+    user_bams = channel.empty()
 
     if( DO_SE ) {
         map_se = HISAT2_MAP_SINGLE(index.idxdir, CH_SINGLE)
         FILTER_SE(map_se.bam)
-        rnaseq_bams = rnaseq_bams.mix(FILTER_SE.out)
+        lib_bams = lib_bams.mix(FILTER_SE.out)
     }
 
     if( DO_PE ) {
         map_pe = HISAT2_MAP_PAIRED(index.idxdir, CH_PAIRED)
         FILTER_PE(map_pe.bam)
-        rnaseq_bams = rnaseq_bams.mix(FILTER_PE.out)
+        lib_bams = lib_bams.mix(FILTER_PE.out)
     }
 
     // Merging, bam2hints and StringTie need coordinate-sorted BAMs; HISAT2
     // sorts its BAMs, a user BAM is sorted unless its header says SO:coordinate
     if( DO_BAM ) {
-        def user_bams = channel.fromList(asList(params_map.rnaseq_bam)).map { f -> file(f) }
+        def given = channel.fromList(asList(params_map.rnaseq_bam)).map { f -> file(f) }
             .branch { f ->
                 sorted:   bamCoordinateSorted(f)
                 unsorted: true
             }
-        rnaseq_bams = rnaseq_bams.mix(user_bams.sorted, SAMTOOLS_SORT(user_bams.unsorted).bam)
+        user_bams = given.sorted.mix(SAMTOOLS_SORT(given.unsorted).bam)
+    }
+
+    // Library strandedness recovered in every BAM before merging and StringTie
+    // (params.strand_fix, default on): a HISAT2 BAM is one library ('none'); a
+    // user BAM may pool runs (VARUS), which drusilla strand-fix-bam tells apart
+    // by their read names (params.strand_fix_run_regex, null = its default).
+    // Not with a given assembly (asm_mode 'none'): bam2hints takes intron
+    // strands from the splice sites and the coverage track is unstranded.
+    if( asm_mode != 'none' && (params_map.strand_fix == null || truthy(params_map.strand_fix)) ) {
+        def to_fix = lib_bams.map { b -> tuple(b, 'none') }
+            .mix(user_bams.map { b -> tuple(b, params_map.strand_fix_run_regex ?: '') })
+        rnaseq_bams = STRAND_FIX_BAM(to_fix).bam
+    } else {
+        rnaseq_bams = lib_bams.mix(user_bams)
     }
 
     // Every library below min_alignment_rate (FILTER_ALIGNMENT): no BAM, and

@@ -20,7 +20,8 @@ whenever the Dockerfile changes.
 
 The Drusilla image is Drusilla at the commit the `drusilla/` submodule
 points to, on the same NGC TensorFlow base as the Tiberius image. Its tag
-is the Drusilla version.
+is the Drusilla version: `gaiusaugustus/drusilla:0.2.0` is built from Drusilla
+0.2.0 with pysam, which `STRAND_FIX_BAM` needs.
 
 The post-processing image is micromamba with one environment of pinned
 Bioconda packages (version and build) and compleasm 0.2.9 from its release

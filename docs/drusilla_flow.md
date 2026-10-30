@@ -14,26 +14,38 @@ replaces the per-model filtering it used to do.
 
 ## Steps that run Drusilla
 
-1. **`FILTER_STRINGTIE`**: the StringTie assembly is filtered by length,
+1. **`STRAND_FIX_BAM`** (part of `RNASEQ_EVIDENCE`, before the StringTie
+   assembly, not of the Drusilla flow proper): `drusilla strand-fix-bam`
+   infers the library protocol of each run in a short-read BAM from its
+   spliced reads and sets the `XS` tag on all reads of stranded runs, so
+   StringTie assigns a strand to single-exon transcripts and separates
+   antisense neighbours. It runs on every HISAT2 BAM (one library, run regex
+   `none`) and on every user BAM (`rnaseq_bam`), where the run ids come from
+   the read names (`strand_fix_run_regex`, default: Drusilla's). It is on by
+   default and off with `strand_fix: false`. The per-BAM report is
+   `intermediate/strand_fix/<bam>.strand_runs.tsv`. Iso-Seq BAMs are not
+   changed, and pyVARUS directories bring no BAM, so the strand fix cannot
+   run on them.
+2. **`FILTER_STRINGTIE`**: the StringTie assembly is filtered by length,
    coverage and TPM: default `min_length: 300`, `min_cov: 3`, `min_tpm: 1`
    (and `min_tpm_long: 0.5` for transcripts of at least `long_length: 3000`
    nt). Transcripts with strand `.` (no spliced reads, almost all
    single-exon) are dropped by default (`drop_unstranded: true`); their
    Drusilla ORFs were mostly not genes on *T. rubripes* (gene F1 76.36 with
    them, 76.55 without).
-2. **`DOWNLOAD_DRUSILLA_MODEL`**: the released model (`vertebrates` or
+3. **`DOWNLOAD_DRUSILLA_MODEL`**: the released model (`vertebrates` or
    `insects`, from the clade's `drusilla_model` in
    [`conf/hc_genes.yaml`](../conf/hc_genes.yaml), or `drusilla.model`) is
    downloaded once on the submitting host and checked against its
    `weights_sha256`. The GPU nodes need no internet. With `cache_dir`,
    Drusilla takes the model from that cache instead (`drusilla models
    download <model>` with `DRUSILLA_CACHE_DIR` set to it fills it once).
-3. **`DRUSILLA_ANNOTATE`**: `drusilla annotate` predicts the ORFs of the
+4. **`DRUSILLA_ANNOTATE`**: `drusilla annotate` predicts the ORFs of the
    kept transcripts, including ORFs truncated at the 3' or 5' end of a
    transcript. `shards > 1` splits the transcripts by gene into that many
    processes, which is useful on CPU nodes where one process uses only one
    to two cores (for example `shards: 24` on a 48-core CPU node).
-4. **`COLLAPSE_ORFS`**: isoforms whose CDS is a subsequence of another one
+5. **`COLLAPSE_ORFS`**: isoforms whose CDS is a subsequence of another one
    are dropped (`drusilla filter-subseq`). The result is
    `intermediate/drusilla_orfs.gtf`, which `combine_genesets.py` reads as
    `--drusilla`.
@@ -55,9 +67,52 @@ drusilla:
   long_length: 3000
   min_tpm_long: 0.5
   drop_unstranded: true    # drop transcripts with strand '.' (no spliced reads)
+  unstranded_both_strands: false  # scan both strands of '.' transcripts (needs drop_unstranded: false)
+  flank_bp: null           # bp of genomic context per transcript side, ORF completion into it; null/0 = off
+  flank_3p_bp: null        # 3' side alone (enough on its own); null = flank_bp
+  flank_min_tx_frac: null  # minimal fraction of an ORF inside the transcript; null = Drusilla's default
+  orfs_per_tx: null        # ORFs per transcript, longest first; null = Drusilla's default (1), 0 = all
+strand_fix: true           # top level: strand recovery of the short-read BAMs
+strand_fix_run_regex: null # top level: run id regex for user BAMs; null = Drusilla's default
 ```
 
 See [parameters.md](parameters.md#drusilla) for the full table.
+
+## Unstranded, truncated and fused transcripts
+
+StringTie leaves single-exon transcripts without spliced reads unstranded
+(strand `.`), and its assemblies can hold transcripts that are truncated at
+the 3' end or fused from several genes. Drusilla has three optional
+mechanisms for these cases, set with the `drusilla.*` params; all are off by
+default:
+
+| Param | Drusilla flag | Effect |
+| --- | --- | --- |
+| `unstranded_both_strands: true` | `--unstranded-both-strands` | Transcripts with strand `.` are scanned on both strands. |
+| `flank_bp`, `flank_3p_bp`, `flank_min_tx_frac` | `--flank-bp N --flank-3p-bp M --flank-keep [--flank-min-tx-frac F]` | Genomic context of `flank_bp` bp is added on both sides of every transcript (`flank_3p_bp` sets the 3' side alone, default `flank_bp`), so ORFs cut off at a transcript end are completed into it. `flank_min_tx_frac` is the minimal fraction of an ORF inside the transcript. |
+| `orfs_per_tx: K` | `--orfs-per-tx K` | Up to `K` ORFs per transcript, longest first (`0` = all), for fused transcripts. |
+
+`unstranded_both_strands` only acts on transcripts that reach Drusilla, so
+it needs `drop_unstranded: false`. With the default `drop_unstranded: true`
+the run logs a warning and the option has no effect. The flank options are
+passed only when `flank_bp` is greater than 0.
+
+The mechanisms were developed on fungal genomes, where unstranded
+single-exon transcripts, 3'-truncated transcripts and fused transcripts are
+common. Their effect on other clades has not been measured yet, so they stay
+off by default. The strand fix (`strand_fix`) is the BAM-level alternative
+for the unstranded transcripts: it gives StringTie the strand before the
+assembly.
+
+Example for a compact genome:
+
+```yaml
+drusilla:
+  drop_unstranded: false
+  unstranded_both_strands: true
+  flank_bp: 500
+  orfs_per_tx: 0
+```
 
 Drusilla runs on a GPU (label `gpu`) in the Drusilla image. Without a GPU,
 send `DRUSILLA_ANNOTATE` to CPU nodes in your site config and set `shards`:

@@ -122,6 +122,8 @@ def test_combined_flow(mode: str, tmp_path: Path) -> None:
     for p in ("RUN_TIBERIUS", "RUN_VIPSANIA", "TD_ALL", "DRUSILLA_ANNOTATE",
               "BAM2COV", "COMBINE_GENESETS"):
         assert p in proc.stdout, f"{p} not in: {proc.stdout[-2000:]}"
+    # the strand fix runs on every short-read BAM (default strand_fix: true), not on Iso-Seq
+    assert ("STRAND_FIX_BAM" in proc.stdout) == (mode in ("rnaseq", "mixed")), proc.stdout[-2000:]
     assert "intermediate/combined.gff3" in published
     assert final_files("combined_evidence") <= published, \
         f"missing: {final_files('combined_evidence') - published}"
@@ -143,6 +145,15 @@ def test_combined_flow_published_set(tmp_path: Path) -> None:
         "hintsfile.gff",
         "citations.md", "methods.md",
     } <= published, f"missing: {sorted(published)}"
+
+
+def test_strand_fix_off_skips_the_process(tmp_path: Path) -> None:
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"],
+              **EVIDENCE["rnaseq"], "strand_fix": False}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "STRAND_FIX_BAM" not in proc.stdout
+    assert "intermediate/drusilla_orfs.gtf" in published
 
 
 def test_insect_combined_flow_adds_drop_lone_single_exon(tmp_path: Path) -> None:

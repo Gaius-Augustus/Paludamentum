@@ -33,6 +33,11 @@ genome: /path/to/genome.fa
 # made from may come with it (coverage track and intron hints only, nothing is
 # assembled); pyVARUS directories may not. Without reads: no coverage, no introns.
 # stringtie: /path/to/stringtie.gtf
+#
+# Library strandedness recovered in every short-read BAM before StringTie
+# (drusilla strand-fix-bam); off: the BAMs are assembled as they are.
+# strand_fix: true
+# strand_fix_run_regex: null    # run id regex for a user BAM that pools runs; null = Drusilla's default (SRR...)
 
 # Single-end reads (list of FASTQ files, or one glob string)
 # rnaseq_single:
@@ -140,6 +145,10 @@ vipsania:
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
 #   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
 #   result: /abs/path/orfs.filtered.gtf  # existing Drusilla ORFs: Drusilla does not run
+#   drop_unstranded: true        # drop transcripts with strand '.' before Drusilla
+#   unstranded_both_strands: false   # scan both strands of '.' transcripts (needs drop_unstranded: false)
+#   flank_bp: null               # e.g. 500: genomic context on both sides, ORFs completed into it
+#   orfs_per_tx: null            # null = one ORF per transcript; 0 = all (fused transcripts)
 
 # ------------------------------------------------------------
 # combine_genesets.py (the HC integration step; evidence modes)

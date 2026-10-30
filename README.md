@@ -56,8 +56,9 @@ Drusilla model name).
    very large protein databases the Tiberius *ab initio* proteins are used to
    select the most relevant source species first (DIAMOND).
 3. **Transcript evidence.** Short reads are aligned with HISAT2, Iso-Seq reads
-   with minimap2. Libraries with a low alignment rate are dropped. One
-   StringTie assembly of all reads is made (`stringtie`, `stringtie -L` or
+   with minimap2. Libraries with a low alignment rate are dropped. The
+   library strandedness of every short-read BAM is recovered before the
+   assembly (`strand_fix`, on by default). One StringTie assembly of all reads is made (`stringtie`, `stringtie -L` or
    `stringtie --mix`). If you already have a StringTie assembly, pass it with
    `--stringtie` instead of the reads, see
    [Existing StringTie assemblies](#existing-stringtie-assemblies).
@@ -66,7 +67,9 @@ Drusilla model name).
    DIAMOND passes and `revise_pep.py` for the partial-ORF rescue; the
    revised ORFs are mapped back to the genome with
    `cdna_alignment_orf_to_genome_orf.pl`) and Drusilla (StringTie pre-filter
-   and `drusilla annotate` with the clade's Drusilla model). DIAMOND
+   and `drusilla annotate` with the clade's Drusilla model; its transcript
+   handling options are available via `drusilla.*` params, see
+   [docs/drusilla_flow.md](docs/drusilla_flow.md)). DIAMOND
    (`--outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend
    sstart send evalue bitscore qlen slen`) runs on the proteins of all four
    gene sets (Tiberius, Vipsania, revised TD2, Drusilla). `bedtools genomecov

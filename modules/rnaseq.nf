@@ -89,6 +89,44 @@ process SAMTOOLS_SORT {
   """
 }
 
+// Library strandedness of a short-read BAM, recovered before merging and
+// StringTie (drusilla strand-fix-bam, Drusilla >= 0.2): the protocol of every
+// run in the BAM is inferred from its spliced reads (read orientation against
+// the XS strand tag of the aligner), and XS is then set on all reads of
+// stranded runs, so StringTie strands single-exon transcripts and separates
+// antisense neighbours. Reads of unstranded runs are left as they are.
+// run_regex: 'none' = the whole BAM is one library (a HISAT2 BAM of the
+// pipeline); '' = Drusilla's default, the run id at the start of the read
+// name (SRR..., a VARUS BAM that pools many runs). The output BAM keeps the
+// coordinate order of the input.
+process STRAND_FIX_BAM {
+  tag "${bam.name}"
+  label 'drusilla'
+  publishDir "${params.outdir}/intermediate/strand_fix", pattern: "*.strand_runs.tsv", mode: 'copy', overwrite: true
+  input:
+    tuple path(bam, stageAs: "unfixed/*"), val(run_regex)
+
+  output:
+    path "${bam.name}", emit: bam
+    path "${bam.baseName}.strand_runs.tsv", emit: report
+
+  script:
+  def regex = run_regex ? "--run-regex '${run_regex}' " : ''
+  """
+  drusilla strand-fix-bam \\
+      --in-bam "${bam}" \\
+      --out-bam "${bam.name}" \\
+      --report-tsv "${bam.baseName}.strand_runs.tsv" \\
+      ${regex}--threads ${task.cpus} \\
+      --no-index
+  """
+
+  stub:
+  """
+  touch "${bam.name}" "${bam.baseName}.strand_runs.tsv"
+  """
+}
+
 process SAMTOOLS_MERGE {
   label 'container', 'bigmem'
   input:

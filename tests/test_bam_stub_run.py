@@ -101,3 +101,15 @@ def test_one_library_per_read_type_in_mixed_mode(tmp_path: Path) -> None:
     assert tasks(tmp_path, "BAM2HINTS_RNA") == 1 and tasks(tmp_path, "BAM2HINTS_ISO") == 1, proc.stdout
     assert tasks(tmp_path, "STRINGTIE_ASSEMBLE_MIX") == 1, proc.stdout
     assert "combined_evidence.gff3" in published
+
+
+def test_strand_fix_runs_once_per_short_read_bam(tmp_path: Path) -> None:
+    """One task per BAM: the user BAM (run ids from the read names) and the
+    one HISAT2 library ('none'), before SAMTOOLS_MERGE."""
+    bam = write_bam(tmp_path / "lib.bam", "coordinate")
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"],
+              **PROTEINS, **SHORT_READS, "rnaseq_bam": [bam]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert tasks(tmp_path, "STRAND_FIX_BAM") == 2
+    assert tasks(tmp_path, "SAMTOOLS_MERGE") == 1

@@ -1,4 +1,5 @@
-# Image of the Drusilla flow of Paludamentum (DRUSILLA_ANNOTATE, FIX_ORFS,
+# Image of the Drusilla processes of Paludamentum (STRAND_FIX_BAM,
+# DRUSILLA_ANNOTATE, COLLAPSE_ORFS; historically FIX_ORFS and
 # GENEFINDER_LGB_FILTER): Drusilla at a pinned commit plus the packages of the
 # scripts in bin/ that run next to it. The Dockerfile of the Drusilla
 # repository clones Drusilla HEAD at build time and pins no package, so the
@@ -9,8 +10,13 @@
 # 4.7.0, which is pinned here. No scikit-learn, no joblib.
 #
 # Build (no build context is needed) and tag with the Drusilla version:
-#   docker build -t gaiusaugustus/drusilla:0.1.0 - < docker/drusilla/Dockerfile
-#   docker push gaiusaugustus/drusilla:0.1.0
+#   docker build -t gaiusaugustus/drusilla:0.2.0 - < docker/drusilla/Dockerfile
+#   docker push gaiusaugustus/drusilla:0.2.0
+#
+# DRUSILLA_COMMIT must point at a Drusilla with `strand-fix-bam` and the
+# annotate options --flank-keep / --unstranded-both-strands / --orfs-per-tx
+# (Drusilla 0.2.0, the merge of its branch `strand`); the checks at the end
+# of this file fail the build on an older commit.
 
 # Same base as the Tiberius image: the NGC TensorFlow build is the only one
 # that runs on Blackwell GPUs (sm_120).
@@ -54,6 +60,7 @@ RUN python3 -m pip install --no-cache-dir --no-deps bricks2marble hidten && \
         pydantic \
         pyyaml \
         pyfaidx \
+        pysam \
         biopython \
         pandas \
         "lightgbm==${LIGHTGBM_VERSION}"
@@ -85,6 +92,12 @@ sys.exit(f'NGC TensorFlow stack modified: tensorflow=={tf}, added/changed: {adde
     drusilla annotate --help | grep -q -- '--partial5-out' && \
     drusilla annotate --help | grep -q -- '--lorf-class' && \
     drusilla filter-subseq --help > /dev/null && \
+    drusilla annotate --help | grep -q -- '--flank-keep' && \
+    drusilla annotate --help | grep -q -- '--unstranded-both-strands' && \
+    drusilla annotate --help | grep -q -- '--orfs-per-tx' && \
+    drusilla strand-fix-bam --help > /dev/null && \
+    python3 -c "import pysam" && \
+    python3 -c "import importlib.metadata as m, sys; v = m.version('drusilla'); sys.exit(0 if v == '0.2.0' else f'drusilla {v} is not 0.2.0')" && \
     gffread --version && \
     stringtie --version && \
     python3 -c "import importlib.metadata as m, tensorflow as tf; b = tf.sysconfig.get_build_info(); print('drusilla', m.version('drusilla'), 'lightgbm', m.version('lightgbm'), 'keras', m.version('keras'), 'bricks2marble', m.version('bricks2marble'), 'hidten', m.version('hidten'), 'TensorFlow', tf.__version__, 'CUDA', b['cuda_version'], 'cuDNN', b['cudnn_version'])"

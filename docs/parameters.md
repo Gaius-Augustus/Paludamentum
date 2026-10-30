@@ -118,6 +118,8 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
 | `keep_downloads`           | `false`                                | Copy the reads downloaded from SRA to `sra_downloads/` in `outdir`. Off, they are kept in the work directory only, which saves a second copy of every library. |
 | `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. If every RNA-Seq (or every Iso-Seq) library is dropped, the run stops with an error. |
+| `strand_fix`               | `true`                                 | Recover the library strandedness of every short-read BAM before merging and StringTie (`STRAND_FIX_BAM`, `drusilla strand-fix-bam`): the protocol of each run is inferred from its spliced reads, and the `XS` tag is set on all reads of stranded runs. Reads of unstranded runs are unchanged. Not applied to Iso-Seq BAMs; pyVARUS directories bring no BAM. The per-BAM report is `intermediate/strand_fix/<bam>.strand_runs.tsv`. Set `false` to skip it. |
+| `strand_fix_run_regex`     | none                                   | Regex whose group 1 is the run id in the read names of a user BAM (`rnaseq_bam`) that pools several runs, e.g. from VARUS. Without it Drusilla's default is used (leading letters and digits, e.g. `SRR123456`). A HISAT2 BAM of the pipeline is always one run. |
 | `hc_table`                 | `"conf/hc_genes.yaml"`                 | Clade table for the combined HC flow: `drusilla_model` for each clade, insect clades trigger `--drop-lone-single-exon tiberius`, `recommended` of a clade warns a run that differs from it. Today Vertebrata, Mammalia (`drusilla_model: vertebrates`), Insecta, Lepidoptera (`drusilla_model: insects`). |
 | `td2_predict_args`         | none                                   | Options appended to `TD2.Predict`, for example `"--precise"`.                                                |
 | `combine.min_locus`        | `4`                                    | Minimum tier of the best model of a locus for `combine_genesets.py` to keep the locus. Everything else uses the script defaults; see `combine_genesets.py --help`. |
@@ -148,6 +150,8 @@ The location of the required executables is set by default so that they are avai
 Already aligned short reads, for example from VARUS, go to `rnaseq_bam` as a
 list of BAM files. They skip the HISAT2 step. A BAM whose header does not say
 `SO:coordinate` is sorted first; a coordinate-sorted one is used as it is.
+Like the HISAT2 BAMs, user BAMs go through the strand fix (`strand_fix`); the
+run ids are taken from the read names (`strand_fix_run_regex`).
 
 ### pyVARUS output directories
 [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) writes `stringtie.gtf`
@@ -266,6 +270,11 @@ Drusilla GPU task.
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
 | `drusilla.drop_unstranded` | `true` | StringTie pre-filter: drop transcripts with strand `.`. |
+| `drusilla.unstranded_both_strands` | `false` | `--unstranded-both-strands`: also scan the reverse strand of transcripts with strand `.`. Needs `drop_unstranded: false`; otherwise the run warns and the option has no effect. |
+| `drusilla.flank_bp` | none | Genomic context in bp on both sides of every transcript, with ORF completion into it (`--flank-bp N --flank-3p-bp M --flank-keep`). `null` or `0` = off. |
+| `drusilla.flank_3p_bp` | `flank_bp` | Context on the 3' side alone (`--flank-3p-bp`); enough on its own to turn the completion on. |
+| `drusilla.flank_min_tx_frac` | Drusilla default | `--flank-min-tx-frac`: minimal fraction of an ORF inside the transcript. Only passed with `flank_bp` or `flank_3p_bp`. |
+| `drusilla.orfs_per_tx` | Drusilla default (`1`) | `--orfs-per-tx`: ORFs per transcript, longest first; `0` = all. |
 
 ## Post-processing and quality control
 

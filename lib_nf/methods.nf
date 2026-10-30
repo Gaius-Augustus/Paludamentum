@@ -187,7 +187,7 @@ def methodsTranscripts(Map ctx, Map run) {
         aligned << 'short-read'
     }
     if( shortReads && run.shortBam ) {
-        s << 'Provided short-read alignments (BAM) were used as they were, sorted by coordinate with SAMtools' +
+        s << 'Provided short-read alignments (BAM) were used as provided, sorted by coordinate with SAMtools' +
              (ctx.used.contains('samtools') ? '' : " ${cite(ctx, ['samtools'])}") +
              ' where their header did not declare that order.'
     }
@@ -202,6 +202,11 @@ def methodsTranscripts(Map ctx, Map run) {
     if( aligned )
         s << "${capitalized(joinAnd(aligned))} libraries with an alignment rate below ${numText(run.minAlignmentRate)} % " +
              '(`samtools flagstat`) were discarded.'
+    if( shortReads && (run.shortFastq || run.shortBam) && run.strandFix )
+        s << 'The library strandedness of every short-read alignment file was inferred from its spliced reads ' +
+             '(read orientation against the XS strand tag of the aligner), and the XS tag was set on all reads of ' +
+             'stranded libraries (`drusilla strand-fix-bam`), so that StringTie could assign a strand to ' +
+             'single-exon transcripts and separate overlapping antisense transcripts.'
     def bams = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && run.isoFastq)
     if( bams )
         s << 'The alignments of all libraries of a read type were merged with SAMtools, and intron hints were ' +
@@ -268,8 +273,19 @@ def methodsHighConfidence(Map ctx, Map run) {
          'the comparison of their hits decided whether an ORF was revised to the trimmed, complete start; the ' +
          'revised ORFs were converted back to genome coordinates with `cdna_alignment_orf_to_genome_orf.pl` of ' +
          "TransDecoder ${cite(ctx, ['transdecoder'])}."
+    def dru = []
+    if( run.drusillaBothStrands )
+        dru << 'scanning both strands of transcripts without an assembled strand'
+    if( run.drusillaFlank )
+        dru << "completing ORFs that reached a transcript end with up to ${numText(run.drusillaFlank)} bp of genomic sequence"
+    if( run.drusillaOrfsPerTx != null ) {
+        def nOrfs = run.drusillaOrfsPerTx as Integer
+        if( nOrfs == 0 )     dru << 'reporting every ORF of a transcript'
+        else if( nOrfs > 1 ) dru << "reporting up to ${numText(nOrfs)} ORFs per transcript"
+    }
     s << 'For Drusilla, assembled transcripts were pre-filtered by length, StringTie coverage and TPM; Drusilla ' +
-         'predicted their ORFs, and isoforms whose CDS was a subsequence of another were collapsed.'
+         'predicted their ORFs' + (dru ? " (${joinAnd(dru)})" : '') +
+         ', and isoforms whose CDS was a subsequence of another were collapsed.'
     def insect = run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
     def dropFlag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
     // the coverage track needs a BAM; pyVARUS directories and a given assembly without reads have none

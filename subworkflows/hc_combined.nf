@@ -36,7 +36,7 @@ include { DIAMOND_MAKEDB;
           DIAMOND_BLASTP_FULL as DIAMOND_TD2; DIAMOND_BLASTP_FULL as DIAMOND_DRU } from '../modules/diamond.nf'
 include { BAM2COV } from '../modules/rnacov.nf'
 include { COMBINE_GENESETS } from '../modules/combine.nf'
-include { hcClade; tiberiusModelValue; drusillaSetting } from '../lib_nf/functions.nf'
+include { hcClade; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
 
 workflow HC_COMBINED {
 
@@ -69,6 +69,9 @@ workflow HC_COMBINED {
             error "params.drusilla.result is set, but the file does not exist: ${d.result}"
         dru = [gtf: channel.fromPath(d.result, checkIfExists: true).toList()]
     } else {
+        if( truthy(d.unstranded_both_strands) && (d.drop_unstranded == null || truthy(d.drop_unstranded)) )
+            log.warn "drusilla.unstranded_both_strands has no effect while drusilla.drop_unstranded is true (the default): " +
+                     "FILTER_STRINGTIE drops every transcript with strand '.' before Drusilla runs."
         def filt = FILTER_STRINGTIE(merged_asm.gtf)
         def drusillaModel = channel.value([])
         def useModel = false

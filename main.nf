@@ -137,6 +137,13 @@ workflow {
         shortSra: asList(params.rnaseq_sra_paired).size() > 0 || asList(params.rnaseq_sra_single).size() > 0,
         isoSra: asList(params.isoseq_sra).size() > 0,
         minAlignmentRate: params.min_alignment_rate ?: 80,
+        // the strand fix runs on the BAMs that StringTie assembles (not with a given assembly)
+        strandFix: !hasStringtie && (params.strand_fix == null || truthy(params.strand_fix)),
+        // both strands of '.' transcripts only matter when FILTER_STRINGTIE keeps them
+        drusillaBothStrands: truthy(params.drusilla?.unstranded_both_strands) &&
+            !(params.drusilla?.drop_unstranded == null || truthy(params.drusilla?.drop_unstranded)),
+        drusillaFlank: Math.max((params.drusilla?.flank_bp ?: 0) as Integer, (params.drusilla?.flank_3p_bp ?: 0) as Integer),
+        drusillaOrfsPerTx: params.drusilla?.orfs_per_tx,
         stringtieFiles: stringtieFiles.size(), mixVarus: MODE == 'mixed' && transcriptMode && hasMixVarus,
         td2PredictArgs: params.td2_predict_args ?: null,
         sanityFilter: truthy(params.postprocess?.sanity_filter), utr: truthy(params.postprocess?.utr),
