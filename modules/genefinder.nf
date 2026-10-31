@@ -190,10 +190,11 @@ process PROTEIN_FROM_GFF {
     # The proteins go to DIAMOND: the species ranking of PREPROCESS_PROTEINDB
     # and the tables of combine_genesets.py (an isoform beyond the cap has no
     # DIAMOND hit there). GFF3 and GTF (the Drusilla ORFs) are both handled.
+    # -S writes internal stops as *: DIAMOND rejects the . that gffread writes by default.
     cap_isoforms_per_gene.py --max 10 ${ab_initio} > ab_initio.capped.gff3
     ${params.tools.gffread} ab_initio.capped.gff3 \\
         -g ${genome} \\
-        -y ${prefix}_proteins.fa
+        -y ${prefix}_proteins.fa -S
     """
 
   stub:
