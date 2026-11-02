@@ -50,7 +50,7 @@ workflow POSTPROCESS {
     gff         // channel: final protein-coding GFF3 (0 or 1 item)
     genome      // channel: genome FASTA (value)
     genome_chunks // channel: the genome chunks of the gene finder split (one list; cmscan)
-    prefix      // value: name of the gene finder, 'tiberius' or 'vipsania'
+    prefix      // value: name of the gene finder, 'tiberius' or 'vipsania'; 'combined' in the evidence modes
     genefinder_versions // channel: versions.tsv of the gene finder (empty with a reused result)
     mode        // value: pipeline mode
     asm_short   // channel: StringTie assemblies of short reads (may be empty)
@@ -213,10 +213,14 @@ workflow POSTPROCESS {
 
     // ---- software versions and report
     def pipeline_lines = ["Paludamentum\t${run_info.version}\t-"]
-    // a reused gene finder result (<tool>.result) was not predicted in this run
-    def reused = params[prefix]?.result
-    if( reused )
-        pipeline_lines << "${prefix.capitalize()}\tnot run, ${prefix}.result: ${file(reused.toString()).name}\t-"
+    // a reused result (<tool>.result) was not predicted in this run; the prefix
+    // of the combined flow names no tool, the flow takes three such results
+    def reusable = prefix == 'combined' ? ['tiberius', 'vipsania', 'drusilla'] : [prefix]
+    reusable.each { tool ->
+        def reused = params[tool]?.result
+        if( reused )
+            pipeline_lines << "${tool.capitalize()}\tnot run, ${tool}.result: ${file(reused.toString()).name}\t-"
+    }
     def sv = SOFTWARE_VERSIONS(pipeline_lines, versions.collect().ifEmpty([]))
     qc_files = qc_files.mix(sv.tsv)
     if( truthy(params.qc.report) ) {

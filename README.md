@@ -395,8 +395,13 @@ Steps of the combined HC flow:
    are mapped back to the genome with
    `cdna_alignment_orf_to_genome_orf.pl`.
 4. For each of the four gene sets (Tiberius, Vipsania, revised TD2,
-   Drusilla), `PROTEIN_FROM_GFF` extracts proteins with gffread, and
-   `DIAMOND_BLASTP_FULL` searches them against the protein database with
+   Drusilla), `PROTEIN_FROM_GFF` extracts proteins with gffread (`-S`:
+   internal stops are written as `*`, which DIAMOND accepts).
+   `bin/check_internal_stops.py` writes a `WARN` line to the run log when
+   more than 5% of a gene set's proteins have an internal stop. The usual
+   cause is wrong CDS phases in a reused `<tool>.result`, which
+   `bin/fix_cds_phases.py` repairs; the run continues.
+   `DIAMOND_BLASTP_FULL` searches the proteins against the protein database with
    the 14-column outfmt (`qseqid sseqid pident length mismatch gapopen
    qstart qend sstart send evalue bitscore qlen slen`). It reads GFF3 and
    GTF (the Drusilla ORFs) and keeps at most 10 isoforms per gene; an

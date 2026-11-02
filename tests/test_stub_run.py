@@ -242,6 +242,42 @@ def test_existing_result_is_reused_abinitio(tmp_path: Path) -> None:
     assert "vipsania_ab_initio.gff3" in published
 
 
+def software_versions_lines(tmp_path: Path) -> list[str]:
+    return (tmp_path / "out" / "qc" / "software_versions.tsv").read_text().splitlines()
+
+
+def test_reused_results_are_listed_in_software_versions_combined(tmp_path: Path) -> None:
+    """In the combined flow prefix is 'combined': the reused results of the three
+    tools are listed, and params['combined'] is not looked up any more."""
+    results = {}
+    for tool, name in (("tiberius", "old_tiberius.gtf"), ("vipsania", "old_vipsania.gff3"),
+                       ("drusilla", "old_drusilla.gtf")):
+        path = tmp_path / name
+        path.write_text("##gff-version 3\n")
+        results[tool] = {"result": str(path)}
+    params = {**results, **EVIDENCE["rnaseq"]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "undefined parameter `combined`" not in proc.stdout + proc.stderr
+    assert "qc/software_versions.tsv" in published
+    lines = software_versions_lines(tmp_path)
+    assert "Tiberius\tnot run, tiberius.result: old_tiberius.gtf\t-" in lines, lines
+    assert "Vipsania\tnot run, vipsania.result: old_vipsania.gff3\t-" in lines, lines
+    assert "Drusilla\tnot run, drusilla.result: old_drusilla.gtf\t-" in lines, lines
+
+
+def test_only_the_reused_tool_is_listed_in_software_versions(tmp_path: Path) -> None:
+    result = tmp_path / "previous.gff3"
+    result.write_text("##gff-version 3\n")
+    params = {"vipsania": {"run": True, "result": str(result)}}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "qc/software_versions.tsv" in published
+    lines = software_versions_lines(tmp_path)
+    assert "Vipsania\tnot run, vipsania.result: previous.gff3\t-" in lines, lines
+    assert not [l for l in lines if "not run" in l and not l.startswith("Vipsania\t")], lines
+
+
 # ---- input forms (combined flow) ---------------------------------------------
 
 

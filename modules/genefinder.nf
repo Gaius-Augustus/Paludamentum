@@ -175,6 +175,8 @@ process MERGE_GENEFINDER_EVI {
 
 process PROTEIN_FROM_GFF {
   label 'container'
+  // forwards the warning of check_internal_stops.py to the log of the run
+  debug true
 
   input:
       val prefix
@@ -191,10 +193,12 @@ process PROTEIN_FROM_GFF {
     # and the tables of combine_genesets.py (an isoform beyond the cap has no
     # DIAMOND hit there). GFF3 and GTF (the Drusilla ORFs) are both handled.
     # -S writes internal stops as *: DIAMOND rejects the . that gffread writes by default.
+    # Wrong CDS phases then pass DIAMOND without an error, so many stops are reported.
     cap_isoforms_per_gene.py --max 10 ${ab_initio} > ab_initio.capped.gff3
     ${params.tools.gffread} ab_initio.capped.gff3 \\
         -g ${genome} \\
         -y ${prefix}_proteins.fa -S
+    check_internal_stops.py ${prefix}_proteins.fa ${prefix}
     """
 
   stub:

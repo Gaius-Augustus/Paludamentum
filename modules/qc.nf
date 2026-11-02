@@ -225,8 +225,12 @@ END_VERSIONS
   """
 
   stub:
+  def head = pipeline_lines.join('\n')
   """
-  touch software_versions.tsv
+  cat > software_versions.tsv <<'END_VERSIONS'
+tool	version	image
+${head}
+END_VERSIONS
   """
 }
 
