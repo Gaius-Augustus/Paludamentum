@@ -16,7 +16,7 @@ process FILTER_STRINGTIE {
     path "stringtie.filtered.gtf", emit: gtf
 
   script:
-  def dropUnstranded = params.drusilla.drop_unstranded == null || params.drusilla.drop_unstranded.toString().toLowerCase() in ['true', '1', 'yes']
+  def dropUnstranded = truthy(params.drusilla.drop_unstranded)
   """
   filter_stringtie_gtf.py \\
       --in-gtf ${gtf} \\
@@ -100,8 +100,6 @@ process DRUSILLA_ANNOTATE {
 
   output:
     path "drusilla/orfs.gtf", emit: gtf
-    path "drusilla/orfs.partial.gtf", emit: partial
-    path "drusilla/orfs.partial5.gtf", emit: partial5
 
   script:
   def name = drusillaSetting(params, 'model')
@@ -119,7 +117,7 @@ process DRUSILLA_ANNOTATE {
   if( params.drusilla.min_coding_length != null ) extra += " --min-coding-length ${params.drusilla.min_coding_length}"
   // Transcript handling of Drusilla >= 0.2 (docs/drusilla_flow.md): both
   // strands of unstranded transcripts, ORF completion into genomic flanks,
-  // several ORFs per transcript. All off unless set.
+  // several ORFs per transcript. Defaults in conf/base.config.
   if( truthy(params.drusilla.unstranded_both_strands) ) extra += " --unstranded-both-strands"
   def flank  = (params.drusilla.flank_bp ?: 0) as Integer
   def flank3 = (params.drusilla.flank_3p_bp != null ? params.drusilla.flank_3p_bp : flank) as Integer
@@ -142,11 +140,7 @@ process DRUSILLA_ANNOTATE {
           ${model_args} \\
           --out-dir "\$2" \\
           --threads ${threads} \\
-          --no-subseq-collapse \\
-          --lorf-class \\
-          --partial-out "\$2/orfs.partial.gtf" \\
-          --partial5-out "\$2/orfs.partial5.gtf"${extra}
-      touch "\$2/orfs.partial.gtf" "\$2/orfs.partial5.gtf"
+          --no-subseq-collapse${extra}
   }
   if [ ${shards} -le 1 ]; then
       annotate ${gtf} drusilla
@@ -163,16 +157,14 @@ process DRUSILLA_ANNOTATE {
           pids="\$pids \$!"
       done
       for p in \$pids; do wait \$p || { cat drusilla_*.log >&2; exit 1; }; done
-      for o in orfs.gtf orfs.partial.gtf orfs.partial5.gtf; do
-          cat drusilla_*/\$o > drusilla/\$o
-      done
+      cat drusilla_*/orfs.gtf > drusilla/orfs.gtf
   fi
   """
 
   stub:
   """
   mkdir -p drusilla
-  touch drusilla/orfs.gtf drusilla/orfs.partial.gtf drusilla/orfs.partial5.gtf
+  touch drusilla/orfs.gtf
   """
 }
 

@@ -145,9 +145,9 @@ vipsania:
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
 #   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
 #   result: /abs/path/orfs.filtered.gtf  # existing Drusilla ORFs: Drusilla does not run
-#   drop_unstranded: true        # drop transcripts with strand '.' before Drusilla
-#   unstranded_both_strands: false   # scan both strands of '.' transcripts (needs drop_unstranded: false)
-#   flank_bp: null               # e.g. 500: genomic context on both sides, ORFs completed into it
+#   drop_unstranded: false       # default; true drops transcripts with strand '.' before Drusilla
+#   unstranded_both_strands: true    # default; scan both strands of '.' transcripts (needs drop_unstranded: false)
+#   flank_bp: 500                # default; genomic context on both sides, ORFs completed into it; 0 = off
 #   orfs_per_tx: null            # null = one ORF per transcript; 0 = all (fused transcripts)
 
 # ------------------------------------------------------------

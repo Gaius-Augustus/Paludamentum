@@ -89,8 +89,6 @@ sys.exit(f'NGC TensorFlow stack modified: tensorflow=={tf}, added/changed: {adde
     python3 -c "import keras, sys; sys.exit(0 if keras.__version__.startswith('3.') else f'Keras {keras.__version__} is not Keras 3')" && \
     python3 -c "import pyfaidx, pandas, yaml, Bio" && \
     python3 -c "from drusilla.hmm.annotation_hmm import OrfAnnotationHMM" && \
-    drusilla annotate --help | grep -q -- '--partial5-out' && \
-    drusilla annotate --help | grep -q -- '--lorf-class' && \
     drusilla filter-subseq --help > /dev/null && \
     drusilla annotate --help | grep -q -- '--flank-keep' && \
     drusilla annotate --help | grep -q -- '--unstranded-both-strands' && \

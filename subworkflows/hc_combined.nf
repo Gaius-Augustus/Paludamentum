@@ -69,8 +69,8 @@ workflow HC_COMBINED {
             error "params.drusilla.result is set, but the file does not exist: ${d.result}"
         dru = [gtf: channel.fromPath(d.result, checkIfExists: true).toList()]
     } else {
-        if( truthy(d.unstranded_both_strands) && (d.drop_unstranded == null || truthy(d.drop_unstranded)) )
-            log.warn "drusilla.unstranded_both_strands has no effect while drusilla.drop_unstranded is true (the default): " +
+        if( truthy(d.unstranded_both_strands) && truthy(d.drop_unstranded) )
+            log.warn "drusilla.unstranded_both_strands has no effect while drusilla.drop_unstranded is true: " +
                      "FILTER_STRINGTIE drops every transcript with strand '.' before Drusilla runs."
         def filt = FILTER_STRINGTIE(merged_asm.gtf)
         def drusillaModel = channel.value([])

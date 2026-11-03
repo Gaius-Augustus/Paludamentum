@@ -269,12 +269,17 @@ Drusilla GPU task.
 | `drusilla.min_coding_length` | `200` | Minimal CDS length of a Drusilla ORF. |
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
-| `drusilla.drop_unstranded` | `true` | StringTie pre-filter: drop transcripts with strand `.`. |
-| `drusilla.unstranded_both_strands` | `false` | `--unstranded-both-strands`: also scan the reverse strand of transcripts with strand `.`. Needs `drop_unstranded: false`; otherwise the run warns and the option has no effect. |
-| `drusilla.flank_bp` | none | Genomic context in bp on both sides of every transcript, with ORF completion into it (`--flank-bp N --flank-3p-bp M --flank-keep`). `null` or `0` = off. |
-| `drusilla.flank_3p_bp` | `flank_bp` | Context on the 3' side alone (`--flank-3p-bp`); enough on its own to turn the completion on. |
-| `drusilla.flank_min_tx_frac` | Drusilla default | `--flank-min-tx-frac`: minimal fraction of an ORF inside the transcript. Only passed with `flank_bp` or `flank_3p_bp`. |
+| `drusilla.drop_unstranded` | `false` | StringTie pre-filter: `true` drops transcripts with strand `.`; `false` (or `null`) keeps them. |
+| `drusilla.unstranded_both_strands` | `true` | `--unstranded-both-strands`: also scan the reverse complement (`<tid>__rc`) of transcripts with strand `.` and keep the orientation with the longer ORF. Needs `drop_unstranded: false`; otherwise the run warns and the option has no effect. |
+| `drusilla.flank_bp` | `500` | Genomic context in bp on both sides of every transcript, with ORF completion into it (`--flank-bp N --flank-3p-bp M --flank-keep`). ORFs truncated at a transcript end carry the attribute `completion "5p\|3p\|5p3p"`. `null` or `0` = off. |
+| `drusilla.flank_3p_bp` | `flank_bp` (`500`) | Context on the 3' side alone (`--flank-3p-bp`); enough on its own to turn the completion on. |
+| `drusilla.flank_min_tx_frac` | Drusilla default (`0.5`) | `--flank-min-tx-frac`: minimal fraction of the CDS of an ORF inside the transcript; ORFs below it are dropped. Only passed with `flank_bp` or `flank_3p_bp`. |
 | `drusilla.orfs_per_tx` | Drusilla default (`1`) | `--orfs-per-tx`: ORFs per transcript, longest first; `0` = all. |
+
+The defaults of `drop_unstranded` to `orfs_per_tx` are the set tested on
+several species across clades and need Drusilla 0.2.0. A change of a default
+needs a measured accuracy gain (see
+[drusilla_flow.md](drusilla_flow.md#unstranded-truncated-and-fused-transcripts)).
 
 ## Post-processing and quality control
 
