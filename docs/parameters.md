@@ -315,7 +315,8 @@ Drusilla GPU task.
 | `drusilla.orfs_per_tx` | Drusilla default (`1`) | `--orfs-per-tx`: ORFs per transcript, longest first; `0` = all. |
 
 The defaults of `drop_unstranded` to `orfs_per_tx` are the set tested on
-several species across clades and need Drusilla 0.2.0. A change of a default
+several species across clades and need Drusilla 0.3.0, the image the pipeline
+runs. A change of a default
 needs a measured accuracy gain (see
 [drusilla_flow.md](drusilla_flow.md#unstranded-truncated-and-fused-transcripts)).
 

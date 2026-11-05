@@ -103,8 +103,9 @@ default, the third is off:
 `unstranded_both_strands` only acts on transcripts that reach Drusilla, so
 it needs `drop_unstranded: false`. With `drop_unstranded: true` the run logs
 a warning and the option has no effect. The flank options are passed when
-`flank_bp` or `flank_3p_bp` is greater than 0. All three need Drusilla 0.2.0
-(branch `strand`).
+`flank_bp` or `flank_3p_bp` is greater than 0. All three need Drusilla 0.3.0
+(branch `strand`), the image the pipeline runs; it also takes the assembly as
+`--assembly-gtf`.
 
 The mechanisms were developed on fungal genomes, where unstranded
 single-exon transcripts, 3'-truncated transcripts and fused transcripts are

@@ -135,7 +135,7 @@ process DRUSILLA_ANNOTATE {
   mkdir -p drusilla
   annotate() {
       drusilla annotate \\
-          --stringtie-gtf "\$1" \\
+          --assembly-gtf "\$1" \\
           --genome ${genome} \\
           ${model_args} \\
           --out-dir "\$2" \\

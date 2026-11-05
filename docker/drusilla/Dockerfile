@@ -10,19 +10,19 @@
 # 4.7.0, which is pinned here. No scikit-learn, no joblib.
 #
 # Build (no build context is needed) and tag with the Drusilla version:
-#   docker build -t gaiusaugustus/drusilla:0.2.0 - < docker/drusilla/Dockerfile
-#   docker push gaiusaugustus/drusilla:0.2.0
+#   docker build -t gaiusaugustus/drusilla:0.3.0 - < docker/drusilla/Dockerfile
+#   docker push gaiusaugustus/drusilla:0.3.0
 #
-# DRUSILLA_COMMIT must point at a Drusilla with `strand-fix-bam` and the
-# annotate options --flank-keep / --unstranded-both-strands / --orfs-per-tx
-# (Drusilla 0.2.0, the merge of its branch `strand`); the checks at the end
-# of this file fail the build on an older commit.
+# DRUSILLA_COMMIT must point at a Drusilla with `strand-fix-bam`, the annotate
+# options --flank-keep / --unstranded-both-strands / --orfs-per-tx and the
+# input option --assembly-gtf (Drusilla 0.3.0, branch `strand`); the checks at
+# the end of this file fail the build on an older commit.
 
 # Same base as the Tiberius image: the NGC TensorFlow build is the only one
 # that runs on Blackwell GPUs (sm_120).
 FROM nvcr.io/nvidia/tensorflow:25.02-tf2-py3
 
-ARG DRUSILLA_COMMIT=e3c5cf5943c05cd7c82eaccee74218804138e1a0
+ARG DRUSILLA_COMMIT=28e165294b70570ba59ce14c22955463823bdca8
 ARG LIGHTGBM_VERSION=4.7.0
 
 LABEL org.opencontainers.image.title="drusilla" \
@@ -90,12 +90,13 @@ sys.exit(f'NGC TensorFlow stack modified: tensorflow=={tf}, added/changed: {adde
     python3 -c "import pyfaidx, pandas, yaml, Bio" && \
     python3 -c "from drusilla.hmm.annotation_hmm import OrfAnnotationHMM" && \
     drusilla filter-subseq --help > /dev/null && \
+    drusilla annotate --help | grep -q -- '--assembly-gtf' && \
     drusilla annotate --help | grep -q -- '--flank-keep' && \
     drusilla annotate --help | grep -q -- '--unstranded-both-strands' && \
     drusilla annotate --help | grep -q -- '--orfs-per-tx' && \
     drusilla strand-fix-bam --help > /dev/null && \
     python3 -c "import pysam" && \
-    python3 -c "import importlib.metadata as m, sys; v = m.version('drusilla'); sys.exit(0 if v == '0.2.0' else f'drusilla {v} is not 0.2.0')" && \
+    python3 -c "import importlib.metadata as m, sys; v = m.version('drusilla'); sys.exit(0 if v == '0.3.0' else f'drusilla {v} is not 0.3.0')" && \
     gffread --version && \
     stringtie --version && \
     python3 -c "import importlib.metadata as m, tensorflow as tf; b = tf.sysconfig.get_build_info(); print('drusilla', m.version('drusilla'), 'lightgbm', m.version('lightgbm'), 'keras', m.version('keras'), 'bricks2marble', m.version('bricks2marble'), 'hidten', m.version('hidten'), 'TensorFlow', tf.__version__, 'CUDA', b['cuda_version'], 'cuDNN', b['cudnn_version'])"
