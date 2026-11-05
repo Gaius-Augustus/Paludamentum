@@ -312,6 +312,19 @@ def test_stringtie_assembly_from_the_command_line(tmp_path: Path, monkeypatch):
     assert launcher.validate_input_data(params, path) == []
 
 
+def test_chains_from_the_command_line(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _, path = launcher.build_params(cli_args(
+        "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--chains", "long.gtf",
+    ))
+    params = yaml.safe_load(path.read_text())
+    assert params["chains"] == [str(tmp_path / "long.gtf")]
+    errors = launcher.validate_input_data(params, path)
+    assert errors == [f"Full-length transcripts (chains) missing: {tmp_path / 'long.gtf'}"]
+    (tmp_path / "long.gtf").write_text("")
+    assert launcher.validate_input_data(params, path) == []
+
+
 def test_varus_directories_from_the_command_line(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _, path = launcher.build_params(cli_args(

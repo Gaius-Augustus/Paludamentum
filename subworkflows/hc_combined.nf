@@ -19,6 +19,8 @@ nextflow.enable.dsl=2
 //  4. BAM2COV turns the merged RNA-Seq / Iso-Seq BAM into a bedGraph.
 //  5. combine_genesets.py integrates the four gene sets with intron hints,
 //     coverage, DIAMOND, miniprot and miniprothint into combined.gff3.
+//     Full-length transcripts (the StringTie -L assembly of long reads, or
+//     the files of params.chains) go in as --chains when there are any.
 //     For Insecta / Lepidoptera clades, --drop-lone-single-exon tiberius
 //     is added.
 
@@ -46,7 +48,8 @@ workflow HC_COMBINED {
     merged_bam             // channel: one coordinate-sorted BAM of all RNA / Iso-Seq reads, or an empty placeholder
     have_bam               // value: false without a BAM (pyVARUS directories, a given assembly without reads)
     intron_hints           // channel: the intron hints of BAM2HINTS (two files in mixed mode), or an empty placeholder
-    proteindb              // path: preprocessed protein DB (one FASTA)
+    chains                 // channel: full-length transcripts for --chains (with the empty placeholder), or the placeholder alone
+    proteindb             // path: preprocessed protein DB (one FASTA)
     miniprot_scored        // path: scored miniprot alignments (miniprot_parsed.gff)
     prot_train_gff         // path: miniprot_trainingGenes.gff
     prot_hc_hints          // path: miniprothint hc.gff
@@ -118,7 +121,7 @@ workflow HC_COMBINED {
 
     def combined = COMBINE_GENESETS(
         tib_gff, vip.gff, dru.gtf, td2_gff.gff3,
-        intron_hints, cov_bg,
+        intron_hints, cov_bg, chains,
         dia_tib.tsv, dia_vip.tsv, dia_dru.tsv, dia_td2.tsv,
         prot_train_gff, miniprot_scored, prot_hc_hints,
         insect, min_locus)

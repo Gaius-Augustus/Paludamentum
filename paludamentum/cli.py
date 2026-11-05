@@ -92,6 +92,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="StringTie assembly(ies) (GTF) made outside the pipeline, instead of or in addition "
                              "to reads. Needs --proteins or --odb12Partitions, except for a gene finder "
                              "model of a clade with a Drusilla model (conf/hc_genes.yaml: vertebrates, insects).")
+    inputs.add_argument("--chains", nargs="*", default=[],
+                        help="Transcripts of full-length reads (GTF/GFF3 with exon lines, e.g. a StringTie -L "
+                             "assembly of long reads) as chain evidence for the gene set integration. In mixed "
+                             "mode the pipeline makes them from the Iso-Seq reads itself.")
     inputs.add_argument("--mode", choices=MODES, help="Force the pipeline mode instead of inferring it from the inputs.")
     inputs.add_argument("--scoring_matrix", help="Scoring matrix CSV for miniprot-boundary-scorer.")
 

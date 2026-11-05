@@ -286,6 +286,12 @@ def methodsHighConfidence(Map ctx, Map run) {
     s << 'For Drusilla, assembled transcripts were pre-filtered by length, StringTie coverage and TPM; Drusilla ' +
          'predicted their ORFs' + (dru ? " (${joinAnd(dru)})" : '') +
          ', and isoforms whose CDS was a subsequence of another were collapsed.'
+    if( run.chains )
+        s << (run.chains == 'given' ? 'The given full-length transcripts' :
+              'Transcripts assembled from the long reads alone (StringTie -L)') +
+             ' served as full-length transcript evidence in the integration: a model whose CDS chain lay within ' +
+             'one of them ranked higher in its locus, lone ab initio models with such a chain were kept, and so ' +
+             'were further isoforms with such a chain.'
     def insect = run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
     def dropFlag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
     // the coverage track needs a BAM; pyVARUS directories and a given assembly without reads have none

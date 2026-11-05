@@ -14,7 +14,7 @@ include { RNASEQ_EVIDENCE } from './subworkflows/rnaseq_evidence.nf'
 include { ISOSEQ_EVIDENCE } from './subworkflows/isoseq_evidence.nf'
 include { AB_INITIO } from './subworkflows/ab_initio.nf'
 include { HC_COMBINED } from './subworkflows/hc_combined.nf'
-include { STRINGTIE_ASSEMBLE_MIX } from './modules/assembly.nf'
+include { STRINGTIE_ASSEMBLE_MIX; STRINGTIE_ASSEMBLE_ISO as STRINGTIE_ASSEMBLE_CHAINS } from './modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_MIX } from './modules/varus.nf'
 include { POSTPROCESS; buscoLineage } from './subworkflows/postprocess.nf'
 
@@ -106,6 +106,20 @@ workflow {
     if( useStringtie && (nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
       error "stringtie: a pyVARUS directory brings its own StringTie assembly. Pass either the StringTie GTF (with the reads or BAMs it was made from) or the pyVARUS directories, not both."
 
+    // Transcripts of full-length reads for combine_genesets.py --chains (GTF
+    // or GFF3 with exon lines, e.g. a StringTie -L assembly of long reads).
+    // Given with `chains`; in mixed mode the pipeline otherwise makes them
+    // from the Iso-Seq reads alone (docs/parameters.md, "Long-read transcripts").
+    def chainFiles = asList(params.chains).findAll { p -> p }.collectMany { p ->
+      def f = file(p.toString())
+      def found = (f instanceof List) ? f : [f]
+      if( !found || found.any { g -> !g.exists() } ) error "chains: no such file: ${p}"
+      return found
+    }
+    if( chainFiles && !transcriptMode )
+      log.warn "chains is not used in mode '${MODE}'."
+    def autoChains = MODE == 'mixed' && (hasIso || nIsoVarus > 0)
+
     // What this run does, for the references (citations.md) and the methods
     // text (methods.md) of the run: lib_nf/citations.nf, lib_nf/methods.nf
     def tibModel = params.tiberius?.model_cfg ? file(params.tiberius.model_cfg.toString()).baseName : null
@@ -122,6 +136,8 @@ workflow {
         odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
         isoFastq: hasIso, isoVarus: nIsoVarus > 0,
+        // full-length transcripts of the integration: 'given' (chains), 'assembled' (mixed mode), or null
+        chains: !transcriptMode ? null : (chainFiles ? 'given' : (autoChains ? 'assembled' : null)),
         busco: params.qc?.busco_lineage && truthy(params.qc?.busco),
         compleasm: params.qc?.busco_lineage && truthy(params.qc?.compleasm),
         omark: truthy(params.qc?.omark), gffcompare: params.qc?.reference_annotation as boolean,
@@ -284,8 +300,25 @@ workflow {
       else if( MODE == 'rnaseq' ) introns_combine = re.hints
       else                        introns_combine = ie.hints
 
+      // Full-length transcripts for combine_genesets.py --chains: the given
+      // files (chains), else in mixed mode the StringTie -L assembly of the
+      // Iso-Seq reads alone (ISOSEQ_EVIDENCE makes it next to the --mix
+      // assembly, an isoseq_varus directory brings it; with a given assembly
+      // it is made here from the Iso-Seq BAM). Measured on H. sapiens:
+      // transcript F1 +0.7 over the --mix assembly alone. The placeholder
+      // stands for no chains; COMBINE_GENESETS leaves empty files out.
+      def chains_combine
+      if( chainFiles )
+        chains_combine = nextflow.Channel.fromList(chainFiles).mix(empty_file).collect()
+      else if( MODE == 'mixed' && useStringtie && hasIso )
+        chains_combine = STRINGTIE_ASSEMBLE_CHAINS(ie.bam).gtf.mix(empty_file).collect()
+      else if( MODE == 'mixed' )
+        chains_combine = ie.asm_gtf.mix(empty_file).collect()
+      else
+        chains_combine = empty_file
+
       def hc = HC_COMBINED(
-          inp.genome, asm_gtf, merged_bam, haveBam, introns_combine,
+          inp.genome, asm_gtf, merged_bam, haveBam, introns_combine, chains_combine,
           pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
           tib.gff, tib_prot, params
       )

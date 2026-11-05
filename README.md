@@ -79,7 +79,10 @@ Drusilla model name).
    tables, miniprot alignments and miniprothint hints, the bedGraph and the
    introns into one GFF3 (`intermediate/combined.gff3`). For an insect clade
    (Insecta, Lepidoptera) it also receives `--drop-lone-single-exon
-   tiberius`.
+   tiberius`. In mixed mode the `stringtie -L` assembly of the Iso-Seq reads
+   alone also goes to `combine_genesets.py` (`--chains`) as evidence of
+   full-length transcripts; `chains` gives such files in any evidence mode,
+   see [docs/parameters.md](docs/parameters.md#long-read-transcripts-chains).
 5. **Post-processing and quality control.** Transcripts with an internal stop
    codon or a broken CDS are removed, transcripts without UTRs get UTRs from
    the StringTie assembly, and the annotation is written as GFF3 (checked
@@ -222,6 +225,7 @@ Paths must not contain spaces. All parameters are documented in
 | `rnaseq_paired`, `rnaseq_single` | short read FASTQ files (glob or list) |
 | `rnaseq_bam` | aligned short reads, for example from VARUS |
 | `stringtie` | StringTie assembly (GTF) made outside the pipeline, exactly one file; instead of reads, or with the reads it was made from, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
+| `chains` | GTF/GFF3 files of full-length read transcripts (for example the `stringtie -L` assembly of long reads) for `combine_genesets.py`; made automatically in mixed mode, see [Long-read transcripts](docs/parameters.md#long-read-transcripts-chains) |
 | `rnaseq_varus`, `isoseq_varus`, `mixed_varus` | [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) output directories, which bring their StringTie assembly and intron hints but no BAM, so there is no coverage track; see [docs/parameters.md](docs/parameters.md#pyvarus-output-directories) |
 | `isoseq` | Iso-Seq FASTQ files |
 | `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra` | SRA run accessions, downloaded by the pipeline; an accession whose download fails twice is dropped with an `Error is ignored` note, and `-resume` tries it again |
@@ -412,7 +416,10 @@ Steps of the combined HC flow:
    intron hint files (short reads and Iso-Seq) go to `combine_genesets.py`,
    which sums them per intron. pyVARUS directories and a `--stringtie`
    assembly without reads have no BAM: `combine_genesets.py` then runs
-   without `--coverage` (pyVARUS hints are still used).
+   without `--coverage` (pyVARUS hints are still used). Transcripts of
+   full-length reads (`chains`, or in mixed mode the `stringtie -L` assembly
+   of the Iso-Seq reads alone) go to `combine_genesets.py --chains`; the ORF
+   callers do not see them.
 6. `combine_genesets.py` integrates all of the above. See
    [docs/drusilla_flow.md](docs/drusilla_flow.md) for the per-structure
    rules (merging, clustering, tiering with the four tool sets, RNA /

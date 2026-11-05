@@ -98,7 +98,7 @@ TOP_LEVEL_CLI_KEYS = (
     "threads", "outdir", "genome", "proteins", "odb12Partitions",
     "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "rnaseq_varus",
     "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_sra", "isoseq_varus", "mixed_varus",
-    "stringtie", "mode", "scoring_matrix",
+    "stringtie", "chains", "mode", "scoring_matrix",
 )
 # Post-processing keys of the command line are nested: see BLOCK_CLI_KEYS.
 GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
@@ -111,7 +111,7 @@ GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
 # Params values that are paths: they are written as absolute paths, because
 # Nextflow expands neither '~' nor environment variables.
 PATH_KEYS = ("genome", "proteins", "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "isoseq", "scoring_matrix",
-             "rnaseq_varus", "isoseq_varus", "mixed_varus", "stringtie")
+             "rnaseq_varus", "isoseq_varus", "mixed_varus", "stringtie", "chains")
 GENEFINDER_PATH_KEYS = ("result", "model_cfg", "model_dir")
 
 # Command line keys of the post-processing blocks: CLI key -> (block, key)
@@ -661,6 +661,7 @@ def validate_input_data(params: Dict, params_path: Path) -> List[str]:
         "rnaseq_bam": "RNA-Seq BAM",
         "isoseq": "Iso-Seq FASTQ",
         "stringtie": "StringTie assembly",
+        "chains": "Full-length transcripts (chains)",
         "scoring_matrix": "Scoring matrix",
         "proteins": "Protein FASTA",
     }

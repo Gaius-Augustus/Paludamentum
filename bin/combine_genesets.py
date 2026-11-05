@@ -12,7 +12,7 @@ combine_genesets.py - combine the Tiberius, Vipsania, Drusilla and TD2 gene sets
                 0 single transcript tool, Vipsania alone, Drusilla+TD2 without an ab initio tool
  4. ADJUST   lone ab initio models (Tiberius alone; with a tier table also Vipsania alone):
                up to 6    all introns RNA-supported / single exon >= --cov-full covered / all introns also
-                          predicted by another tool
+                          predicted by another tool / CDS chain inside one full-length transcript (--chains)
                up to 4.5  CDS identical to a miniprot model (--rescue-lone-miniprot)
                down to 2  best DIAMOND hit covers only part of a protein (length ratio outside 0.8-1.25),
                           unless identical to a miniprot model or all introns have protein hints
@@ -20,11 +20,17 @@ combine_genesets.py - combine the Tiberius, Vipsania, Drusilla and TD2 gene sets
                           the locus, but another candidate must become primary (--no-drop-lone-rna-conflict)
                down to 2  single exon, for the tools in --drop-lone-single-exon (insects: tiberius)
  5. DECIDE   per locus: keep it if its best model reaches --min-locus (default 4); primary = best-ranked
-             model (tier; Drusilla+TD2 agreement ranks 5.5; -2 for an RNA-unsupported intron); further
-             isoforms if tier >= --iso-min-tier (8), or Drusilla+TD2 agree on them, they share the primary's
-             stop or >= 95% of its length, and their new introns are RNA-supported (--iso-dt filtered).
+             model (tier; Drusilla+TD2 agreement ranks 5.5; -2 for an RNA-unsupported intron; +1 for a CDS
+             chain inside one full-length transcript); further isoforms if tier >= --iso-min-tier (8), or
+             their CDS chain lies in one full-length transcript and they reach --iso-chain-min-tier (4), or
+             Drusilla+TD2 agree on them, they share the primary's stop or >= 95% of its length, and their new
+             introns are RNA-supported (--iso-dt filtered; --iso-dt-chains: and they lie in one full-length
+             transcript).
 
-All rules only act when their evidence is given (--introns, --coverage, DIAMOND tables, miniprot files).
+Full-length transcripts (--chains) are transcripts assembled from long reads (StringTie -L). A model's CDS
+chain lies in one of them ('full') if its introns are a run of the transcript's introns and its terminal CDS
+segments lie in the flanking exons (a single-exon CDS: inside one exon).
+All rules only act when their evidence is given (--introns, --coverage, --chains, DIAMOND tables, miniprot files).
 --keep-all keeps every structure and switches all rules off (labelling / calibration runs).
 
 Usage (recommended):
@@ -200,6 +206,71 @@ def covered_bases(cov, contig, a, b):
 def introns_of(s):
     segs = s['segs']
     return [(s['contig'], segs[i][1] + 1, segs[i + 1][0] - 1) for i in range(len(segs) - 1)]
+
+
+# ----------------------------------------------------------------------------- full-length transcripts
+
+def read_chains(paths):
+    """Transcripts of full-length reads (e.g. the StringTie -L assembly of long reads): their exon chains,
+    an index of every intron occurrence and one of every exon. Unstranded transcripts count for both strands."""
+    chains = []                   # id -> exons in genomic order
+    occ = defaultdict(list)       # (contig, strand, (a, b)) -> [(chain id, intron index)]
+    exons = defaultdict(list)     # (contig, strand) -> [(start, end)] of every exon
+    for p in paths:
+        for t in read_annotation(p, 'chain').values():
+            ex = merge_intervals(t['exons'])
+            if not ex:
+                continue
+            cid = len(chains)
+            chains.append(ex)
+            for sd in ((t['strand'],) if t['strand'] in ('+', '-') else ('+', '-')):
+                for i in range(len(ex) - 1):
+                    occ[(t['contig'], sd, (ex[i][1] + 1, ex[i + 1][0] - 1))].append((cid, i))
+                exons[(t['contig'], sd)].extend(ex)
+    index = {}
+    for k, l in exons.items():
+        l.sort()
+        index[k] = ([a for a, _ in l], l, max((b - a for a, b in l), default=0))
+    return chains, occ, index
+
+
+def chain_support(s, chains):
+    """'full' if the CDS chain of the model lies in one full-length transcript: its introns are a run of the
+    transcript's introns and the terminal CDS segments lie in the flanking exons (a single-exon CDS lies in one
+    exon). 'partial' if an intron of the model occurs in such a transcript (a single-exon CDS: overlaps one)
+    without a full match, else 'none'. Returns (support, number of transcripts with the full chain)."""
+    ch, occ, index = chains
+    c, st, segs = s['contig'], s['strand'], s['segs']
+    lo, hi = segs[0][0], segs[-1][1]
+    ints = [(a, b) for _, a, b in introns_of(s)]
+    if ints:
+        m, n = len(ints), 0
+        for cid, i in occ.get((c, st, ints[0]), []):
+            ex = ch[cid]
+            if i + m > len(ex) - 1:
+                continue
+            if all((ex[i + k][1] + 1, ex[i + k + 1][0] - 1) == ints[k] for k in range(m)) \
+                    and ex[i][0] <= lo and hi <= ex[i + m][1]:
+                n += 1
+        if n:
+            return 'full', n
+        return ('partial', 0) if any((c, st, it) in occ for it in ints) else ('none', 0)
+    if (c, st) not in index:
+        return 'none', 0
+    starts, iv, maxlen = index[(c, st)]
+    n = overlap = 0
+    i = bisect.bisect_left(starts, lo - maxlen)
+    while i < len(iv) and iv[i][0] <= hi:
+        a, b = iv[i]
+        i += 1
+        if b < lo:
+            continue
+        overlap += 1
+        if a <= lo and hi <= b:
+            n += 1
+    if n:
+        return 'full', n
+    return ('partial', 0) if overlap else ('none', 0)
 
 
 # ----------------------------------------------------------------------------- protein evidence (features only)
@@ -543,6 +614,9 @@ def adjust_tier(s, cfg):
     if not is_lone(s):
         return
     n_int = s['n_introns']
+    if cfg.get('chain_rules') and s.get('chain_support') == 'full' and RESCUE_TIER > s['tier']:
+        s['tier'], s['adj'] = RESCUE_TIER, 'up_chain_support'
+        return
     if cfg['agree_rules'] and n_int > 0 and s['tool_intron_frac'] == 1.0:
         if RESCUE_TIER > s['tier']:
             s['tier'], s['adj'] = RESCUE_TIER, 'up_intron_agreement'
@@ -561,7 +635,7 @@ def is_dt(s):
     return 'drusilla' in T and 'td2' in T and 'tiberius' not in T and 'vipsania' not in T
 
 
-def rank_score(s, rna_penalty=0.0):
+def rank_score(s, rna_penalty=0.0, chain_bonus=0.0):
     if TIER_TABLE is not None:
         r = s['tier']                     # the table already rates Drusilla+TD2 agreement
     else:
@@ -569,6 +643,9 @@ def rank_score(s, rna_penalty=0.0):
     # inside a locus, prefer candidates whose introns are all RNA-supported
     if rna_penalty and s.get('n_introns') and s.get('rna_frac') not in ('', None) and s['rna_frac'] < 1:
         r -= rna_penalty
+    # and those whose CDS chain lies in one full-length transcript
+    if chain_bonus and s.get('chain_support') == 'full':
+        r += chain_bonus
     return r + 0.01 * len(s['tools'])
 
 
@@ -607,7 +684,8 @@ def stop_pos(s):
     return s['segs'][-1][1] if s['strand'] == '+' else s['segs'][0][0]
 
 
-def decide(members, min_locus, iso_min_tier, iso_dt, iso_rna=False, min_mult=2, **_):
+def decide(members, min_locus, iso_min_tier, iso_dt, iso_rna=False, min_mult=2, iso_chain_min_tier=None,
+           iso_dt_chains=False, **_):
     members.sort(key=lambda s: (-s['score'], s['segs']))
     open_locus = max((s.get('open_tier', s['tier']) if has_abinitio(s) else 0)
                      for s in members) >= min_locus
@@ -634,9 +712,13 @@ def decide(members, min_locus, iso_min_tier, iso_dt, iso_rna=False, min_mult=2, 
             s['keep'], s['why'] = True, 'primary'
         elif s['tier'] >= iso_min_tier:
             s['keep'], s['why'] = True, 'isoform_tier'
+        elif iso_chain_min_tier is not None and s.get('chain_support') == 'full' and (
+                5.5 if (is_dt(s) and TIER_TABLE is None) else s['tier']) >= iso_chain_min_tier:
+            s['keep'], s['why'] = True, 'isoform_chain'
         elif is_dt(s) and (iso_dt == 'all' or (iso_dt == 'filtered' and (
                 stop_pos(s) == stop_pos(prim) or s['cds_len'] >= 0.95 * prim['cds_len']))) and (
-                not iso_rna or s['novel_rna_frac'] in ('', 1.0)):
+                not iso_rna or s['novel_rna_frac'] in ('', 1.0)) and (
+                not iso_dt_chains or s.get('chain_support') == 'full'):
             s['keep'], s['why'] = True, 'isoform_drusilla_td2'
         else:
             s['keep'], s['why'] = False, 'isoform_rejected'
@@ -771,6 +853,20 @@ def main():
                    help='keep multi-exon models of one ab initio tool whose introns are only partly RNA-supported '
                         '(dropped by default when --introns is given)')
 
+    g = ap.add_argument_group('full-length transcripts')
+    g.add_argument('--chains', nargs='*', default=[],
+                   help='transcripts of full-length reads with exon lines (GTF/GFF3), e.g. the StringTie -L '
+                        'assembly of the long reads')
+    g.add_argument('--iso-chain-min-tier', type=float, default=4, metavar='TIER',
+                   help='keep an additional isoform whose CDS chain lies in one full-length transcript if its '
+                        'tier (Drusilla+TD2: 5.5) reaches this [4]')
+    g.add_argument('--iso-dt-chains', action='store_true',
+                   help='Drusilla+TD2 isoforms need a full-length transcript holding their CDS chain')
+    g.add_argument('--rank-chain-bonus', type=float, default=1.0,
+                   help='rank bonus inside a locus for a model whose CDS chain lies in one full-length transcript [1]')
+    g.add_argument('--no-chain-rules', action='store_true',
+                   help='compute the full-length transcript features but do not use them')
+
     g = ap.add_argument_group('protein evidence')
     for t in TOOLS:
         g.add_argument(f'--diamond-{t}', help=f'DIAMOND outfmt-6 table for the {t} proteins')
@@ -795,7 +891,7 @@ def main():
 
     if a.keep_all:
         a.min_locus, a.iso_min_tier, a.iso_dt = 0, 0, 'all'
-        a.no_rna_rules = a.no_agree_rules = True
+        a.no_rna_rules = a.no_agree_rules = a.no_chain_rules = True
         a.drop_lone_rna_conflict = a.prot_drop_partial = a.rescue_on = False
         a.drop_lone_single_exon = None
     a.rescue_lone_miniprot = a.rescue_lone_miniprot if a.rescue_on else None
@@ -826,9 +922,15 @@ def main():
     imult = read_intron_hints(a.introns) if a.introns else {}
     cov = read_bedgraph(a.coverage, a.min_depth) if a.coverage else None
     have_rna = bool(a.introns) or cov is not None
+    chains = read_chains(a.chains) if a.chains else None
+    chain_rules = chains is not None and not a.no_chain_rules
     rcfg = dict(rna_rules=not a.no_rna_rules, agree_rules=not a.no_agree_rules, have_rna=have_rna,
-                cov_full=a.cov_full)
-    cfg.update(iso_rna=bool(a.introns) and not a.no_rna_rules, min_mult=a.min_mult)
+                cov_full=a.cov_full, chain_rules=chain_rules)
+    cfg.update(iso_rna=bool(a.introns) and not a.no_rna_rules, min_mult=a.min_mult,
+               iso_chain_min_tier=a.iso_chain_min_tier if chain_rules else None,
+               iso_dt_chains=a.iso_dt_chains and chain_rules)
+    rna_pen = a.rank_rna_penalty if a.introns else 0.0
+    chain_bonus = a.rank_chain_bonus if chain_rules else 0.0
 
     S = list(structs.values())
     intron_tools = defaultdict(set)
@@ -845,10 +947,11 @@ def main():
         s['rna_cov'] = (sum(covered_bases(cov, s['contig'], x, y) for x, y in s['segs']) / s['cds_len']
                         if cov is not None else None)
         s['tool_intron_frac'] = (sum(bool(intron_tools[i] - s['tools']) for i in ints) / len(ints)) if ints else ''
+        s['chain_support'], s['chain_n'] = chain_support(s, chains) if chains is not None else ('', '')
         s['adj'] = ''
         s['tier'] = locus_tier(s)
         adjust_tier(s, rcfg)
-        s['score'] = rank_score(s, a.rank_rna_penalty if a.introns else 0.0)
+        s['score'] = rank_score(s, rna_pen, chain_bonus)
         s['rep'] = min(s['members'], key=lambda m: (prefer.get(m['tool'], 99), m['orig_id']))
 
     S = cluster(S)
@@ -871,7 +974,7 @@ def main():
         elif a.rescue_lone_miniprot is not None and single_tool in ('tiberius', 'vipsania') and mp_ok \
                 and s['tier'] < a.rescue_lone_miniprot:
             s['tier'], s['adj'] = a.rescue_lone_miniprot, 'up_lone_miniprot'
-        s['score'] = rank_score(s, a.rank_rna_penalty if a.introns else 0.0)
+        s['score'] = rank_score(s, rna_pen, chain_bonus)
     by_cl = defaultdict(list)
     for s in S:
         by_cl[s['cluster']].append(s)
@@ -916,7 +1019,7 @@ def main():
             rp.write('cluster\tcontig\tstrand\tcds_start\tcds_end\tn_cds_exons\tcds_len\ttools\tlocus_tier\t'
                      'rank_score\trank_in_cluster\tkept\treason\toutput_id\tbase_tier\tadjustment\tn_introns\t'
                      'rna_introns\trna_frac\trna_min_mult\trna_cov\ttool_intron_frac\tnovel_introns\t'
-                     'novel_rna_frac\t' + '\t'.join(PROT_COLS) + '\tmember_ids\n')
+                     'novel_rna_frac\tchain_support\tchain_n\t' + '\t'.join(PROT_COLS) + '\tmember_ids\n')
             for s in S:
                 rp.write('\t'.join(map(str, [
                     s['cluster'], s['contig'], s['strand'], s['segs'][0][0], s['segs'][-1][1], len(s['segs']),
@@ -924,6 +1027,7 @@ def main():
                     int(s['keep']), s['why'], s.get('out_tid', ''), s['tier_base'], s['adj'] or '.',
                     s['n_introns'], s['rna_introns'], rnd(s['rna_frac']), s['rna_min_mult'], rnd(s['rna_cov']),
                     rnd(s['tool_intron_frac']), s['novel_introns'], rnd(s['novel_rna_frac']),
+                    s['chain_support'], s['chain_n'],
                     *[rnd(s[c]) if isinstance(s[c], float) else s[c] for c in PROT_COLS],
                     ','.join(f"{m['tool']}:{m['orig_id']}" for m in s['members'])])) + '\n')
 
@@ -950,8 +1054,18 @@ def main():
         if n_i and n_hit / n_i < 0.5:
             print('WARNING: <50% of introns of well-supported models match a hint - check contig names and '
                   'intron coordinates (hints must span first..last intron base)', file=sys.stderr)
+    if chains is not None:
+        cs = defaultdict(int)
+        for s in S:
+            cs[s['chain_support']] += 1
+        hi = [s for s in S if s['tier_base'] >= 9]
+        n_full = sum(s['chain_support'] == 'full' for s in hi)
+        print(f'full-length transcripts: {len(chains[0])}; models ' +
+              ', '.join(f'{k}={v}' for k, v in sorted(cs.items())) +
+              f'; tier>=9 models with the chain in one transcript: {n_full / max(len(hi), 1):.1%}', file=sys.stderr)
     print('tier adjustments: ' + ', '.join(f'{k}={v}' for k, v in sorted(adj.items())), file=sys.stderr)
-    for k in ['primary', 'isoform_tier', 'isoform_drusilla_td2', 'isoform_rejected', 'locus_below_min']:
+    for k in ['primary', 'isoform_tier', 'isoform_chain', 'isoform_drusilla_td2', 'isoform_rejected',
+              'locus_below_min']:
         print(f'  {k}: {why[k]}', file=sys.stderr)
 
 

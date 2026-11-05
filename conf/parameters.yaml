@@ -34,6 +34,11 @@ genome: /path/to/genome.fa
 # assembled); pyVARUS directories may not. Without reads: no coverage, no introns.
 # stringtie: /path/to/stringtie.gtf
 #
+# Transcripts of full-length reads (GTF/GFF3, e.g. the stringtie -L assembly of
+# long reads) as chain evidence for the combiner; in mixed mode made automatically.
+# chains:
+#   - /path/to/isoseq_stringtie_L.gtf
+#
 # Library strandedness recovered in every short-read BAM before StringTie
 # (drusilla strand-fix-bam); off: the BAMs are assembled as they are.
 # strand_fix: true

@@ -1,11 +1,13 @@
 nextflow.enable.dsl=2
 
 // Integrate the four gene sets (Tiberius, Vipsania, revised TD2, Drusilla)
-// with the DIAMOND tables, miniprot/miniprothint protein hints and RNA-Seq
-// coverage/intron hints into one annotation (combined.gff3). The insect flag
-// (passed from main.nf for Insecta/Lepidoptera gene finder models) adds
-// --drop-lone-single-exon tiberius. All combine_genesets.py thresholds other
-// than --min-locus use the script defaults.
+// with the DIAMOND tables, miniprot/miniprothint protein hints, RNA-Seq
+// coverage/intron hints and, when there are any, full-length transcripts
+// (--chains: the StringTie -L assembly of long reads, or params.chains) into
+// one annotation (combined.gff3). The insect flag (passed from main.nf for
+// Insecta/Lepidoptera gene finder models) adds --drop-lone-single-exon
+// tiberius. All combine_genesets.py thresholds other than --min-locus use
+// the script defaults.
 //
 // Inputs that may share a file name are staged apart (Nextflow refuses two
 // input files of one name): the four DIAMOND tables are all diamond.tsv, and
@@ -24,6 +26,9 @@ process COMBINE_GENESETS {
     // reads) is left out of the command below
     path introns, stageAs: 'introns/?/*'
     path cov, stageAs: 'coverage/*'
+    // full-length transcripts (GTF/GFF3 with exon lines) with the placeholder,
+    // or the placeholder alone: then combine_genesets.py runs without --chains
+    path chains, stageAs: 'chains/?/*'
     path dia_tib, stageAs: 'diamond/tiberius.tsv'
     path dia_vip, stageAs: 'diamond/vipsania.tsv'
     path dia_dru, stageAs: 'diamond/drusilla.tsv'
@@ -50,6 +55,11 @@ process COMBINE_GENESETS {
   done
   if [ -n "\$rna_args" ]; then rna_args="--introns\$rna_args"; fi
   if [ -s ${cov} ]; then rna_args="\$rna_args --coverage ${cov}"; fi
+  chain_args=""
+  for f in ${chains}; do
+      if [ -s "\$f" ]; then chain_args="\$chain_args \$f"; fi
+  done
+  if [ -n "\$chain_args" ]; then chain_args="--chains\$chain_args"; fi
   combine_genesets.py \\
       --tiberius ${tib_gff} \\
       --vipsania ${vip_gff} \\
@@ -64,7 +74,7 @@ process COMBINE_GENESETS {
       --miniprot-rep   ${mp_rep} \\
       --protein-hints  ${hc_hints} \\
       --min-locus ${min_locus} ${drop} \\
-      \$rna_args \\
+      \$rna_args \$chain_args \\
       -o combined.gff3 \\
       --report combined.report.tsv
   """

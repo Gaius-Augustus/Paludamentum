@@ -378,6 +378,36 @@ def test_stringtie_with_varus_directory_is_rejected(tmp_path: Path) -> None:
     assert "pyVARUS directory brings its own" in proc.stdout + proc.stderr
 
 
+# ---- full-length transcripts (chains) -----------------------------------------
+
+
+def test_mixed_with_given_stringtie_assembles_the_chains(tmp_path: Path) -> None:
+    """Mixed mode with a given assembly: the Iso-Seq reads are assembled alone for --chains."""
+    params = {"stringtie": fake_stringtie_gtf(tmp_path), **PROTEINS, **SHORT_READS, **ISOSEQ,
+              "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "STRINGTIE_ASSEMBLE_CHAINS" in proc.stdout, proc.stdout[-2000:]
+    assert "COMBINE_GENESETS" in proc.stdout
+
+
+def test_rnaseq_with_given_stringtie_does_not_assemble_chains(tmp_path: Path) -> None:
+    params = {"stringtie": fake_stringtie_gtf(tmp_path), **PROTEINS, **SHORT_READS, "mode": "rnaseq",
+              "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "STRINGTIE_ASSEMBLE_CHAINS" not in proc.stdout
+    assert "COMBINE_GENESETS" in proc.stdout
+
+
+def test_missing_chains_file_is_rejected(tmp_path: Path) -> None:
+    params = {"chains": str(tmp_path / "nonexistent_chains.gtf"), **EVIDENCE["rnaseq"],
+              "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert proc.returncode != 0
+    assert "chains: no such file" in proc.stdout + proc.stderr
+
+
 # ---- regressions of the combined flow -----------------------------------------
 
 

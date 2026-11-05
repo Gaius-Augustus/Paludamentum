@@ -222,6 +222,44 @@ coverage track and no intron hints: `combine_genesets.py` runs without
 `--coverage` and `--introns`, its RNA rules stay off, and `hintsfile.gff`
 holds protein hints only.
 
+### Long-read transcripts (chains)
+
+`chains` (`--chains`) takes one or more GTF or GFF3 files (with exon lines) of
+transcripts of full-length reads, typically the `stringtie -L` assembly of
+long reads. They go to `combine_genesets.py --chains`. The ORF callers (TD2,
+Drusilla) still run on the one assembly of the run; only the combiner sees
+these transcripts. A missing file is an error. The parameter works in every
+evidence mode (`rnaseq`, `isoseq`, `mixed`) and is ignored, with a warning,
+in the other modes.
+
+```yaml
+chains:
+  - /path/to/isoseq_stringtie_L.gtf
+```
+
+The combiner calls the CDS chain of a model `full` when its introns are a
+run of the introns of one full-length transcript and its terminal CDS
+segments lie in the flanking exons (a single-exon CDS: inside one exon).
+Such a chain raises a lone ab initio model to tier 6, adds 1 to the rank of
+the model inside its locus, and keeps a further isoform if its tier reaches
+4 (`--iso-chain-min-tier`). The report TSV has the columns `chain_support`
+(`full`, `partial`, `none`) and `chain_n`.
+
+In `mixed` mode the pipeline makes the chains itself when you give no
+`chains`: the `stringtie -L` assembly of the Iso-Seq reads alone.
+`ISOSEQ_EVIDENCE` makes it next to the `--mix` assembly, and an
+`isoseq_varus` directory brings it. With a `stringtie` assembly and Iso-Seq
+reads, the pipeline assembles the Iso-Seq BAM with `-L`
+(`STRINGTIE_ASSEMBLE_CHAINS`). A `mixed_varus` directory alone brings no
+long-read-only assembly, so there are no chains unless you give `chains`.
+Runs in `rnaseq` mode are unchanged unless `chains` is given.
+
+On H. sapiens, the chains raised the transcript F1 (CDS level, gffcompare)
+from 51.5 to 52.2 over the `--mix` assembly alone. The gain is bounded by
+the long-read depth: the long-read assembly held the full CDS chain of 27.5%
+of the reference CDS structures. `--iso-dt-chains` (off) would also require
+a chain for Drusilla+TD2 isoforms; it cost 1.5 to 1.8 F1 there.
+
 ## Gene finder: Tiberius
 
 In evidence modes Tiberius always runs; set `tiberius.model_cfg` to a
