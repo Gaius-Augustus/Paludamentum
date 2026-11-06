@@ -152,6 +152,18 @@ def test_version_mismatch_is_reported(tmp_path: Path):
     assert len(problems) == 1 and "2.0.7" in problems[0] and "9.9.9" in problems[0]
 
 
+def test_dev_tag_is_noted_not_a_mismatch(tmp_path: Path):
+    """A development image (tag dev) is listed by dev_images, not reported as a mismatch."""
+    (tmp_path / "conf").mkdir()
+    (tmp_path / "conf" / "base.config").write_text(
+        'container = "docker://x/drusilla:dev"\ncontainer = "docker://x/tiberius:2.0.7"\n')
+    for name, version in (("drusilla", "0.3.0"), ("tiberius", "2.0.7")):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "pyproject.toml").write_text(f'[project]\nversion = "{version}"\n')
+    assert launcher.version_mismatches(tmp_path) == []
+    assert launcher.dev_images(tmp_path) == ["drusilla"]
+
+
 @needs_tiberius
 def test_nextflow_env_appends_a_callable_tiberius_py(tmp_path: Path, monkeypatch):
     """tiberius.py is not executable in the Tiberius repository: a wrapper makes it callable."""

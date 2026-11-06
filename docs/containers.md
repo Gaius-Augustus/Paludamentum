@@ -5,7 +5,7 @@
 | evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, bedtools, TransDecoder utilities, TD2, GffRead, GenomeTools, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.2` | [docker/evidence/Dockerfile](../docker/evidence/Dockerfile) |
 | Tiberius | `docker://gaiusaugustus/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
-| Drusilla ORFs (step 4 of the combined HC flow) | `docker://gaiusaugustus/drusilla:<version>` | [docker/drusilla/Dockerfile](../docker/drusilla/Dockerfile) |
+| Drusilla ORFs (step 4 of the combined HC flow) | `docker://gaiusaugustus/drusilla:<version>` | `docker/Dockerfile` in the Drusilla repository |
 | post-processing: compleasm, GffCompare, tRNAscan-SE, Infernal, pybarrnap, gene set statistics, report | `docker://gaiusaugustus/paludamentum-postprocess:0.1.2` | [docker/postprocess/Dockerfile](../docker/postprocess/Dockerfile) |
 | BUSCO | `docker://ezlabgva/busco:v6.1.0_cv2` | the BUSCO project |
 | FEELnc (lncRNA) | `docker://quay.io/biocontainers/feelnc:0.2--pl526_0` | BioContainers |
@@ -18,11 +18,16 @@ built from source at fixed commits. The versions are those of the image the
 pipeline was benchmarked with. Its tag is versioned on its own; bump it
 whenever the Dockerfile changes.
 
-The Drusilla image is Drusilla at the commit the `drusilla/` submodule
-points to, on the same NGC TensorFlow base as the Tiberius image. Its tag
-is the Drusilla version: `gaiusaugustus/drusilla:0.3.0` is built from Drusilla
-0.3.0 (branch `strand`) with pysam, which `STRAND_FIX_BAM` needs. 0.3.0 takes
-the assembly as `--assembly-gtf`, which `DRUSILLA_ANNOTATE` passes.
+The Drusilla image is built in the Drusilla repository by its
+`docker/build_push.sh`, from a Drusilla commit and on the same NGC TensorFlow
+base as the Tiberius image. It holds Drusilla with its bundled model and
+pysam, which `STRAND_FIX_BAM` needs. A release is tagged with the Drusilla
+version, which must match the `drusilla/` submodule. While Drusilla's branch
+`strand` is not merged into main, conf/base.config runs
+`gaiusaugustus/drusilla:dev`, the image of that branch; the launcher notes
+this development image instead of comparing its tag with the submodule
+version. `DRUSILLA_ANNOTATE` needs Drusilla 0.3.0 or later, which takes the
+assembly as `--assembly-gtf`.
 
 The post-processing image is micromamba with one environment of pinned
 Bioconda packages (version and build) and compleasm 0.2.9 from its release
@@ -35,7 +40,8 @@ process labels `container` (evidence image), `tiberius`, `vipsania`,
 `drusilla`, `postprocess`, `busco`, `feelnc`, `omark` and `fantasia`; a
 process carries at most one of them (processes that run on the submitting
 host carry none). The image tag of a gene finder must match the version of
-its submodule; the launcher warns when they differ. The pipeline scripts in
+its submodule; the launcher warns when they differ and only notes a `dev`
+tag. The pipeline scripts in
 `bin/` are not part of an image. Nextflow adds `bin/` to the `PATH` of
 every task and mounts it into the container.
 

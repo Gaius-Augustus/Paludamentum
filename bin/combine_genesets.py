@@ -33,16 +33,32 @@ segments lie in the flanking exons (a single-exon CDS: inside one exon).
 All rules only act when their evidence is given (--introns, --coverage, --chains, DIAMOND tables, miniprot files).
 --keep-all keeps every structure and switches all rules off (labelling / calibration runs).
 
+Learned selection (--classifier MODEL.json, the Paludamentum default) replaces steps 3-5 by a probability:
+the candidate pool is built as with --keep-all (every structure, all tier rules off), a gradient-boosted tree
+model predicts P(structure = reference CDS) per candidate from the report features (tools, structure, locus
+context, RNA and protein evidence; no clade input), and per locus the best candidate becomes primary if its
+P reaches t_locus, further candidates are isoforms if their P reaches t_iso. The thresholds come from the
+model file (--unknown-clade: its more conservative locus threshold for clades outside the training clades;
+--t-locus / --t-iso override). --drop-lone-single-exon still applies: those structures are never selected.
+Full-length transcripts (--chains) were not available for the training species, so they enter as a correction
+of P: the log-odds of a structure whose CDS chain lies in one full-length transcript move by
+--chain-logit-full, those of a 'partial' structure by --chain-logit-partial (calibrated on H. sapiens).
+--min-locus, --iso-* and the RNA / protein rule switches have no effect in this mode; --tier-table is refused.
+The model was trained on the keep-all pools of 15 species with gffcompare labels (see conf/ in Paludamentum).
+
 Usage (recommended):
   combine_genesets.py --tiberius tib.gtf --vipsania vip.gtf --drusilla dru.gtf --td2 td2.gtf \
       --introns introns.gff --coverage cov.bg.gz \
       --diamond-tiberius t.tsv --diamond-vipsania v.tsv --diamond-drusilla d.tsv --diamond-td2 x.tsv \
       --miniprot-train miniprot_trainingGenes.gff --miniprot-rep miniprot_representatives.gff \
-      --protein-hints hc.gff [--tier-table clade.tsv --min-locus 3] [--drop-lone-single-exon tiberius] \
+      --protein-hints hc.gff [--classifier combiner_classifier_v1.json [--unknown-clade]] \
+      [--tier-table clade.tsv --min-locus 3] [--drop-lone-single-exon tiberius] \
       -o combined.gtf --report combined.report.tsv
 """
 import argparse
 import bisect
+import json
+import math
 import re
 import sys
 from collections import defaultdict
@@ -724,6 +740,195 @@ def decide(members, min_locus, iso_min_tier, iso_dt, iso_rna=False, min_mult=2, 
             s['keep'], s['why'] = False, 'isoform_rejected'
 
 
+# ----------------------------------------------------------------------------- report
+
+REPORT_COLS = ['cluster', 'contig', 'strand', 'cds_start', 'cds_end', 'n_cds_exons', 'cds_len', 'tools', 'locus_tier',
+               'rank_score', 'rank_in_cluster', 'kept', 'reason', 'output_id', 'base_tier', 'adjustment', 'n_introns',
+               'rna_introns', 'rna_frac', 'rna_min_mult', 'rna_cov', 'tool_intron_frac', 'novel_introns',
+               'novel_rna_frac', 'chain_support', 'chain_n'] + PROT_COLS + ['member_ids']
+
+
+def rnd(x):
+    return '' if x is None or x == '' else round(x, 3)
+
+
+def report_row(s):
+    """the --report values of a structure, in REPORT_COLS order (also the input of the classifier features)"""
+    return [s['cluster'], s['contig'], s['strand'], s['segs'][0][0], s['segs'][-1][1], len(s['segs']),
+            s['cds_len'], ','.join(sorted(s['tools'])), s['tier'], round(s['score'], 2), s['rank'],
+            int(s['keep']), s['why'], s.get('out_tid', ''), s['tier_base'], s['adj'] or '.',
+            s['n_introns'], s['rna_introns'], rnd(s['rna_frac']), s['rna_min_mult'], rnd(s['rna_cov']),
+            rnd(s['tool_intron_frac']), s['novel_introns'], rnd(s['novel_rna_frac']),
+            s['chain_support'], s['chain_n'],
+            *[rnd(s[c]) if isinstance(s[c], float) else s[c] for c in PROT_COLS],
+            ','.join(f"{m['tool']}:{m['orig_id']}" for m in s['members'])]
+
+
+# ----------------------------------------------------------------------------- learned selection
+
+CLASSIFIER_FORMAT = 'combine_genesets-classifier-1'
+NAN = float('nan')
+# defaults of --chain-logit-full / --chain-logit-partial. Calibrated on the H. sapiens runs with Iso-Seq (long-read
+# StringTie -L transcripts, 2026-11-06): full support is worth +1.5 to +1.7 log-odds beyond structures without
+# support (maximum likelihood), 'partial' support is worth nothing beyond 'none'. gffcompare: transcript F1
+# +1.2 / +1.7 (runs S / M) over the classifier without chains at 1.5; 2.0 gives +0.2 more at -1.3 precision.
+CHAIN_LOGIT_FULL = 1.5
+CHAIN_LOGIT_PARTIAL = 0.0
+
+
+def load_classifier(path):
+    """JSON export of the selection model: features (report-derived, see classifier_features), thresholds,
+    baseline log-odds and the trees (per tree: feat, thr, left, right, leaf, value, nan_left per node)."""
+    with open(path) as fh:
+        clf = json.load(fh)
+    if clf.get('format') != CLASSIFIER_FORMAT:
+        sys.exit(f'{path}: not a combine_genesets classifier (format {clf.get("format")!r}, '
+                 f'expected {CLASSIFIER_FORMAT!r})')
+    for k in ('features', 'trees', 'baseline', 't_locus', 't_iso'):
+        if k not in clf:
+            sys.exit(f'{path}: classifier file lacks {k!r}')
+    return clf
+
+
+def _num(v):
+    """report value -> float; '' / None / non-numeric -> NaN (pandas.to_numeric(errors='coerce') on the TSV)"""
+    if v is None or v == '':
+        return NAN
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return NAN
+
+
+def _isnan(x):
+    return x != x
+
+
+def _agg(vals, fn):
+    """aggregate over the non-NaN values; NaN if there is none (pandas groupby max / min / median)"""
+    v = [x for x in vals if not _isnan(x)]
+    return fn(v) if v else NAN
+
+
+CLF_PASS = ['prot_intron_frac', 'prot_intron_min_n', 'prot_start', 'prot_stop', 'prot_hints_in_span', 'prot_extra',
+            'prot_shifted', 'prot_beyond', 'dmd_hit', 'dmd_bits_per_aa', 'dmd_bits_rel_cluster', 'dmd_pident',
+            'dmd_n_taxa', 'dmd_qcov', 'dmd_tcov', 'dmd_nterm_offset', 'dmd_cterm_offset', 'rna_frac', 'rna_cov',
+            'tool_intron_frac', 'novel_introns', 'novel_rna_frac', 'base_tier', 'n_cds_exons', 'cds_len', 'n_introns']
+
+
+def classifier_features(S, by_cl):
+    """One feature dict per structure (S order), computed from the report values exactly as the training code
+    (select_classifier.py features()) computes them from a --keep-all report: missing evidence is NaN, locus
+    context comes from all structures of the cluster, RNA multiplicity is normalised by the species' median
+    over the four-tool structures."""
+    F = []
+    for s in S:
+        r = dict(zip(REPORT_COLS, report_row(s)))
+        f = {'by_' + t: int(t in r['tools']) for t in TOOLS}
+        f['ntools'] = sum(f['by_' + t] for t in TOOLS)
+        f['dt'] = int(f['by_drusilla'] == 1 and f['by_td2'] == 1 and f['by_tiberius'] == 0 and f['by_vipsania'] == 0)
+        for c in CLF_PASS:
+            f[c] = _num(r[c])
+        f['log_cds_len'] = math.log10(max(f['cds_len'], 1.0))
+        mm = _num(r['rna_min_mult'])
+        f['log_mult'] = NAN if _isnan(mm) else math.log1p(mm)
+        f['mp_match'] = _agg([_num(r['mp_train_match']), _num(r['mp_rep_match'])], max)
+        nh, nt = _num(r['dmd_n_hits']), f['dmd_n_taxa']
+        f['hits_per_taxon'] = NAN if (_isnan(nh) or _isnan(nt)) else (nh / nt if nt else (math.inf if nh > 0 else NAN))
+        lr = _num(r['dmd_len_ratio'])
+        f['lr_dev'] = NAN if _isnan(lr) else abs(math.log(min(max(lr, 0.01), 100.0)))
+        F.append(f)
+    ref = _agg([f['log_mult'] for f in F if f['ntools'] == 4], _median)
+    ref = 0.0 if _isnan(ref) else ref
+    for members in by_cl.values():
+        fs = [F[s['_ix']] for s in members]
+        maxtier = _agg([f['base_tier'] for f in fs], max)
+        max_ntools = max(f['ntools'] for f in fs)
+        max_len = _agg([f['cds_len'] for f in fs], max)
+        max_rf = _agg([f['rna_frac'] for f in fs], max)
+        min_lr = _agg([f['lr_dev'] for f in fs], min)
+        max_pif = _agg([f['prot_intron_frac'] for f in fs], max)
+        max_hit = _agg([f['dmd_hit'] for f in fs], max)
+        for f in fs:
+            f['cl_n'] = len(fs)
+            f['cl_maxtier'] = maxtier
+            f['tier_gap'] = f['base_tier'] - maxtier
+            f['cl_max_ntools'] = max_ntools
+            f['ntools_gap'] = f['ntools'] - max_ntools
+            f['len_rel_cluster'] = f['cds_len'] / max_len
+            f['log_mult_rel'] = f['log_mult'] - ref
+            f['rna_frac_rel'] = (1.0 if _isnan(f['rna_frac']) else f['rna_frac']) - (1.0 if _isnan(max_rf) else max_rf)
+            f['lr_dev_rel'] = f['lr_dev'] - min_lr
+            f['pif_rel'] = (0.0 if _isnan(f['prot_intron_frac']) else f['prot_intron_frac']) - \
+                           (0.0 if _isnan(max_pif) else max_pif)
+            f['cl_has_hit'] = max_hit
+    return F
+
+
+def classifier_predict(clf, F):
+    """P per structure: sigmoid(baseline + sum of the leaf values); a node sends x <= thr left, NaN as nan_left."""
+    try:
+        import numpy as np
+    except ImportError:
+        sys.exit('--classifier needs numpy')
+    names = clf['features']
+    missing = [c for c in names if c not in F[0]] if F else []
+    if missing:
+        sys.exit(f'classifier features not computed by this version of combine_genesets.py: {missing}')
+    X = np.array([[f[c] for c in names] for f in F], dtype=float).reshape(len(F), len(names))
+    n = len(F)
+    raw = np.full(n, float(clf['baseline']))
+    rows = np.arange(n)
+    for t in clf['trees']:
+        feat, left, right = (np.asarray(t[k], dtype=int) for k in ('feat', 'left', 'right'))
+        thr, value = (np.asarray(t[k], dtype=float) for k in ('thr', 'value'))
+        leaf, nan_left = (np.asarray(t[k], dtype=bool) for k in ('leaf', 'nan_left'))
+        node = np.zeros(n, dtype=int)
+        active = ~leaf[node]
+        while active.any():
+            x = X[rows, feat[node]]
+            go_left = np.where(np.isnan(x), nan_left[node], x <= thr[node])
+            node = np.where(active, np.where(go_left, left[node], right[node]), node)
+            active = ~leaf[node]
+        raw += value[node]
+    return (1.0 / (1.0 + np.exp(-raw))).tolist()
+
+
+def chain_adjust(p, support, w_full, w_partial):
+    """P corrected for full-length transcript support (the model was trained without --chains): the log-odds
+    of a structure whose CDS chain lies in one full-length transcript move by w_full, those of a 'partial'
+    structure by w_partial. 'none' and '' (no --chains) are unchanged."""
+    w = w_full if support == 'full' else (w_partial if support == 'partial' else 0.0)
+    if not w:
+        return p
+    q = min(max(p, 1e-6), 1 - 1e-6)
+    return 1.0 / (1.0 + math.exp(-(math.log(q / (1 - q)) + w)))
+
+
+def classifier_select(S, by_cl, p, t_locus, t_iso, unselectable):
+    """Per locus: candidates ordered by P (ties: input order); the first is primary if its P >= t_locus, the
+    others are isoforms if P >= t_iso. Structures in `unselectable` (indices into S) are never selected and
+    never primary (--drop-lone-single-exon)."""
+    for s, pi in zip(S, p):
+        s['p_clf'] = float(pi)
+    for members in by_cl.values():
+        members.sort(key=lambda s: (-(-1.0 if s['_ix'] in unselectable else s['p_clf']), s['_ix']))
+        prim = members[0]
+        open_locus = prim['_ix'] not in unselectable and prim['p_clf'] >= t_locus
+        for r, s in enumerate(members):
+            s['rank'] = r + 1
+            if s['_ix'] in unselectable:
+                s['keep'], s['why'] = False, 'dropped_lone_single_exon'
+            elif not open_locus:
+                s['keep'], s['why'] = False, 'locus_below_min'
+            elif r == 0:
+                s['keep'], s['why'] = True, 'primary'
+            elif s['p_clf'] >= t_iso:
+                s['keep'], s['why'] = True, 'isoform_classifier'
+            else:
+                s['keep'], s['why'] = False, 'isoform_rejected'
+
+
 # ----------------------------------------------------------------------------- output
 
 def gtf_line(c, src, ft, s, e, st, frame, gid, tid, extra=''):
@@ -813,10 +1018,6 @@ def write_transcript_gff3(out, s, gid, tid, rep):
 
 # ----------------------------------------------------------------------------- main
 
-def rnd(x):
-    return '' if x is None or x == '' else round(x, 3)
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_argument_group('gene sets and output')
@@ -887,8 +1088,30 @@ def main():
     g.add_argument('--drop-lone-single-exon', metavar='TOOLS',
                    help='comma-separated tools (insects: tiberius): drop single-exon models of that tool alone '
                         'unless identical to a miniprot model')
+
+    g = ap.add_argument_group('learned selection')
+    g.add_argument('--classifier', metavar='MODEL.json',
+                   help='select by the probability of this model instead of the tier rules (candidate pool as with '
+                        '--keep-all; see the module docstring)')
+    g.add_argument('--unknown-clade', action='store_true',
+                   help='the clade is outside the training clades of the model: use its conservative locus threshold')
+    g.add_argument('--t-locus', type=float, help='locus threshold on P, overrides the model file')
+    g.add_argument('--t-iso', type=float, help='isoform threshold on P, overrides the model file')
+    g.add_argument('--chain-logit-full', type=float, default=CHAIN_LOGIT_FULL, metavar='W',
+                   help='with --chains: add W to the log-odds of P for a structure whose CDS chain lies in one '
+                        f'full-length transcript [{CHAIN_LOGIT_FULL}]')
+    g.add_argument('--chain-logit-partial', type=float, default=CHAIN_LOGIT_PARTIAL, metavar='W',
+                   help=f"with --chains: the same for 'partial' chain support [{CHAIN_LOGIT_PARTIAL}]")
     a = ap.parse_args()
 
+    clf = None
+    clf_drop_se = set()
+    if a.classifier:
+        if a.tier_table:
+            sys.exit('--classifier and --tier-table exclude each other')
+        clf = load_classifier(a.classifier)
+        clf_drop_se = set(a.drop_lone_single_exon.split(',')) if a.drop_lone_single_exon else set()
+        a.keep_all = True                          # candidate pool and features as in the training runs
     if a.keep_all:
         a.min_locus, a.iso_min_tier, a.iso_dt = 0, 0, 'all'
         a.no_rna_rules = a.no_agree_rules = a.no_chain_rules = True
@@ -955,6 +1178,8 @@ def main():
         s['rep'] = min(s['members'], key=lambda m: (prefer.get(m['tool'], 99), m['orig_id']))
 
     S = cluster(S)
+    for i, s in enumerate(S):
+        s['_ix'] = i
     protein_features(S, a)
     if a.prot_drop_partial and any(getattr(a, 'diamond_' + t) for t in TOOLS):
         for s in S:
@@ -980,6 +1205,19 @@ def main():
         by_cl[s['cluster']].append(s)
     for members in by_cl.values():
         decide(members, **cfg)
+
+    t_locus = t_iso = None
+    if clf is not None:
+        t_locus = a.t_locus if a.t_locus is not None else \
+            float(clf.get('t_locus_unknown_clade', clf['t_locus']) if a.unknown_clade else clf['t_locus'])
+        t_iso = a.t_iso if a.t_iso is not None else float(clf['t_iso'])
+        unselectable = {s['_ix'] for s in S
+                        if clf_drop_se and len(s['tools']) == 1 and next(iter(s['tools'])) in clf_drop_se
+                        and len(s['segs']) == 1 and not (s.get('mp_train_match') == 1 or s.get('mp_rep_match') == 1)}
+        p = classifier_predict(clf, classifier_features(S, by_cl))
+        if chains is not None:
+            p = [chain_adjust(pi, s['chain_support'], a.chain_logit_full, a.chain_logit_partial) for pi, s in zip(p, S)]
+        classifier_select(S, by_cl, p, t_locus, t_iso, unselectable)
 
     def cl_pos(cid):
         m = by_cl[cid]
@@ -1016,20 +1254,10 @@ def main():
 
     if a.report:
         with open(a.report, 'w') as rp:
-            rp.write('cluster\tcontig\tstrand\tcds_start\tcds_end\tn_cds_exons\tcds_len\ttools\tlocus_tier\t'
-                     'rank_score\trank_in_cluster\tkept\treason\toutput_id\tbase_tier\tadjustment\tn_introns\t'
-                     'rna_introns\trna_frac\trna_min_mult\trna_cov\ttool_intron_frac\tnovel_introns\t'
-                     'novel_rna_frac\tchain_support\tchain_n\t' + '\t'.join(PROT_COLS) + '\tmember_ids\n')
+            rp.write('\t'.join(REPORT_COLS + (['p_classifier'] if clf is not None else [])) + '\n')
             for s in S:
-                rp.write('\t'.join(map(str, [
-                    s['cluster'], s['contig'], s['strand'], s['segs'][0][0], s['segs'][-1][1], len(s['segs']),
-                    s['cds_len'], ','.join(sorted(s['tools'])), s['tier'], round(s['score'], 2), s['rank'],
-                    int(s['keep']), s['why'], s.get('out_tid', ''), s['tier_base'], s['adj'] or '.',
-                    s['n_introns'], s['rna_introns'], rnd(s['rna_frac']), s['rna_min_mult'], rnd(s['rna_cov']),
-                    rnd(s['tool_intron_frac']), s['novel_introns'], rnd(s['novel_rna_frac']),
-                    s['chain_support'], s['chain_n'],
-                    *[rnd(s[c]) if isinstance(s[c], float) else s[c] for c in PROT_COLS],
-                    ','.join(f"{m['tool']}:{m['orig_id']}" for m in s['members'])])) + '\n')
+                row = report_row(s) + ([round(s['p_clf'], 4)] if clf is not None else [])
+                rp.write('\t'.join(map(str, row)) + '\n')
 
     adj = defaultdict(int)
     for s in S:
@@ -1041,6 +1269,12 @@ def main():
           f' drop_lone_rna_conflict={a.drop_lone_rna_conflict and bool(a.introns)}'
           f' rescue_lone_miniprot={a.rescue_lone_miniprot} prot_drop_partial={a.prot_drop_partial}'
           f' drop_lone_single_exon={a.drop_lone_single_exon} keep_all={a.keep_all}', file=sys.stderr)
+    if clf is not None:
+        print(f'classifier: {a.classifier} ({len(clf["trees"])} trees, {len(clf["features"])} features) '
+              f't_locus={t_locus} t_iso={t_iso} unknown_clade={a.unknown_clade} '
+              f'drop_lone_single_exon={",".join(sorted(clf_drop_se)) or None}'
+              + (f' chain_logit_full={a.chain_logit_full} chain_logit_partial={a.chain_logit_partial}'
+                 if chains is not None else ''), file=sys.stderr)
     print('input transcripts with CDS: ' + ', '.join(f'{t}={n_in[t]}' for t in TOOLS), file=sys.stderr)
     print(f'unique CDS structures: {len(S)}; clusters: {len(by_cl)}; kept {n_kept} transcripts in '
           f'{gene_no} genes', file=sys.stderr)
@@ -1064,8 +1298,10 @@ def main():
               ', '.join(f'{k}={v}' for k, v in sorted(cs.items())) +
               f'; tier>=9 models with the chain in one transcript: {n_full / max(len(hi), 1):.1%}', file=sys.stderr)
     print('tier adjustments: ' + ', '.join(f'{k}={v}' for k, v in sorted(adj.items())), file=sys.stderr)
-    for k in ['primary', 'isoform_tier', 'isoform_chain', 'isoform_drusilla_td2', 'isoform_rejected',
-              'locus_below_min']:
+    keys = (['primary', 'isoform_classifier', 'isoform_rejected', 'locus_below_min', 'dropped_lone_single_exon']
+            if clf is not None else
+            ['primary', 'isoform_tier', 'isoform_chain', 'isoform_drusilla_td2', 'isoform_rejected', 'locus_below_min'])
+    for k in keys:
         print(f'  {k}: {why[k]}', file=sys.stderr)
 
 

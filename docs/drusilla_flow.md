@@ -4,7 +4,9 @@ Drusilla is one of the two ORF callers of step 4 of the pipeline (see the
 [overview](../README.md#what-the-pipeline-does)); the other is TD2. In every
 evidence run (`rnaseq`, `isoseq`, `mixed`), Drusilla predicts the ORFs on
 the StringTie assembly, and `combine_genesets.py` integrates its ORFs with
-the Tiberius, Vipsania and TD2 gene sets. The dedicated "Drusilla flow"
+the Tiberius, Vipsania and TD2 gene sets (by default selecting the
+structures with a learned classifier, with the tier rules as fallback, see
+the [README](../README.md#combined-hc-flow)). The dedicated "Drusilla flow"
 with its LightGBM filter and hint rescue has been retired; `combine_genesets.py`
 replaces the per-model filtering it used to do.
 
@@ -138,17 +140,20 @@ on *Bos taurus* 24 shards used 26 of 48 cores and 40 GB.
 
 ## Known clades in `conf/hc_genes.yaml`
 
-| Clade | `drusilla_model` | Notes |
-| --- | --- | --- |
-| Vertebrata | `vertebrates` | |
-| Mammalia | `vertebrates` | |
-| Insecta | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
-| Lepidoptera | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
+| Clade | `drusilla_model` | `classifier_clade` | Notes |
+| --- | --- | --- | --- |
+| Vertebrata | `vertebrates` | `vertebrates` | |
+| Mammalia | `vertebrates` | `vertebrates` | |
+| Insecta | `insects` | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
+| Lepidoptera | `insects` | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
 
 When a Drusilla model is released for another clade, add the clade to
 `conf/hc_genes.yaml` with its `drusilla_model` (and `recommended` for the
 warning that fires on runs that differ from it). For a clade without a
-table entry, set `drusilla.model` to pick a Drusilla model.
+table entry, set `drusilla.model` to pick a Drusilla model. A clade without
+`classifier_clade` is new to the combine classifier (`combine.classifier`,
+default on): the pipeline passes `--unknown-clade` and the locus threshold
+rises from 0.25 to 0.30.
 
 ## Insects
 

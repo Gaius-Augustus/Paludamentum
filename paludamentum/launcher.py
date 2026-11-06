@@ -235,11 +235,25 @@ def container_tags(base_config: Path) -> Dict[str, str]:
     return tags
 
 
+# Image tag of a submodule's development branch (no release): conf/base.config
+# may run it while that branch is developed. It is not compared with the
+# submodule version; the launcher notes it instead (see dev_images).
+DEV_TAG = "dev"
+
+
+def dev_images(root: str | Path | None = None) -> List[str]:
+    """Submodules whose image conf/base.config runs at the development tag."""
+    _, _, base_config = pipeline_paths(root)
+    tags = container_tags(base_config)
+    return [name for name in SUBMODULES if tags.get(name) == DEV_TAG]
+
+
 def version_mismatches(root: str | Path | None = None) -> List[str]:
     """
     Warnings for submodules (gene finders and Drusilla) whose version differs
     from the image tag that conf/base.config runs. The submodule pins the
     version; the image of the same version must be pinned in base.config.
+    The development tag DEV_TAG is not a mismatch (see dev_images).
     """
     repo_root, _, base_config = pipeline_paths(root)
     tags = container_tags(base_config)
@@ -247,7 +261,7 @@ def version_mismatches(root: str | Path | None = None) -> List[str]:
     for name in SUBMODULES:
         version = submodule_version(name, repo_root)
         tag = tags.get(name)
-        if version and tag and version != tag:
+        if version and tag and tag != DEV_TAG and version != tag:
             problems.append(
                 f"The {name} submodule is version {version}, but conf/base.config runs the image "
                 f"{name}:{tag}. Bump the submodule or the image tag."
@@ -974,6 +988,9 @@ def run_nextflow_pipeline(
 
     for warning in version_mismatches(repo_root):
         print(f"[WARN] {warning}")
+    for name in dev_images(repo_root):
+        print(f"[INFO] conf/base.config runs the development image {name}:{DEV_TAG}; "
+              f"pin the release tag before a release.")
 
     if not from_file:
         params_path = write_params_yaml(params)

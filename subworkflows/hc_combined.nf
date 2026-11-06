@@ -21,8 +21,13 @@ nextflow.enable.dsl=2
 //     coverage, DIAMOND, miniprot and miniprothint into combined.gff3.
 //     Full-length transcripts (the StringTie -L assembly of long reads, or
 //     the files of params.chains) go in as --chains when there are any.
+//     Selection is learned (params.combine.classifier, the shipped
+//     conf/combiner_classifier_v1.json): a clade-agnostic model trained on
+//     15 species outside the benchmark; clades without a classifier_clade in
+//     the HC table get its conservative locus threshold (--unknown-clade).
+//     params.combine.classifier = false switches back to the tier rules.
 //     For Insecta / Lepidoptera clades, --drop-lone-single-exon tiberius
-//     is added.
+//     is added in both modes.
 
 include { GENEFINDER as GENEFINDER_VIPSANIA } from './genefinder.nf'
 include { STRINGTIE_MERGE } from '../modules/assembly.nf'
@@ -38,6 +43,7 @@ include { DIAMOND_MAKEDB;
           DIAMOND_BLASTP_FULL as DIAMOND_TD2; DIAMOND_BLASTP_FULL as DIAMOND_DRU } from '../modules/diamond.nf'
 include { BAM2COV } from '../modules/rnacov.nf'
 include { COMBINE_GENESETS } from '../modules/combine.nf'
+include { EMPTY_FILE as NO_CLASSIFIER } from '../modules/util.nf'
 include { hcClade; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
 
 workflow HC_COMBINED {
@@ -118,13 +124,23 @@ workflow HC_COMBINED {
     def clade  = hcClade(params_map)
     def insect = clade.name?.toLowerCase() in ['insecta', 'lepidoptera']
     def min_locus = (params_map.combine?.min_locus != null) ? params_map.combine.min_locus : 4
+    // learned selection: the model of params.combine.classifier (false / null:
+    // tier rules, the empty placeholder goes in). The clade is known to the
+    // model when its HC-table entry names a classifier_clade; otherwise the
+    // model's conservative locus threshold applies (--unknown-clade).
+    def clfParam = params_map.combine?.classifier
+    def classifier = clfParam ? channel.value(file(clfParam.toString(), checkIfExists: true)) : NO_CLASSIFIER()
+    def unknown_clade = !(clade.entry?.classifier_clade)
+    if( clfParam && unknown_clade )
+        log.info "combine_genesets: clade ${clade.name ?: 'unknown'} has no classifier_clade in the HC table; " +
+                 "the classifier uses its conservative locus threshold (--unknown-clade)."
 
     def combined = COMBINE_GENESETS(
         tib_gff, vip.gff, dru.gtf, td2_gff.gff3,
         intron_hints, cov_bg, chains,
         dia_tib.tsv, dia_vip.tsv, dia_dru.tsv, dia_td2.tsv,
         prot_train_gff, miniprot_scored, prot_hc_hints,
-        insect, min_locus)
+        classifier, insect, min_locus, unknown_clade)
 
     emit:
     gff      = combined.gff3

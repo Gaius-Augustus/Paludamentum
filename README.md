@@ -43,7 +43,7 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 The numbers in the figure are the steps below. In evidence modes (`rnaseq`,
 `isoseq`, `mixed`) the same unified HC flow runs for every clade; the clade
 only decides a few per-clade switches in `conf/hc_genes.yaml` (insect flag,
-Drusilla model name).
+Drusilla model name, `classifier_clade` of the locus classifier).
 
 1. ***Ab initio* predictions.** Both gene finders run in parallel: Tiberius
    on genome chunks, and Vipsania with `--finetune` on the whole genome
@@ -77,7 +77,10 @@ Drusilla model name).
    plus `filterIntronsFindStrand.pl` writes intron hints.
    `bin/combine_genesets.py` integrates the four gene sets, the four DIAMOND
    tables, miniprot alignments and miniprothint hints, the bedGraph and the
-   introns into one GFF3 (`intermediate/combined.gff3`). For an insect clade
+   introns into one GFF3 (`intermediate/combined.gff3`). By default a
+   learned classifier selects the structures (`combine.classifier`, see
+   [Combined HC flow](#combined-hc-flow)); `combine.classifier = false`
+   selects with the tier rules. For an insect clade
    (Insecta, Lepidoptera) it also receives `--drop-lone-single-exon
    tiberius`. In mixed mode the `stringtie -L` assembly of the Iso-Seq reads
    alone also goes to `combine_genesets.py` (`--chains`) as evidence of
@@ -305,7 +308,7 @@ is `combined_evidence` in evidence modes and `<tool>_ab_initio` /
 | `qc/` | sanity filter and UTR reports, gene set statistics and plots, hint support, completeness, OMArk, gffcompare, FANTASIA, software versions, see [docs/postprocessing.md](docs/postprocessing.md#outputs) |
 | `ncrna/` | rRNA, tRNA, Rfam and lncRNA annotations (`ncrna.run`) |
 | `intermediate/combined.gff3` | output of `combine_genesets.py` before the sanity filter |
-| `intermediate/combined.report.tsv` | per-structure report of combine_genesets (tools, tier, decision, features) |
+| `intermediate/combined.report.tsv` | per-structure report of combine_genesets (tools, tier, decision, features; last column `p_classifier`, the classifier probability of the structure, in classifier mode) |
 | `intermediate/tiberius_ab_initio.gff3`, `intermediate/vipsania_ab_initio.gff3` | *ab initio* predictions of each gene finder, before the integration; the files to give to `--result` of a later run |
 | `intermediate/drusilla_orfs.gtf` | Drusilla ORFs on the StringTie assembly |
 | `intermediate/td2.gff3` | revised TD2 ORFs mapped to the genome |
@@ -420,18 +423,62 @@ Steps of the combined HC flow:
    full-length reads (`chains`, or in mixed mode the `stringtie -L` assembly
    of the Iso-Seq reads alone) go to `combine_genesets.py --chains`; the ORF
    callers do not see them.
-6. `combine_genesets.py` integrates all of the above. See
-   [docs/drusilla_flow.md](docs/drusilla_flow.md) for the per-structure
-   rules (merging, clustering, tiering with the four tool sets, RNA /
-   protein / DIAMOND adjustments) and `combine_genesets.py --help`.
+6. `combine_genesets.py` integrates all of the above. By default
+   (`combine.classifier = "${projectDir}/conf/combiner_classifier_v1.json"`)
+   it runs in classifier mode: the candidate pool is built as with
+   `--keep-all` (every unique CDS structure, all tier rules off), and a
+   gradient-boosted tree model (400 trees of depth 3, exported to JSON,
+   evaluated with numpy; scikit-learn is not needed at run time) gives each
+   candidate P(structure = reference CDS) from 47 features of the report
+   (tools, structure, locus context, RNA-Seq intron and coverage evidence,
+   DIAMOND and miniprot protein evidence; no clade input). Per locus the
+   best candidate is the primary if its P reaches the locus threshold
+   (0.25); further candidates are isoforms if P reaches 0.30. The `reason`
+   column of the report is `primary`, `isoform_classifier`,
+   `isoform_rejected`, `locus_below_min` or `dropped_lone_single_exon`, and
+   the last column is `p_classifier`. With `combine.classifier = false` the
+   tier rules apply (merging, clustering, tiering with the four tool sets,
+   RNA / protein / DIAMOND adjustments; `combine.min_locus` is the minimum
+   tier of a locus); see [docs/drusilla_flow.md](docs/drusilla_flow.md) and
+   `combine_genesets.py --help`. The full-length transcript evidence
+   (`--chains`, mixed and Iso-Seq runs) is not a model feature (no training
+   species has long reads); in classifier mode it raises the log-odds of a
+   structure whose CDS chain lies in one full-length transcript by 1.5
+   (`--chain-logit-full`, calibrated on H. sapiens: +1.2 to +1.7 transcript
+   F1 over the classifier without chains, level with or above the tier rules
+   with chains).
 
-Known clades (`conf/hc_genes.yaml`) hold the Drusilla model and the warning
-of a run that differs from the recommended flow. `Vertebrata` and
-`Mammalia` use `drusilla_model: vertebrates`; `Insecta` and `Lepidoptera`
-use `drusilla_model: insects` **and** cause the pipeline to pass
-`--drop-lone-single-exon tiberius` to `combine_genesets.py` (lone
-single-exon Tiberius-only models are demoted). For a clade not in the
-table, set `drusilla.model` to pick a Drusilla model.
+The model (`conf/combiner_classifier_v1.json`) was trained on the keep-all
+pools of 15 species outside the benchmark set (4 insects, 7 fungi, 2
+vertebrates, 2 plants) with gffcompare labels. On the 31 benchmark species of
+the Tiberius paper (gffcompare `--strict-match -e 3 -T`, CDS level) it is
+better than the tier rules by +2.6 transcript F1 and +2.4 gene F1, in 29 of
+31 species (vertebrates +3.0 / +3.4, insects +3.1 / +2.3, plants +2.1 /
++2.3, fungi +1.4 / +1.1). A model trained per clade was not better than the
+single model, and dropping the clade input cost 0.1 F1; the shipped model is
+clade-agnostic.
+
+Known clades (`conf/hc_genes.yaml`) hold the Drusilla model, the
+`classifier_clade` and the warning of a run that differs from the
+recommended flow. `Vertebrata` and `Mammalia` use `drusilla_model:
+vertebrates` and `classifier_clade: vertebrates`; `Insecta` and
+`Lepidoptera` use `drusilla_model: insects`, `classifier_clade: insects`
+**and** cause the pipeline to pass `--drop-lone-single-exon tiberius` to
+`combine_genesets.py`. In rules mode lone single-exon Tiberius-only models are
+demoted; in classifier mode such lone single-exon Tiberius structures
+without a miniprot match are never selected (`dropped_lone_single_exon`).
+This is the mechanism for clade-specific known weaknesses: the clade entry
+decides the flag, the classifier handles everything else. For a clade not in
+the table, set `drusilla.model` to pick a Drusilla model.
+
+The four clades of the training set are embryophyta, fungi, insects and
+vertebrates. A clade without `classifier_clade`, or one not in the table, is
+new to the model and the pipeline passes `--unknown-clade`, which raises the
+locus threshold to 0.30. For clades the model never saw (clade-out
+cross-validation on 46 species) this gave +1.4 transcript / +1.3 gene F1
+over the rules with that threshold, 27 of 31 species better; insect-like
+genomes are the weak case (gene F1 about -0.3 to -1 when insects were
+unseen).
 
 ### Insects
 
@@ -440,7 +487,9 @@ fine-tuned on the genome (`vipsania.finetune: true`, default), RNA-Seq or
 Iso-Seq, and protein evidence. The target_species of the gene-finder model
 decides whether `--drop-lone-single-exon tiberius` is passed; both the
 Tiberius `insecta` / `lepidoptera` models and the Vipsania `Insecta` model
-trigger it.
+trigger it. Tiberius overpredicts single-exon genes in insects; in
+classifier mode (default) the lone single-exon Tiberius structures without a
+miniprot match are never selected, in rules mode they are demoted.
 
 
 ```bash

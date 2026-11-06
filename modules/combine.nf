@@ -6,8 +6,11 @@ nextflow.enable.dsl=2
 // (--chains: the StringTie -L assembly of long reads, or params.chains) into
 // one annotation (combined.gff3). The insect flag (passed from main.nf for
 // Insecta/Lepidoptera gene finder models) adds --drop-lone-single-exon
-// tiberius. All combine_genesets.py thresholds other than --min-locus use
-// the script defaults.
+// tiberius. Selection: the learned classifier (params.combine.classifier,
+// a JSON model; --unknown-clade when the clade has no classifier_clade in
+// the HC table) or, with the empty placeholder instead of a model, the tier
+// rules with --min-locus. All other combine_genesets.py thresholds use the
+// script defaults.
 //
 // Inputs that may share a file name are staged apart (Nextflow refuses two
 // input files of one name): the four DIAMOND tables are all diamond.tsv, and
@@ -36,16 +39,23 @@ process COMBINE_GENESETS {
     path mp_train
     path mp_rep
     path hc_hints
+    // the classifier model (JSON), or the empty placeholder for the tier rules
+    path classifier, stageAs: 'classifier/*'
     val  insect
     val  min_locus
+    val  unknown_clade
 
   output:
     path "combined.gff3",       emit: gff3
     path "combined.report.tsv", emit: report
 
   script:
-  def drop = insect ? "--drop-lone-single-exon tiberius" : ""
+  def drop    = insect ? "--drop-lone-single-exon tiberius" : ""
+  def unknown = unknown_clade ? "--unknown-clade" : ""
   """
+  # learned selection with the shipped model; the empty placeholder means tier rules
+  clf_args=""
+  if [ -s ${classifier} ]; then clf_args="--classifier ${classifier} ${unknown}"; fi
   # RNA-Seq evidence only where there is some: without --introns and
   # --coverage the RNA rules of combine_genesets.py stay off, whereas an
   # empty hints file would count every intron as unsupported
@@ -74,7 +84,7 @@ process COMBINE_GENESETS {
       --miniprot-rep   ${mp_rep} \\
       --protein-hints  ${hc_hints} \\
       --min-locus ${min_locus} ${drop} \\
-      \$rna_args \$chain_args \\
+      \$clf_args \$rna_args \$chain_args \\
       -o combined.gff3 \\
       --report combined.report.tsv
   """
