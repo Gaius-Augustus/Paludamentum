@@ -180,7 +180,9 @@ process PROTEIN_FROM_GFF {
 
   input:
       val prefix
-      path ab_initio
+      // staged apart from ab_initio.capped.gff3: a given result of that name
+      // (drusilla.result) would otherwise be truncated by the redirect
+      path ab_initio, stageAs: 'in/*'
       path genome
 
   output:

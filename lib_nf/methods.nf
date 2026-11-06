@@ -289,9 +289,12 @@ def methodsHighConfidence(Map ctx, Map run) {
     if( run.chains )
         s << (run.chains == 'given' ? 'The given full-length transcripts' :
               'Transcripts assembled from the long reads alone (StringTie -L)') +
-             ' served as full-length transcript evidence in the integration: a model whose CDS chain lay within ' +
-             'one of them ranked higher in its locus, lone ab initio models with such a chain were kept, and so ' +
-             'were further isoforms with such a chain.'
+             ' served as full-length transcript evidence in the integration: ' +
+             (run.classifier ?
+                 'the log-odds of the selection probability of a model whose CDS chain lay within one of them ' +
+                 'were raised by 1.5.' :
+                 'a model whose CDS chain lay within one of them ranked higher in its locus, lone *ab initio* models ' +
+                 'with such a chain were kept, and so were further isoforms with such a chain.')
     def insect = run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
     def dropFlag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
     // the coverage track needs a BAM; pyVARUS directories and a given assembly without reads have none
@@ -304,12 +307,21 @@ def methodsHighConfidence(Map ctx, Map run) {
                            ' (without reads, no coverage track and no intron hints entered the integration)'
     s << "The four gene sets (Tiberius, Vipsania, revised TD2, Drusilla) were integrated by `combine_genesets.py`: " +
          "DIAMOND blastp was run on each gene set's proteins (14-column outfmt, including query and subject lengths)" +
-         rna + '. combine_genesets.py merged transcripts with identical CDS, clustered them into loci ' +
-         'on the same strand, tiered each unique structure from its supporting tool set, adjusted the tier with ' +
-         ((bams || varusHints) ? 'RNA, protein' : 'protein') + ' and DIAMOND features, and kept each locus whose best ' +
-         "model reached a tier of ${numText(run.minLocus)}${dropFlag}; " +
-         'single-exon Tiberius-only models were demoted on insect runs. The result is the final annotation (no ' +
-         'separate merge with the *ab initio* predictions is needed, because they already enter the integration).'
+         rna + '. combine_genesets.py merged transcripts with identical CDS, clustered them into loci on the same strand, ' +
+         (run.classifier ?
+             'and selected them with its gradient-boosted tree classifier, which predicts from tool, structure, locus, ' +
+             ((bams || varusHints) ? 'RNA and ' : '') + 'protein features the probability that the CDS of a model is ' +
+             "correct: the most probable model of a locus was kept if its probability reached ${run.clfTLocus}" +
+             (run.clfUnknownClade ? ' (the threshold for clades outside the training clades of the classifier)' : '') +
+             ", and further models of the locus if theirs reached ${run.clfTIso}" +
+             (insect ? '; single-exon Tiberius-only models without an identical miniprot model were never selected ' +
+                       '(insect run, `--drop-lone-single-exon tiberius`)' : '') + '. ' :
+             'tiered each unique structure from its supporting tool set, adjusted the tier with ' +
+             ((bams || varusHints) ? 'RNA, protein' : 'protein') + ' and DIAMOND features, and kept each locus whose best ' +
+             "model reached a tier of ${numText(run.minLocus)}${dropFlag}" +
+             (insect ? '; single-exon Tiberius-only models were demoted on insect runs. ' : '. ')) +
+         'The result is the final annotation (no separate merge with the *ab initio* predictions is needed, ' +
+         'because they already enter the integration).'
     s << stopCheck
     return s.join(' ')
 }

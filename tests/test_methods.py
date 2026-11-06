@@ -96,6 +96,27 @@ def test_stub_run_combined_rnaseq(tmp_path: Path) -> None:
     assert "in mode `rnaseq`" in methods
     for phrase in ("Tiberius", "Vipsania", "StringTie", "miniprot", "TD2", "Drusilla"):
         assert phrase in methods, phrase
+    # default selection: the classifier; the stub models' clade (Fungi) has no classifier_clade in the HC
+    # table, so the conservative locus threshold of the model file applies
+    assert "gradient-boosted tree classifier" in methods and "reached a tier" not in methods
+    assert "if its probability reached 0.3 (the threshold for clades outside" in methods
+    assert "further models of the locus if theirs reached 0.3" in methods
+
+
+def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:
+    """combine.classifier = false: the tier rules are described; combine.t_locus overrides the model's."""
+    base = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, {**base, "combine": {"classifier": False}})
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "reached a tier of 4" in methods
+    assert "classifier" not in methods
+    other = tmp_path / "t"
+    other.mkdir()
+    proc, _ = run_pipeline(other, {**base, "combine": {"t_locus": 0.4}})
+    assert_ok(proc)
+    methods = check_stub_run(other)
+    assert "if its probability reached 0.4," in methods
 
 
 def test_stub_run_proteins_tiberius(tmp_path: Path) -> None:

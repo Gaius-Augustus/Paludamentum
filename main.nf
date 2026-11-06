@@ -126,6 +126,9 @@ workflow {
     def vipModel = params.vipsania?.model?.toString()?.trim() ?: null
     def gfModel = transcriptMode ? (tibModel ?: vipModel) :
         (resolveGenefinder(params) == 'tiberius' ? tibModel : vipModel)
+    // thresholds of the selection model of combine_genesets.py (evidence modes), read from its JSON file
+    def clfFile = (transcriptMode && params.combine?.classifier) ? file(params.combine.classifier.toString()) : null
+    def clfModel = clfFile?.exists() ? new groovy.json.JsonSlurper().parse(clfFile.toFile()) : null
     def run = [
         // keys of citationKeys (lib_nf/citations.nf)
         mode: MODE,
@@ -169,6 +172,14 @@ workflow {
         trnascanHighConfidence: truthy(params.ncrna?.trnascan_high_confidence),
         fantasiaMinScore: params.fantasia?.min_score,
         minLocus: (params.combine?.min_locus != null) ? params.combine.min_locus : 4,
+        // learned selection of combine_genesets.py: the thresholds the run applies (the model file's,
+        // the conservative locus threshold for a clade without classifier_clade, or params.combine.*)
+        classifier: clfModel != null,
+        clfTLocus: params.combine?.t_locus != null ? params.combine.t_locus :
+                   (clfModel == null ? null : (clade.entry?.classifier_clade ? clfModel.t_locus :
+                                               (clfModel.t_locus_unknown_clade ?: clfModel.t_locus))),
+        clfTIso: params.combine?.t_iso != null ? params.combine.t_iso : clfModel?.t_iso,
+        clfUnknownClade: clfModel != null && params.combine?.t_locus == null && !(clade.entry?.classifier_clade),
     ]
     def version = workflow.manifest.version ?: 'unknown'
     file("${outdir}/citations.md").text = citationsText(run, version)

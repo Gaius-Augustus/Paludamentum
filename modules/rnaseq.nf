@@ -69,6 +69,9 @@ process HISAT2_MAP_PAIRED {
 // User BAMs (rnaseq_bam) whose header does not say SO:coordinate. The other
 // BAMs of the pipeline are coordinate-sorted when they are made (HISAT2,
 // minimap2), so merging, bam2hints and StringTie take them as they are.
+// As in STRAND_FIX_BAM, the output is <baseName>.bam in the task directory:
+// `${bam.name}` is the staged input unsorted/<name>, a symlink to the user's
+// file, and sorting onto it would rewrite the original.
 process SAMTOOLS_SORT {
   tag "${bam.name}"
   label 'container', 'bigmem'
@@ -76,16 +79,16 @@ process SAMTOOLS_SORT {
     path bam, stageAs: "unsorted/*"
 
   output:
-    path "${bam.name}", emit: bam
+    path "${bam.baseName}.bam", emit: bam
 
   script:
   """
-  ${params.tools.samtools} sort -@ ${task.cpus} -o "${bam.name}" "${bam}"
+  ${params.tools.samtools} sort -@ ${task.cpus} -o "${bam.baseName}.bam" "${bam}"
   """
 
   stub:
   """
-  touch "${bam.name}"
+  touch "${bam.baseName}.bam"
   """
 }
 
@@ -99,6 +102,11 @@ process SAMTOOLS_SORT {
 // pipeline); '' = Drusilla's default, the run id at the start of the read
 // name (SRR..., a VARUS BAM that pools many runs). The output BAM keeps the
 // coordinate order of the input.
+// The input is staged as unfixed/<name>, a symlink to the original file (a
+// user's BAM). The output must never be that path: `${bam.name}` of a staged
+// input includes the stage directory (unfixed/<name>), so writing to it
+// truncated the original through the symlink. The output is <baseName>.bam in
+// the task directory (tests/test_no_writes_to_inputs.py runs the real command).
 process STRAND_FIX_BAM {
   tag "${bam.name}"
   label 'drusilla'
@@ -107,7 +115,7 @@ process STRAND_FIX_BAM {
     tuple path(bam, stageAs: "unfixed/*"), val(run_regex)
 
   output:
-    path "${bam.name}", emit: bam
+    path "${bam.baseName}.bam", emit: bam
     path "${bam.baseName}.strand_runs.tsv", emit: report
 
   script:
@@ -115,7 +123,7 @@ process STRAND_FIX_BAM {
   """
   drusilla strand-fix-bam \\
       --in-bam "${bam}" \\
-      --out-bam "${bam.name}" \\
+      --out-bam "${bam.baseName}.bam" \\
       --report-tsv "${bam.baseName}.strand_runs.tsv" \\
       ${regex}--threads ${task.cpus} \\
       --no-index
@@ -123,7 +131,7 @@ process STRAND_FIX_BAM {
 
   stub:
   """
-  touch "${bam.name}" "${bam.baseName}.strand_runs.tsv"
+  touch "${bam.baseName}.bam" "${bam.baseName}.strand_runs.tsv"
   """
 }
 

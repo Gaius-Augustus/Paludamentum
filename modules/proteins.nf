@@ -73,7 +73,9 @@ process PREPROCESS_PROTEINDB {
   label 'container', 'bigmem'
 
   input:
-    path proteinDB
+    // staged apart from the output name: a user file named
+    // protein_preprocessed.fa would otherwise be truncated by the redirect
+    path proteinDB, stageAs: 'db/*'
     path tiberius_prot
 
   output: path "protein_preprocessed.fa"
