@@ -134,13 +134,19 @@ workflow HC_COMBINED {
     if( clfParam && unknown_clade )
         log.info "combine_genesets: clade ${clade.name ?: 'unknown'} has no classifier_clade in the HC table; " +
                  "the classifier uses its conservative locus threshold (--unknown-clade)."
+    // the thresholds of params.combine.t_locus / t_iso override the model's;
+    // with -resume a change here reruns only the combine step and what follows
+    def clf_opts = [unknown_clade ? '--unknown-clade' : '',
+                    params_map.combine?.t_locus != null ? "--t-locus ${params_map.combine.t_locus}" : '',
+                    params_map.combine?.t_iso   != null ? "--t-iso ${params_map.combine.t_iso}"     : '']
+                   .findAll().join(' ')
 
     def combined = COMBINE_GENESETS(
         tib_gff, vip.gff, dru.gtf, td2_gff.gff3,
         intron_hints, cov_bg, chains,
         dia_tib.tsv, dia_vip.tsv, dia_dru.tsv, dia_td2.tsv,
         prot_train_gff, miniprot_scored, prot_hc_hints,
-        classifier, insect, min_locus, unknown_clade)
+        classifier, insect, min_locus, clf_opts)
 
     emit:
     gff      = combined.gff3

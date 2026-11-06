@@ -7,10 +7,11 @@ nextflow.enable.dsl=2
 // one annotation (combined.gff3). The insect flag (passed from main.nf for
 // Insecta/Lepidoptera gene finder models) adds --drop-lone-single-exon
 // tiberius. Selection: the learned classifier (params.combine.classifier,
-// a JSON model; --unknown-clade when the clade has no classifier_clade in
-// the HC table) or, with the empty placeholder instead of a model, the tier
-// rules with --min-locus. All other combine_genesets.py thresholds use the
-// script defaults.
+// a JSON model, with the options of clf_opts: --unknown-clade when the clade
+// has no classifier_clade in the HC table, --t-locus / --t-iso from
+// params.combine.t_locus / t_iso) or, with the empty placeholder instead of
+// a model, the tier rules with --min-locus. All other combine_genesets.py
+// thresholds use the script defaults.
 //
 // Inputs that may share a file name are staged apart (Nextflow refuses two
 // input files of one name): the four DIAMOND tables are all diamond.tsv, and
@@ -43,19 +44,19 @@ process COMBINE_GENESETS {
     path classifier, stageAs: 'classifier/*'
     val  insect
     val  min_locus
-    val  unknown_clade
+    // further classifier options as one string: --unknown-clade, --t-locus X, --t-iso Y (may be empty)
+    val  clf_opts
 
   output:
     path "combined.gff3",       emit: gff3
     path "combined.report.tsv", emit: report
 
   script:
-  def drop    = insect ? "--drop-lone-single-exon tiberius" : ""
-  def unknown = unknown_clade ? "--unknown-clade" : ""
+  def drop = insect ? "--drop-lone-single-exon tiberius" : ""
   """
   # learned selection with the shipped model; the empty placeholder means tier rules
   clf_args=""
-  if [ -s ${classifier} ]; then clf_args="--classifier ${classifier} ${unknown}"; fi
+  if [ -s ${classifier} ]; then clf_args="--classifier ${classifier} ${clf_opts}"; fi
   # RNA-Seq evidence only where there is some: without --introns and
   # --coverage the RNA rules of combine_genesets.py stay off, whereas an
   # empty hints file would count every intron as unsupported
