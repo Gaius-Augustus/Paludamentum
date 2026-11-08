@@ -166,9 +166,10 @@ def evidenceCitationKeys(Map run) {
     if( run.odb12 ) keys << 'orthodb'
     if( withProteins(run) ) keys << 'miniprot' << 'galba'
     // DIAMOND runs in every evidence mode (species selection + the four
-    // combine_genesets runs + the TD2 revise auxiliary runs) and in ab initio
-    // + proteins when the DB needs species selection.
-    if( transcripts || (run.genefinder && run.odb12) ) keys << 'diamond'
+    // combine_genesets runs + the TD2 revise auxiliary runs) and, in mode
+    // proteins, for the species selection of a large database (the methods
+    // text describes it whenever protein_top_species is not 0).
+    if( transcripts || (withProteins(run) && run.genefinder && run.proteinTopSpecies) ) keys << 'diamond'
 
     if( shortReads && run.shortFastq ) keys << 'hisat2'
     if( longReads && run.isoFastq ) keys << 'minimap2'

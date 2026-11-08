@@ -126,6 +126,21 @@ def test_species_ranking_only_for_orthodb_ids(tmp_path: Path):
     assert "empty" in proc.stderr
 
 
+def test_species_ranking_groups_genus_species_ids(tmp_path: Path):
+    hits = tmp_path / "hits.tsv"
+    hits.write_text(diamond_line("q1", "Homo_sapiens_ENSP000001") + diamond_line("q2", "Homo_sapiens_ENSP000002")
+                    + diamond_line("q3", "Mus_musculus_ENSMUSP0001"))
+    proc = run("rank_species_from_diamond.py", str(hits), "1", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert (tmp_path / "top_species.txt").read_text() == "Homo_sapiens\n"
+
+    hits.write_text(diamond_line("q1", "Nannochloris_sp._g12") + diamond_line("q2", "Canis_lupus_familiaris_X1")
+                    + diamond_line("q3", "Canis_lupus_lupus_X2"))
+    proc = run("rank_species_from_diamond.py", str(hits), "5", cwd=tmp_path)
+    assert proc.returncode == 0
+    assert (tmp_path / "top_species.txt").read_text().split() == ["Canis_lupus", "Nannochloris_sp."]
+
+
 # ---------------------------------------------------------------- filterIntronsFindStrand.pl
 
 @pytest.mark.skipif(shutil.which("perl") is None, reason="perl not found")

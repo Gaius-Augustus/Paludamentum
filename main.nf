@@ -65,6 +65,10 @@ workflow {
       log.warn "stringtie is not used in mode '${MODE}'."
     if( MODE == 'proteins' && !hasProteins )
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions)."
+    // species kept of a large protein database (PREPROCESS_PROTEINDB); 0 keeps it whole
+    def proteinTopSpecies = params.protein_top_species != null ? params.protein_top_species : 13
+    if( !(proteinTopSpecies.toString().isInteger() && (proteinTopSpecies as int) >= 0) )
+      error "protein_top_species: a whole number >= 0, not '${proteinTopSpecies}'."
     // Evidence modes (rnaseq / isoseq / mixed) always require proteins now:
     // combine_genesets reads DIAMOND, miniprot and miniprothint.
     def transcriptMode = MODE in ['rnaseq', 'isoseq', 'mixed']
@@ -151,6 +155,7 @@ workflow {
         vipsaniaResult: params.vipsania?.result ? file(params.vipsania.result.toString()).name : null,
         finetune: truthy(params.vipsania?.finetune),
         proteinFiles: proteinsList.size(), odb12Partitions: odb12List,
+        proteinTopSpecies: proteinTopSpecies as int,
         scoringMatrix: params.scoring_matrix ? file(params.scoring_matrix.toString()).name : null,
         shortPaired: hasPaired, shortSingle: hasSingle,
         shortSra: asList(params.rnaseq_sra_paired).size() > 0 || asList(params.rnaseq_sra_single).size() > 0,

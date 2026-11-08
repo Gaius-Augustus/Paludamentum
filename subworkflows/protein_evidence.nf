@@ -23,7 +23,7 @@ workflow PROTEIN_EVIDENCE {
     }
     if( !params_map.scoring_matrix )  error "params.scoring_matrix is required for protein evidence modes"
 
-    def proteindb_ch = PREPROCESS_PROTEINDB(CH_PROTEINS, tib_proteins_ch)
+    def proteindb_ch = PREPROCESS_PROTEINDB(CH_PROTEINS, tib_proteins_ch).db
 
     def scored_ch     = MINIPROT_ALIGN(CH_GENOME, proteindb_ch, CH_SCORE)
     def prot_gtf_ch   = MINIPROTHINT_CONVERT(scored_ch.gff)

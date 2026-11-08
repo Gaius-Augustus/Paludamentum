@@ -36,7 +36,8 @@ GROOVY_ESCAPES = {"\\": "\\", "$": "$", "t": "\t", "n": "\n", "r": "\r", '"': '"
 def script_block(text: str) -> str:
     """The raw text between the triple quotes of PREPROCESS_PROTEINDB's script:."""
     block = text[text.index("process PREPROCESS_PROTEINDB"):]
-    body = block[block.index('script: """') + len('script: """'):]
+    after = block[block.index("script:") + len("script:"):]   # Groovy statements (def top ...) precede the GString
+    body = after[after.index('"""') + 3:]
     return body[:body.index('"""')]
 
 
@@ -52,13 +53,20 @@ def groovy_unescape(s: str) -> str:
     return "".join(out)
 
 
-def render(text: str) -> str:
+def render(text: str, top: int = 13) -> str:
     """The shell script Nextflow would write to .command.sh."""
     rendered = groovy_unescape(script_block(text))
-    for placeholder, value in (("${proteinDB}", "db/in.fa"), ("${task.cpus}", "1"),
+    for placeholder, value in (("${proteinDB}", "db/in.fa"), ("${task.cpus}", "1"), ("${top}", str(top)),
                                ("${params.tools.diamond}", "diamond")):
         rendered = rendered.replace(placeholder, value)
     return rendered
+
+
+def selection_condition(rendered: str) -> str:
+    """The `[[ ... ]]` test of the `if [[ top -eq 0 || ... ]]; then` line that picks the full DB."""
+    m = re.search(r"^\s*if (\[\[ \d+ -eq 0 \|\|.*\]\]); then\s*$", rendered, re.M)
+    assert m, "selection condition line not found"
+    return m.group(1)
 
 
 def sanitize_function(rendered: str) -> str:
@@ -146,6 +154,94 @@ def test_species_selection_awk_drops_unwanted_species(tmp_path: Path, rendered: 
     assert got == ">101020_0:000001\nMKV\n>101020_1:000003\nLLA\n"
 
 
+GS_FASTA = (">Acorus_americanus_Acora_01G000100_1_v1_1 desc\nMKV\n"
+            ">Homo_sapiens_ENSP000001\nMAA\nLLA\n"
+            ">Nannochloris_sp._g12\nGGG\n"
+            ">Acorus_americanus_Acora_02G000200_1\nPPP\n")
+
+
+@needs_bash_awk
+def test_species_selection_awk_genus_species_database(tmp_path: Path, rendered: str) -> None:
+    cwd = stage(tmp_path, GS_FASTA, top_species="Acorus_americanus\nNannochloris_sp.\n")
+    got = run_bash(cwd, species_awk(rendered) + " && cat protein_preprocessed.fa")
+    assert got == (">Acorus_americanus_Acora_01G000100_1_v1_1\nMKV\n"
+                   ">Nannochloris_sp._g12\nGGG\n"
+                   ">Acorus_americanus_Acora_02G000200_1\nPPP\n")
+
+
+@needs_bash_awk
+def test_species_selection_awk_orthodb_database_unchanged(tmp_path: Path, rendered: str) -> None:
+    fasta = ">101020_0:000001 a\nMKV\n>9606_0:000002\nMAA\n>10090_1:000003\nGGG\n"
+    cwd = stage(tmp_path, fasta, top_species="9606\n10090\n")
+    got = run_bash(cwd, species_awk(rendered) + " && cat protein_preprocessed.fa")
+    assert got == ">9606_0:000002\nMAA\n>10090_1:000003\nGGG\n"
+
+
+SHARED_IDS = [
+    "101020_0:000003", "9606_1:0a1b",
+    "Acorus_americanus_Acora_01G000100_1_v1_1", "Nannochloris_sp._g12",
+    "Canis_lupus_familiaris_X1", "Homo_sapiens_ENSP000001",
+    "sp|P12345|NAME_HUMAN", "XP_0123.1", "plainid", "Arabidopsis_thaliana",
+]
+
+
+def python_get_species_id():
+    """get_species_id of bin/rank_species_from_diamond.py; the script runs at import, so exec only its definitions."""
+    src = (ROOT / "bin" / "rank_species_from_diamond.py").read_text()
+    start = src.index("ORTHODB_ID =")
+    end = src.index("# best hit")
+    ns = {"re": re}
+    exec(src[start:end], ns)
+    return ns["get_species_id"]
+
+
+def test_python_species_keys() -> None:
+    f = python_get_species_id()
+    assert f("101020_0:000003") == "101020"
+    assert f("Acorus_americanus_Acora_01G000100_1_v1_1") == "Acorus_americanus"
+    assert f("Nannochloris_sp._g12") == "Nannochloris_sp."
+    assert f("Canis_lupus_familiaris_X1") == "Canis_lupus"
+    for other in ("sp|P12345|NAME_HUMAN", "XP_0123.1"):
+        assert f(other) == other
+
+
+@needs_bash_awk
+def test_awk_species_key_agrees_with_python(tmp_path: Path, rendered: str) -> None:
+    f = python_get_species_id()
+    ids = SHARED_IDS
+    # wanted = the python keys of every second id; the awk must keep exactly the records whose key is wanted
+    wanted = {f(i) for i in ids[::2]}
+    fasta = "".join(f">{i} desc\nM\n" for i in ids)
+    cwd = stage(tmp_path, fasta, top_species="".join(w + "\n" for w in sorted(wanted)))
+    got = run_bash(cwd, species_awk(rendered) + " && cat protein_preprocessed.fa")
+    expected = "".join(f">{i}\nM\n" for i in ids if f(i) in wanted)
+    assert got == expected
+    assert set(ids[::2]) <= {line[1:] for line in got.splitlines() if line.startswith(">")}
+
+
+# (top, N_PROT, N_ODB, N_GS, whole DB kept?)
+CONDITION_CASES = {
+    "top_zero": (0, 5_000_000, 5_000_000, 0, True),
+    "top_zero_small_db": (0, 10, 10, 0, True),
+    "small_db": (13, 1_000_000, 1_000_000, 0, True),
+    "mixed_ids": (13, 2_000_000, 1_000_000, 1_000_000, True),
+    "partly_orthodb": (13, 2_000_000, 1_999_999, 0, True),
+    "no_species_ids": (13, 2_000_000, 0, 0, True),
+    "all_orthodb_large": (13, 1_000_001, 1_000_001, 0, False),
+    "all_genus_species_large": (13, 2_000_000, 0, 2_000_000, False),
+}
+
+
+@needs_bash_awk
+@pytest.mark.parametrize("name", list(CONDITION_CASES))
+def test_selection_condition(tmp_path: Path, name: str) -> None:
+    top, n_prot, n_odb, n_gs, full = CONDITION_CASES[name]
+    cond = selection_condition(render(PROTEINS_NF.read_text(), top=top))
+    out = run_bash(tmp_path, f"N_PROT={n_prot}; N_ODB={n_odb}; N_GS={n_gs}; "
+                             f"if {cond}; then echo FULL; else echo SELECT; fi")
+    assert out.strip() == ("FULL" if full else "SELECT")
+
+
 @needs_bash_awk
 def test_sanitize_fasta_empty_input_gives_empty_output(tmp_path: Path, rendered: str) -> None:
     cwd = stage(tmp_path, "")
@@ -171,7 +267,7 @@ MAIN_NF = """nextflow.enable.dsl=2
 include { PREPROCESS_PROTEINDB } from '%s/modules/proteins.nf'
 workflow {
     PREPROCESS_PROTEINDB(file(params.db), file(params.tib))
-    PREPROCESS_PROTEINDB.out.view { f -> "OUT_FA ${f}" }
+    PREPROCESS_PROTEINDB.out.db.view { f -> "OUT_FA ${f}" }
 }
 """
 

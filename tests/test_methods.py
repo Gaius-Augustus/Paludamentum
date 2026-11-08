@@ -153,6 +153,18 @@ def test_stub_run_proteins_tiberius(tmp_path: Path) -> None:
     methods = check_stub_run(tmp_path)
     assert "in mode `proteins`" in methods and "Vertebrata" in methods
     assert "StringTie" not in methods
+    assert "reduced to the proteins of 13 species" in methods
+    assert "the genus and species in front of the identifiers of reference proteomes" in methods
+
+
+def test_stub_run_proteins_no_species_reduction(tmp_path: Path) -> None:
+    cfg = tmp_path / "vertebrates.yaml"
+    cfg.write_text('target_species: "Vertebrata"\n')
+    params = {"tiberius": {"run": True, "model_cfg": str(cfg)}, "protein_top_species": 0, **EVIDENCE["proteins"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "reduced to the proteins of" not in methods
 
 
 def test_stub_run_ab_initio_vipsania(tmp_path: Path) -> None:

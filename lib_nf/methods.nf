@@ -154,11 +154,14 @@ def methodsProteins(Map ctx, Map run) {
     }
     s << "The protein database consisted of ${joinAnd(sources)}" +
          (sources.size() > 1 ? ', concatenated into one file.' : '.')
-    if( run.genefinder && run.odb12 )
-        s << 'If the database held more than one million proteins, all with OrthoDB identifiers, it was first ' +
-             'reduced to the proteins of 13 species: the *ab initio* proteins were searched against it with DIAMOND ' +
-             "${cite(ctx, ['diamond'])} in `blastp --very-sensitive` mode with an e-value of at most 1e-5, and the 13 species with " +
-             'the most best hits (identity at least 30 %, query coverage at least 50 %) were kept.'
+    def top = run.proteinTopSpecies
+    if( run.genefinder && top )
+        s << 'If the database held more than one million proteins whose identifiers all named their species ' +
+             '(OrthoDB identifiers, or the genus and species in front of the identifiers of reference proteomes), ' +
+             "it was first reduced to the proteins of ${top} species: the *ab initio* proteins were searched against " +
+             "it with DIAMOND ${cite(ctx, ['diamond'])} in `blastp --very-sensitive` mode with an e-value of at most " +
+             "1e-5, and the ${top} species with the most best hits (identity at least 30 %, query coverage at least " +
+             '50 %) were kept.'
     def matrix = run.scoringMatrix ? " with the scoring matrix `${run.scoringMatrix}`" : ''
     s << "The proteins were aligned to the genome with miniprot ${cite(ctx, ['miniprot'])}, and the alignments " +
          "were scored with miniprot-boundary-scorer${matrix}. miniprothint ${cite(ctx, ['galba'])} filtered the " +

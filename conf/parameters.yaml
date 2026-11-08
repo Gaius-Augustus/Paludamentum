@@ -101,6 +101,11 @@ genome: /path/to/genome.fa
 # Stramenopiles, Amoebozoa, Euglenozoa, Eukaryota
 # odb12Partitions: [Vertebrata]
 
+# More than 1,000,000 proteins whose ids name their species (OrthoDB, or
+# Genus_species_<id> of reference proteomes): keep the proteins of the 13 species
+# closest to the genome before miniprot; 0 keeps the whole database.
+# protein_top_species: 13
+
 # ------------------------------------------------------------
 # General settings (defaults shown; see docs/parameters.md)
 # ------------------------------------------------------------
