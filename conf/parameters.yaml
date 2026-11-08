@@ -146,7 +146,7 @@ vipsania:
 # Drusilla ORFs on the StringTie assembly (evidence modes)
 # ------------------------------------------------------------
 # drusilla:
-#   model: null                  # null = clade's drusilla_model in conf/hc_genes.yaml (vertebrates / insects)
+#   model: drusilla_model        # default: the one Drusilla model of all clades
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
 #   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
 #   result: /abs/path/orfs.filtered.gtf  # existing Drusilla ORFs: Drusilla does not run

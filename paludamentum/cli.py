@@ -90,8 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
                              "Drusilla flow in mixed mode.")
     inputs.add_argument("--stringtie", nargs="*", default=[],
                         help="StringTie assembly(ies) (GTF) made outside the pipeline, instead of or in addition "
-                             "to reads. Needs --proteins or --odb12Partitions, except for a gene finder "
-                             "model of a clade with a Drusilla model (conf/hc_genes.yaml: vertebrates, insects).")
+                             "to reads. Needs --proteins or --odb12Partitions.")
     inputs.add_argument("--chains", nargs="*", default=[],
                         help="Transcripts of full-length reads (GTF/GFF3 with exon lines, e.g. a StringTie -L "
                              "assembly of long reads) as chain evidence for the gene set integration. In mixed "

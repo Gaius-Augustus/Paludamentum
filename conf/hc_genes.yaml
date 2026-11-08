@@ -1,33 +1,31 @@
 # Clade of the gene finder model (Tiberius target_species of
 # params.tiberius.model_cfg, or the Vipsania model). Case is ignored. In
 # evidence modes, Paludamentum runs the same unified HC flow regardless of
-# clade (combine_genesets.py); this table has four jobs:
+# clade (combine_genesets.py); this table has three jobs:
 #   1. decide whether `--drop-lone-single-exon tiberius` is passed to
 #      combine_genesets.py (set for Insecta / Lepidoptera clades: Tiberius
 #      overpredicts single-exon genes in insects),
-#   2. provide the Drusilla model name for the clade (`drusilla_model`,
-#      a model of drusilla/model_cfg/ or of `drusilla models list`),
-#   3. name the training clade of the selection classifier that covers the
+#   2. name the training clade of the selection classifier that covers the
 #      clade (`classifier_clade`: embryophyta, fungi, insects or vertebrates).
 #      A clade without it, or not listed here, is new to the classifier and
 #      gets its conservative locus threshold (combine_genesets.py
 #      --unknown-clade), and
-#   4. hold the `recommended` flow for a warning when a run differs from it.
+#   3. hold the `recommended` flow for a warning when a run differs from it.
 #
-# params.drusilla.model overrides the clade's drusilla_model.
+# Drusilla runs the one model of all clades (params.drusilla.model, default
+# drusilla_model); this table does not choose it.
+# Chlorophyta and Bacillariophyta (the Tiberius chlorophyta / diatoms models)
+# are not listed: the classifier has not seen them.
 # params.hc_table points at another table.
 
 clades:
   Vertebrata:
     vipsania_models: [etb1go6q]
-    drusilla_model: vertebrates
     classifier_clade: vertebrates
   Mammalia:
-    drusilla_model: vertebrates
     classifier_clade: vertebrates
   Insecta: &insecta
     vipsania_models: [58hsuobw]
-    drusilla_model: insects
     classifier_clade: insects
     recommended:
       finetune: true
@@ -40,3 +38,9 @@ clades:
         also get --drop-lone-single-exon tiberius in combine_genesets.
   # the Lepidoptera model of Tiberius (target_species Lepidoptera)
   Lepidoptera: *insecta
+  # the angiosperms model of Tiberius
+  Mesangiospermae:
+    classifier_clade: embryophyta
+  # the fungi model of Tiberius
+  Fungi:
+    classifier_clade: fungi

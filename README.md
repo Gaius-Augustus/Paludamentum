@@ -43,7 +43,7 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 The numbers in the figure are the steps below. In evidence modes (`rnaseq`,
 `isoseq`, `mixed`) the same unified HC flow runs for every clade; the clade
 only decides a few per-clade switches in `conf/hc_genes.yaml` (insect flag,
-Drusilla model name, `classifier_clade` of the locus classifier).
+`classifier_clade` of the locus classifier).
 
 1. ***Ab initio* predictions.** Both gene finders run in parallel: Tiberius
    on genome chunks, and Vipsania with `--finetune` on the whole genome
@@ -67,7 +67,7 @@ Drusilla model name, `classifier_clade` of the locus classifier).
    DIAMOND passes and `revise_pep.py` for the partial-ORF rescue; the
    revised ORFs are mapped back to the genome with
    `cdna_alignment_orf_to_genome_orf.pl`) and Drusilla (StringTie pre-filter
-   and `drusilla annotate` with the clade's Drusilla model; its transcript
+   and `drusilla annotate` with the Drusilla model of all clades; its transcript
    handling options are available via `drusilla.*` params, see
    [docs/drusilla_flow.md](docs/drusilla_flow.md)). DIAMOND
    (`--outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend
@@ -99,11 +99,12 @@ Drusilla model name, `classifier_clade` of the locus classifier).
 Without transcripts the pipeline runs modes `abinitio` (one gene finder) or
 `proteins` (one gene finder, miniprot-based training genes become the
 annotation). The unified HC flow of step 4 is for evidence modes only.
-`conf/hc_genes.yaml` lists the clades with a Drusilla model (vertebrates,
-mammals, insects); when a Drusilla model is released for another clade, add
-the clade there with its `drusilla_model` (and `recommended` for the
-clade-specific warning). The `--drop-lone-single-exon` flag is passed when
-the gene-finder model's `target_species` is `Insecta` or `Lepidoptera`.
+`conf/hc_genes.yaml` lists the known clades (vertebrates, mammals, insects,
+angiosperms, fungi); a new clade is added there with its `classifier_clade`
+(and `recommended` for the clade-specific warning). The Drusilla model does
+not depend on the clade (`drusilla.model`, default `drusilla_model`). The
+`--drop-lone-single-exon` flag is passed when the gene-finder model's
+`target_species` is `Insecta` or `Lepidoptera`.
 
 A zoom into step 4:
 
@@ -391,9 +392,9 @@ Steps of the combined HC flow:
    assembly is not passed through `stringtie --merge` (only the GFF3 that
    TD2 needs is written from it); several assemblies would be merged.
 2. **Drusilla** filters the StringTie assembly (length, coverage, TPM) and
-   predicts the ORFs of the kept transcripts with the clade's Drusilla
-   model (`vertebrates` or `insects`, from `conf/hc_genes.yaml`; override
-   with `drusilla.model`). Isoforms whose CDS is a subsequence of another
+   predicts the ORFs of the kept transcripts with the one Drusilla model of
+   all clades (`drusilla_model`; set `drusilla.model` to use `vertebrates`
+   or `insects`). Isoforms whose CDS is a subsequence of another
    one are collapsed.
 3. **TD2** predicts ORFs on the full StringTie assembly. ORFs are then
    shortened to their first methionine where incomplete,
@@ -458,23 +459,26 @@ better than the tier rules by +2.6 transcript F1 and +2.4 gene F1, in 29 of
 single model, and dropping the clade input cost 0.1 F1; the shipped model is
 clade-agnostic.
 
-Known clades (`conf/hc_genes.yaml`) hold the Drusilla model, the
-`classifier_clade` and the warning of a run that differs from the
-recommended flow. `Vertebrata` and `Mammalia` use `drusilla_model:
-vertebrates` and `classifier_clade: vertebrates`; `Insecta` and
-`Lepidoptera` use `drusilla_model: insects`, `classifier_clade: insects`
+Known clades (`conf/hc_genes.yaml`) hold the `classifier_clade` and the
+warning of a run that differs from the recommended flow. `Vertebrata` and
+`Mammalia` use `classifier_clade: vertebrates`; `Mesangiospermae` (the
+Tiberius angiosperms model) uses `classifier_clade: embryophyta` and `Fungi`
+uses `classifier_clade: fungi`; `Insecta` and
+`Lepidoptera` use `classifier_clade: insects`
 **and** cause the pipeline to pass `--drop-lone-single-exon tiberius` to
 `combine_genesets.py`. In rules mode lone single-exon Tiberius-only models are
 demoted; in classifier mode such lone single-exon Tiberius structures
 without a miniprot match are never selected (`dropped_lone_single_exon`).
 This is the mechanism for clade-specific known weaknesses: the clade entry
-decides the flag, the classifier handles everything else. For a clade not in
-the table, set `drusilla.model` to pick a Drusilla model.
+decides the flag, the classifier handles everything else.
 
-The four clades of the training set are embryophyta, fungi, insects and
-vertebrates. A clade without `classifier_clade`, or one not in the table, is
-new to the model and the pipeline passes `--unknown-clade`, which raises the
-locus threshold to 0.30. For clades the model never saw (clade-out
+The four clades of the training set are embryophyta (Populus trichocarpa,
+Typha latifolia), fungi, insects and vertebrates; plant and fungal runs
+(`Mesangiospermae`, `Fungi`) use the model's locus threshold 0.25. A clade
+without `classifier_clade`, or one not in the table, is new to the model and
+the pipeline passes `--unknown-clade`, which raises the locus threshold to
+0.30. The Tiberius chlorophyta and diatoms models (Chlorophyta,
+Bacillariophyta) are not listed for this reason. For clades the model never saw (clade-out
 cross-validation on 46 species) this gave +1.4 transcript / +1.3 gene F1
 over the rules with that threshold, 27 of 31 species better; insect-like
 genomes are the weak case (gene F1 about -0.3 to -1 when insects were

@@ -119,16 +119,12 @@ def hcClade(p) {
     return [name: candidates ? candidates[0] : null, entry: null]
 }
 
-// Drusilla model (key 'model'): params.drusilla.model, else the clade's
-// drusilla_model in the HC table. Needed in the unified HC flow to annotate
-// ORFs with the right clade's Drusilla weights.
+// Drusilla model (key 'model'): params.drusilla.model, else drusilla_model,
+// the one model of all clades since Drusilla 0.3. The clade does not choose it.
 def drusillaSetting(p, String key) {
     if( key != 'model' )
         error "drusillaSetting: only 'model' is supported, got '${key}'."
-    def d = p.drusilla ?: [:]
-    if( d.model ) return d.model
-    def entry = hcClade(p).entry ?: [:]
-    return entry.drusilla_model ?: null
+    return p.drusilla?.model ?: 'drusilla_model'
 }
 
 // The most accurate flow measured for the clade of the gene finder model, as

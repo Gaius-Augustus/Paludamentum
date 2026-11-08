@@ -96,11 +96,35 @@ def test_stub_run_combined_rnaseq(tmp_path: Path) -> None:
     assert "in mode `rnaseq`" in methods
     for phrase in ("Tiberius", "Vipsania", "StringTie", "miniprot", "TD2", "Drusilla"):
         assert phrase in methods, phrase
-    # default selection: the classifier; the stub models' clade (Fungi) has no classifier_clade in the HC
-    # table, so the conservative locus threshold of the model file applies
+    # default selection: the classifier; the stub models' clade (Vipsania model Fungi) has classifier_clade
+    # fungi in the HC table, so the t_locus of the classifier model (0.25) applies, not the unknown-clade one
     assert "gradient-boosted tree classifier" in methods and "reached a tier" not in methods
-    assert "if its probability reached 0.3 (the threshold for clades outside" in methods
+    assert "if its probability reached 0.25," in methods
+    assert "outside the training clades" not in methods
     assert "further models of the locus if theirs reached 0.3" in methods
+
+
+def test_stub_run_combined_clade_outside_the_classifier(tmp_path: Path) -> None:
+    """A clade not in the HC table (Chlorophyta) gets the conservative locus threshold 0.3 and says so."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": {"model": "Chlorophyta"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "if its probability reached 0.3 (the threshold for clades outside the training clades" in methods
+    assert "reached 0.25" not in methods
+
+
+def test_stub_run_combined_tiberius_mesangiospermae(tmp_path: Path) -> None:
+    """Tiberius target_species Mesangiospermae (classifier_clade embryophyta) is a known clade; it wins
+    over the Vipsania model (Chlorophyta, not in the table)."""
+    cfg = tmp_path / "angiosperms.yaml"
+    cfg.write_text('target_species: "Mesangiospermae"\n')
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": {"model": "Chlorophyta"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "if its probability reached 0.25," in methods
+    assert "outside the training clades" not in methods
 
 
 def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:

@@ -90,28 +90,35 @@ process PREPROCESS_PROTEINDB {
 
     echo "[PREPROCESS_PROTEINDB] Number of proteins in input: \$N_PROT (OrthoDB-style ids: \$N_ODB)" >&2
 
+    # Sanitize the FASTA for DIAMOND and miniprot:
+    #  - headers keep only the first whitespace-delimited token after '>'. An
+    #    embedded tab (e.g. OrthoDB-style headers) survives into DIAMOND's
+    #    sseqid as the literal two characters '\\t', breaking downstream id
+    #    matching in hc_module.getting_hc_supported_by_proteins;
+    #  - blank or whitespace-only lines are dropped: DIAMOND makedb refuses a
+    #    FASTA whose first line is blank ("First line seems to be blank");
+    #  - Windows line ends (CR) are removed.
+    sanitize_fasta() {
+        awk '{ sub(/\\r\$/, "") } /^[ \\t]*\$/ { next }
+             /^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' "\$1"
+    }
+
     if [[ "\$N_PROT" -le 1000000 || "\$N_ODB" -lt "\$N_PROT" ]]; then
         if [[ "\$N_PROT" -le 1000000 ]]; then
             echo "[PREPROCESS_PROTEINDB] <= 1,000,000 proteins – using full DB." >&2
         else
             echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins, but the ids are not OrthoDB-style, so no species can be selected – using full DB." >&2
         fi
-        # Sanitize headers: keep only the first whitespace-delimited token after '>'.
-        # An embedded tab (e.g. OrthoDB-style headers) survives into DIAMOND's
-        # sseqid as the literal two characters '\\t', breaking downstream
-        # id matching in hc_module.getting_hc_supported_by_proteins.
-        awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-            ${proteinDB} > protein_preprocessed.fa
+        sanitize_fasta ${proteinDB} > protein_preprocessed.fa
     else
         echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins – running DIAMOND soft filter." >&2
 
-        # Sanitize headers on the way into the database (same as above, streamed,
-        # no copy of the FASTA). OrthoDB headers carry a tab, which DIAMOND
-        # reports once per sequence ("Tabulator character in sequence title"):
-        # gigabytes of log for millions of proteins. The per-sequence warnings
-        # are dropped from stderr; everything else DIAMOND reports is kept.
-        awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-            ${proteinDB} \
+        # Sanitize on the way into the database (streamed, no copy of the
+        # FASTA). OrthoDB headers carry a tab, which DIAMOND reports once per
+        # sequence ("Tabulator character in sequence title"): gigabytes of log
+        # for millions of proteins. The per-sequence warnings are dropped from
+        # stderr; everything else DIAMOND reports is kept.
+        sanitize_fasta ${proteinDB} \
           | ${params.tools.diamond} makedb --db prot_db --threads ${task.cpus} \
               2> >(grep -v -e 'Tabulator character in sequence title' >&2)
 
@@ -135,17 +142,19 @@ process PREPROCESS_PROTEINDB {
 
         if [[ ! -s top_species.txt ]]; then
             echo "[PREPROCESS_PROTEINDB] No species could be ranked (no DIAMOND hits): using the full DB." >&2
-            awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-                ${proteinDB} > protein_preprocessed.fa
+            sanitize_fasta ${proteinDB} > protein_preprocessed.fa
             exit 0
         fi
 
+        # the species selection sanitizes like sanitize_fasta
         awk '
         BEGIN {
           while ((getline < "top_species.txt") > 0) {
             wanted[\$1] = 1
           }
         }
+        { sub(/\\r\$/, "") }
+        /^[ \\t]*\$/ { next }
         /^>/ {
           hdr = substr(\$0, 2)
           split(hdr, a, /[ \t]/)

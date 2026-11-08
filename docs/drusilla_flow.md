@@ -38,10 +38,9 @@ replaces the per-model filtering it used to do.
    Drusilla 0.1, because their ORFs were mostly not genes on *T. rubripes*
    (gene F1 76.36 with them, 76.55 without). That comparison was made
    without both-strand scanning, which Drusilla 0.1 did not have.
-3. **`DOWNLOAD_DRUSILLA_MODEL`**: the released model (`vertebrates` or
-   `insects`, from the clade's `drusilla_model` in
-   [`conf/hc_genes.yaml`](../conf/hc_genes.yaml), or `drusilla.model`) is
-   downloaded once on the submitting host and checked against its
+3. **`DOWNLOAD_DRUSILLA_MODEL`**: the released model (`drusilla.model`,
+   default `drusilla_model`, the one model of all clades; `vertebrates` and
+   `insects` can be set) is downloaded once on the submitting host and checked against its
    `weights_sha256`. The GPU nodes need no internet. With `cache_dir`,
    Drusilla takes the model from that cache instead (`drusilla models
    download <model>` with `DRUSILLA_CACHE_DIR` set to it fills it once).
@@ -64,7 +63,7 @@ replaces the per-model filtering it used to do.
 
 ```yaml
 drusilla:
-  model: null              # null = drusilla_model of the clade in conf/hc_genes.yaml
+  model: drusilla_model    # one model for all clades; vertebrates / insects also released
   weights: null            # a local .weights.h5 instead (needs config)
   config: null
   cache_dir: null          # model cache (DRUSILLA_CACHE_DIR); null = downloaded once on the submitting host
@@ -140,20 +139,24 @@ on *Bos taurus* 24 shards used 26 of 48 cores and 40 GB.
 
 ## Known clades in `conf/hc_genes.yaml`
 
-| Clade | `drusilla_model` | `classifier_clade` | Notes |
-| --- | --- | --- | --- |
-| Vertebrata | `vertebrates` | `vertebrates` | |
-| Mammalia | `vertebrates` | `vertebrates` | |
-| Insecta | `insects` | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
-| Lepidoptera | `insects` | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
+| Clade | `classifier_clade` | Notes |
+| --- | --- | --- |
+| Vertebrata | `vertebrates` | |
+| Mammalia | `vertebrates` | |
+| Insecta | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
+| Lepidoptera | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
+| Mesangiospermae | `embryophyta` | Tiberius angiosperms model |
+| Fungi | `fungi` | Tiberius fungi model |
 
-When a Drusilla model is released for another clade, add the clade to
-`conf/hc_genes.yaml` with its `drusilla_model` (and `recommended` for the
-warning that fires on runs that differ from it). For a clade without a
-table entry, set `drusilla.model` to pick a Drusilla model. A clade without
-`classifier_clade` is new to the combine classifier (`combine.classifier`,
-default on): the pipeline passes `--unknown-clade` and the locus threshold
-rises from 0.25 to 0.30.
+The table does not choose the Drusilla model; all clades use
+`drusilla.model` (default `drusilla_model`). To add a clade, add it to
+`conf/hc_genes.yaml` with its `classifier_clade` (and `recommended` for the
+warning that fires on runs that differ from it). A clade without
+`classifier_clade`, or not in the table, is new to the combine classifier
+(`combine.classifier`, default on): the pipeline passes `--unknown-clade`
+and the locus threshold rises from 0.25 to 0.30. This holds for the
+Tiberius chlorophyta and diatoms models (Chlorophyta, Bacillariophyta),
+which are not listed because the classifier never saw them.
 
 ## Insects
 
