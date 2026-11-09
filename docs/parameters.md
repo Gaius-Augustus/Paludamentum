@@ -222,10 +222,18 @@ is (no `stringtie --merge`). It cannot be combined with pyVARUS directories
 (`rnaseq_varus`, `isoseq_varus`, `mixed_varus`): that is an error. The GTF
 needs the `cov` and `TPM` attributes that StringTie writes when it assembles
 reads; an assembly without them (the output of `stringtie --merge`) stops
-the run. A missing file is an error. Without reads there is no BAM, so no
-coverage track and no intron hints: `combine_genesets.py` runs without
-`--coverage` and `--introns`, its RNA rules stay off, and `hintsfile.gff`
-holds protein hints only.
+the run. A missing file is an error. Without reads there is no BAM for
+`bam2hints` and `bedtools genomecov`; the intron hints and the coverage track
+are then derived from the assembly itself (`ASSEMBLY_HINTS`,
+`bin/assembly_hints.py`): the introns of its transcripts, with the summed
+StringTie `cov` of the transcripts sharing an intron as multiplicity, and a
+bedGraph from the exon `cov` values, published as
+`intermediate/assembly_introns.gff` and `intermediate/assembly_cov.bg.gz`.
+`hintsfile.gff` holds these introns next to the protein hints. Measured on the
+31 benchmark species against the run with the BAM: -0.4 transcript and -0.2
+gene F1, where no RNA evidence at all costs -4.3 / -3.7 (the assembly holds
+about 70 % of the read-supported introns; the real coverage track is worth
+only 0.1 F1).
 
 ### Long-read transcripts (chains)
 

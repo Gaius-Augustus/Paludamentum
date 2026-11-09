@@ -227,10 +227,15 @@ def methodsTranscripts(Map ctx, Map run) {
     // StringTie: one merged assembly of all reads (combine_genesets flow)
     def st = cite(ctx, ['stringtie'])
     if( oneAssembly ) {
-        if( run.stringtieFiles )
+        if( run.stringtieFiles ) {
             s << "The provided StringTie ${st} assembly of all reads was used as the transcript assembly" +
                  (transcriptReads(run) ? '; the read alignments only gave the coverage track and the intron hints.' :
                                          '; no reads were aligned.')
+            if( run.asmHints )
+                s << 'Intron hints were derived from the assembly (the gaps between consecutive exons of its ' +
+                     'transcripts, with the summed StringTie coverage of the transcripts sharing an intron as ' +
+                     'multiplicity), and a coverage track from the coverage values of its exons.'
+        }
         else if( run.mode == 'mixed' && run.mixVarus )
             s << "The transcript assembly was the StringTie ${st} assembly of the short-read and the Iso-Seq " +
                  'alignments of pyVARUS together (`varus assemble --short --long`).'
@@ -245,7 +250,8 @@ def methodsTranscripts(Map ctx, Map run) {
             s << "The merged Iso-Seq alignments were assembled into one transcript set with StringTie ${st}, using `stringtie -L`."
     }
     if( !bams && !varus )
-        s << (withProteins(run) ? 'Without reads, the hints of the run were protein hints only.' :
+        s << (run.asmHints ? 'Without reads, the hints of the run were the protein hints and the intron hints of the assembly.' :
+              withProteins(run) ? 'Without reads, the hints of the run were protein hints only.' :
                                   'Without reads and proteins, the run had no hints.')
     return s.join(' ')
 }
@@ -313,7 +319,9 @@ def methodsHighConfidence(Map ctx, Map run) {
               bams ? ', bedtools genomecov produced a per-base read-depth bedGraph of the merged read alignments, and ' +
                      'bam2hints produced intron hints' :
               varusHints ? ', and the intron hints of the pyVARUS runs were used (without alignments there was no coverage track)' :
+              run.asmHints ? ', and the intron hints and the coverage track derived from the assembly were used' :
                            ' (without reads, no coverage track and no intron hints entered the integration)'
+    def rnaEvidence = bams || varusHints || run.asmHints
     def sets = transcripts ? 'The four gene sets (Tiberius, Vipsania, revised TD2, Drusilla)' :
                              'The two *ab initio* gene sets (Tiberius, Vipsania)'
     // DIAMOND is cited at its first mention: the TD2 revision above, or here without transcripts
@@ -324,14 +332,14 @@ def methodsHighConfidence(Map ctx, Map run) {
          rna + '. combine_genesets.py merged transcripts with identical CDS, clustered them into loci on the same strand, ' +
          (run.classifier ?
              "and selected them with its gradient-boosted tree classifier${protOnlyClf}, which predicts from tool, structure, locus, " +
-             ((bams || varusHints) ? 'RNA and ' : '') + 'protein features the probability that the CDS of a model is ' +
+             (rnaEvidence ? 'RNA and ' : '') + 'protein features the probability that the CDS of a model is ' +
              "correct: the most probable model of a locus was kept if its probability reached ${run.clfTLocus}" +
              (run.clfUnknownClade ? ' (the threshold for clades outside the training clades of the classifier)' : '') +
              ", and further models of the locus if theirs reached ${run.clfTIso}" +
              (insect ? '; single-exon Tiberius-only models without an identical miniprot model were never selected ' +
                        '(insect run, `--drop-lone-single-exon tiberius`)' : '') + '. ' :
              'tiered each unique structure from its supporting tool set, adjusted the tier with ' +
-             ((bams || varusHints) ? 'RNA, protein' : 'protein') + ' and DIAMOND features, and kept each locus whose best ' +
+             (rnaEvidence ? 'RNA, protein' : 'protein') + ' and DIAMOND features, and kept each locus whose best ' +
              "model reached a tier of ${numText(run.minLocus)}${dropFlag}" +
              (insect ? '; single-exon Tiberius-only models were demoted on insect runs. ' : '. ')) +
          'The result is the final annotation (no separate merge with the *ab initio* predictions is needed, ' +
@@ -378,7 +386,7 @@ def methodsQuality(Map ctx, Map run) {
     if( tools )
         s << "The completeness of the genome and of the proteome (the longest coding isoform of each gene) was " +
              "assessed with ${joinAnd(tools)} against the lineage `${run.buscoLineage}`."
-    def hintKinds = joinAnd([transcriptReads(run) ? 'RNA-Seq' : null, withProteins(run) ? 'protein' : null])
+    def hintKinds = joinAnd([(transcriptReads(run) || run.asmHints) ? 'RNA-Seq' : null, withProteins(run) ? 'protein' : null])
     if( run.geneSupport && run.mode != 'abinitio' && hintKinds )
         s << "For each coding transcript, the CDS introns and CDS segments supported by ${hintKinds} hints were counted."
     if( run.statistics )

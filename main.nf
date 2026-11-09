@@ -14,7 +14,7 @@ include { RNASEQ_EVIDENCE } from './subworkflows/rnaseq_evidence.nf'
 include { ISOSEQ_EVIDENCE } from './subworkflows/isoseq_evidence.nf'
 include { AB_INITIO } from './subworkflows/ab_initio.nf'
 include { HC_COMBINED } from './subworkflows/hc_combined.nf'
-include { STRINGTIE_ASSEMBLE_MIX; STRINGTIE_ASSEMBLE_ISO as STRINGTIE_ASSEMBLE_CHAINS } from './modules/assembly.nf'
+include { STRINGTIE_ASSEMBLE_MIX; STRINGTIE_ASSEMBLE_ISO as STRINGTIE_ASSEMBLE_CHAINS; ASSEMBLY_HINTS } from './modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_MIX } from './modules/varus.nf'
 include { POSTPROCESS; buscoLineage } from './subworkflows/postprocess.nf'
 
@@ -113,6 +113,16 @@ workflow {
       error "stringtie: the unified HC flow needs one StringTie assembly of all reads, got ${stringtieFiles.size()} files. Pass the one assembly (stringtie --mix for short and Iso-Seq reads together), or let the pipeline assemble."
     if( useStringtie && (nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
       error "stringtie: a pyVARUS directory brings its own StringTie assembly. Pass either the StringTie GTF (with the reads or BAMs it was made from) or the pyVARUS directories, not both."
+    // Reads or BAMs give the one merged BAM of the coverage track (BAM2COV) and
+    // the intron hints (BAM2HINTS); pyVARUS directories and a given assembly
+    // without reads bring none. With a given assembly alone, ASSEMBLY_HINTS
+    // derives both from the assembly: intron hints with the summed StringTie
+    // cov of the transcripts sharing an intron as multiplicity, and a coverage
+    // track from the exon cov values. Measured on 31 benchmark species against
+    // the BAM: -0.4 transcript / -0.2 gene F1 (no RNA evidence: -4.3 / -3.7).
+    def haveReadsBam = (MODE in ['mixed', 'rnaseq'] && (hasPaired || hasSingle || hasBAM)) ||
+                       (MODE in ['mixed', 'isoseq'] && hasIso)
+    def asmHints = useStringtie && !haveReadsBam
 
     // Transcripts of full-length reads for combine_genesets.py --chains (GTF
     // or GFF3 with exon lines, e.g. a StringTie -L assembly of long reads).
@@ -175,6 +185,8 @@ workflow {
         drusillaFlank: Math.max((params.drusilla?.flank_bp ?: 0) as Integer, (params.drusilla?.flank_3p_bp ?: 0) as Integer),
         drusillaOrfsPerTx: params.drusilla?.orfs_per_tx,
         stringtieFiles: stringtieFiles.size(), mixVarus: MODE == 'mixed' && transcriptMode && hasMixVarus,
+        // intron hints and coverage track derived from a given assembly without reads (ASSEMBLY_HINTS)
+        asmHints: asmHints,
         td2PredictArgs: params.td2_predict_args ?: null,
         sanityFilter: truthy(params.postprocess?.sanity_filter), utr: truthy(params.postprocess?.utr),
         maxUtrExtension: params.postprocess?.max_utr_extension,
@@ -302,15 +314,16 @@ workflow {
       }
 
       // One merged BAM of all reads for BAM2COV. In mixed mode merge both
-      // evidence BAMs; otherwise use the one that was made. pyVARUS
-      // directories and a given assembly without reads have no BAM: the
-      // placeholder stands for the coverage track then, and
-      // combine_genesets.py runs without --coverage (COMBINE_GENESETS).
-      def haveBam = (MODE in ['mixed', 'rnaseq'] && (hasPaired || hasSingle || hasBAM)) ||
-                    (MODE in ['mixed', 'isoseq'] && hasIso)
+      // evidence BAMs; otherwise use the one that was made. Without a BAM the
+      // slot carries the coverage track to use as it is: the bedGraph that
+      // ASSEMBLY_HINTS derives from a given assembly, or, for pyVARUS
+      // directories, the placeholder (combine_genesets.py then runs without
+      // --coverage, COMBINE_GENESETS).
+      def asm_ev = asmHints ? ASSEMBLY_HINTS(stringtie_gtf) : null
+      def haveBam = haveReadsBam
       def merged_bam
       if( !haveBam ) {
-        merged_bam = empty_file
+        merged_bam = asmHints ? asm_ev.bg : empty_file
       } else if( MODE == 'mixed' ) {
         merged_bam = MERGE_BAMS_ALL(re.bam.mix(ie.bam)).bam
       } else if( MODE == 'rnaseq' ) {
@@ -321,10 +334,12 @@ workflow {
 
       // Intron hints for combine_genesets: the subworkflows produce these per
       // read type (BAM2HINTS, or the hints of a pyVARUS directory), an empty
-      // placeholder without reads. combine_genesets.py --introns accepts
-      // several files; COMBINE_GENESETS leaves empty ones out.
+      // placeholder without reads; with a given assembly alone they are the
+      // introns of the assembly (ASSEMBLY_HINTS). combine_genesets.py
+      // --introns accepts several files; COMBINE_GENESETS leaves empty ones out.
       def introns_combine
-      if( MODE == 'mixed' )       introns_combine = re.hints.mix(ie.hints).collect()
+      if( asmHints )              introns_combine = asm_ev.hints
+      else if( MODE == 'mixed' )  introns_combine = re.hints.mix(ie.hints).collect()
       else if( MODE == 'rnaseq' ) introns_combine = re.hints
       else                        introns_combine = ie.hints
 
@@ -361,8 +376,9 @@ workflow {
       // asm_long stays empty.
       asm_short = asm_gtf
 
-      // Hints for POSTPROCESS (gene support): protein + RNA + Iso-Seq hints.
-      def all_hints = CONCAT_HINTS(pe.prot_hints, re.hints, ie.hints)
+      // Hints for POSTPROCESS (gene support): protein + RNA + Iso-Seq hints;
+      // the intron hints of a given assembly take the RNA slot.
+      def all_hints = CONCAT_HINTS(pe.prot_hints, asmHints ? asm_ev.hints : re.hints, ie.hints)
       hints = all_hints.hints
     }
 

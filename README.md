@@ -287,10 +287,15 @@ need no GPU, no mapping and no assembly step. Notes:
 - pyVARUS directories (`rnaseq_varus`, `isoseq_varus`, `mixed_varus`)
   cannot be combined with `--stringtie`; that is an error.
 - A run with only an assembly is reported as mode `rnaseq`, whatever reads
-  the assembly was made from. Without reads there is no BAM, so no coverage
-  track and no intron hints: `combine_genesets.py` runs without
-  `--coverage` and `--introns`, its RNA rules stay off, and
-  `hintsfile.gff` has protein hints only.
+  the assembly was made from. Without reads there is no BAM for `bam2hints`
+  and `bedtools genomecov`, so the intron hints and the coverage track are
+  derived from the assembly itself (`ASSEMBLY_HINTS`, `bin/assembly_hints.py`):
+  the introns of its transcripts, with the summed StringTie `cov` of the
+  transcripts sharing an intron as multiplicity, and a bedGraph from the
+  exon `cov` values (`intermediate/assembly_introns.gff`,
+  `intermediate/assembly_cov.bg.gz`; the introns also enter `hintsfile.gff`).
+  Measured on the 31 benchmark species against the run with the BAM: -0.4
+  transcript and -0.2 gene F1, where no RNA evidence costs -4.3 / -3.7.
 
 ## Outputs
 

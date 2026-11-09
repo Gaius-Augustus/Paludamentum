@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from test_stub_run import (BOTH_FINDERS, EVIDENCE, GENEFINDER, NEXTFLOW, assert_ok, run_pipeline)
+from test_stub_run import (BOTH_FINDERS, EVIDENCE, GENEFINDER, NEXTFLOW, PROTEINS, assert_ok, fake_stringtie_gtf,
+                           run_pipeline)
 
 pytestmark = [
     pytest.mark.nextflow,
@@ -141,6 +142,26 @@ def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:
     assert_ok(proc)
     methods = check_stub_run(other)
     assert "if its probability reached 0.4," in methods
+
+
+def test_stub_run_stringtie_without_reads(tmp_path: Path) -> None:
+    """A given assembly without reads: the methods say that the intron hints and the coverage track were
+    derived from the assembly, and the integration and the gene support count RNA evidence."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **PROTEINS,
+              "stringtie": fake_stringtie_gtf(tmp_path)}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "in mode `rnaseq` (with protein evidence and transcript assemblies)" in methods
+    assert "was used as the transcript assembly; no reads were aligned." in methods
+    assert "Intron hints were derived from the assembly" in methods
+    assert "a coverage track from the coverage values of its exons" in methods
+    assert "the intron hints and the coverage track derived from the assembly were used" in methods
+    assert "RNA and protein features" in methods
+    assert "the hints of the run were the protein hints and the intron hints of the assembly" in methods
+    assert "supported by RNA-Seq and protein hints were counted" in methods
+    for phrase in ("bam2hints", "genomecov", "HISAT2", "no coverage track and no intron hints"):
+        assert phrase not in methods, phrase
 
 
 def test_stub_run_proteins_combined(tmp_path: Path) -> None:

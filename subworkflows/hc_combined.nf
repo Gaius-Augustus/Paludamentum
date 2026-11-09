@@ -62,8 +62,9 @@ workflow HC_COMBINED {
     take:
     CH_GENOME
     asm_gtf                // channel: one or more StringTie assembly GTFs (empty without transcripts)
-    merged_bam             // channel: one coordinate-sorted BAM of all RNA / Iso-Seq reads, or an empty placeholder
-    have_bam               // value: false without a BAM (pyVARUS directories, a given assembly without reads, mode proteins)
+    merged_bam             // channel: one coordinate-sorted BAM of all RNA / Iso-Seq reads (have_bam), else the coverage
+                           //   track to use as it is: the bedGraph of a given assembly (ASSEMBLY_HINTS) or an empty placeholder
+    have_bam               // value: false without a BAM (a given assembly without reads, pyVARUS directories, mode proteins)
     intron_hints           // channel: the intron hints of BAM2HINTS (two files in mixed mode), or an empty placeholder
     chains                 // channel: full-length transcripts for --chains (with the empty placeholder), or the placeholder alone
     proteindb             // path: preprocessed protein DB (one FASTA)
@@ -148,8 +149,9 @@ workflow HC_COMBINED {
     def dia_tib = DIAMOND_TIB(tib_proteins, db.db)
     def dia_vip = DIAMOND_VIP(pep_vip,      db.db)
 
-    // ---- RNA-Seq coverage; without a BAM the placeholder goes on, and
-    // COMBINE_GENESETS runs combine_genesets.py without --coverage
+    // ---- RNA-Seq coverage; without a BAM the given track goes on as it is:
+    // the bedGraph of a given assembly, or the placeholder (COMBINE_GENESETS
+    // then runs combine_genesets.py without --coverage)
     def cov_bg = have_bam ? BAM2COV(merged_bam).bg : merged_bam
 
     // ---- integrate

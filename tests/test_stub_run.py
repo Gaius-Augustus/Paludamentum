@@ -377,25 +377,29 @@ def fake_stringtie_gtf(tmp_path: Path, name: str = "stringtie.gtf") -> str:
     return str(path)
 
 
-def test_stringtie_only_has_no_coverage_track(tmp_path: Path) -> None:
+def test_stringtie_only_derives_hints_and_coverage_from_the_assembly(tmp_path: Path) -> None:
+    """A given assembly without reads: no BAM, so ASSEMBLY_HINTS replaces BAM2HINTS and BAM2COV."""
     params = {"stringtie": fake_stringtie_gtf(tmp_path), **PROTEINS,
               "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    assert "COMBINE_GENESETS" in proc.stdout
-    assert "BAM2COV" not in proc.stdout
+    assert "COMBINE_GENESETS" in proc.stdout and "ASSEMBLY_HINTS" in proc.stdout
+    assert "BAM2COV" not in proc.stdout and "BAM2HINTS" not in proc.stdout
     assert "STRINGTIE_ASSEMBLE" not in proc.stdout
-    assert {"combined_evidence.gff3", "intermediate/combined.gff3"} <= published, sorted(published)
+    assert {"combined_evidence.gff3", "intermediate/combined.gff3", "intermediate/assembly_introns.gff",
+            "intermediate/assembly_cov.bg.gz", "hintsfile.gff", "qc/gene_support.tsv"} <= published, sorted(published)
 
 
 def test_stringtie_with_bam_makes_coverage_and_hints(tmp_path: Path) -> None:
     params = {"stringtie": fake_stringtie_gtf(tmp_path), "rnaseq_bam": [R1], "mode": "rnaseq",
               **PROTEINS, "tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
-    proc, _ = run_pipeline(tmp_path, params)
+    proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
     assert "BAM2COV" in proc.stdout and "BAM2HINTS" in proc.stdout
+    assert "ASSEMBLY_HINTS" not in proc.stdout      # the BAM gives the coverage and the introns
     assert "STRINGTIE_ASSEMBLE" not in proc.stdout
     assert "COMBINE_GENESETS" in proc.stdout
+    assert "intermediate/assembly_introns.gff" not in published
 
 
 def test_two_stringtie_files_are_rejected(tmp_path: Path) -> None:

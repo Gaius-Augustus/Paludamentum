@@ -32,9 +32,10 @@ process COMBINE_GENESETS {
     path vip_gff
     path dru_gtf, stageAs: 'drusilla/*'        // drusilla_orfs.gtf, or the file of params.drusilla.result
     path td_gff
-    // the intron hints per read type and the coverage track; an empty
-    // placeholder (no BAM: pyVARUS directories, a given assembly without
-    // reads) is left out of the command below
+    // the intron hints per read type and the coverage track (bam2hints and
+    // genomecov of the BAM, or both derived from a given assembly by
+    // ASSEMBLY_HINTS); an empty placeholder (no BAM: pyVARUS directories)
+    // is left out of the command below
     path introns, stageAs: 'introns/?/*'
     path cov, stageAs: 'coverage/*'
     // full-length transcripts (GTF/GFF3 with exon lines) with the placeholder,

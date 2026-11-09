@@ -31,7 +31,8 @@ genome: /path/to/genome.fa
 # StringTie assembly (GTF) made outside the pipeline, from short reads, Iso-Seq
 # or both: exactly one file, with the cov and TPM attributes. The reads it was
 # made from may come with it (coverage track and intron hints only, nothing is
-# assembled); pyVARUS directories may not. Without reads: no coverage, no introns.
+# assembled); pyVARUS directories may not. Without reads, the intron hints and
+# the coverage track are derived from the assembly (bin/assembly_hints.py).
 # stringtie: /path/to/stringtie.gtf
 #
 # Transcripts of full-length reads (GTF/GFF3, e.g. the stringtie -L assembly of

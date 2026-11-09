@@ -187,7 +187,8 @@ miniprothint's high-confidence hints (`hc.gff`) are not part of
 `hintsfile.gff`; the combined HC flow uses them. Short reads and Iso-Seq both
 write `src=E` and cannot be told apart. In mode `proteins` `hintsfile.gff`
 holds the protein hints only. Without reads (a `--stringtie` assembly alone)
-it holds protein hints only as well. Not in mode `abinitio` (no hints).
+it holds the protein hints and the intron hints derived from the assembly
+(`src=E`, written by `bin/assembly_hints.py`). Not in mode `abinitio` (no hints).
 
 `qc/gene_set_statistics.txt` and the plots `qc/isoform_and_exon_structure.png`,
 `qc/transcript_lengths.png`, `qc/introns_per_gene.png` and, with the support

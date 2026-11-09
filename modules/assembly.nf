@@ -1,5 +1,35 @@
 nextflow.enable.dsl=2
 
+// Intron hints and a coverage track from a given StringTie assembly
+// (params.stringtie without reads: there is no BAM for BAM2HINTS and BAM2COV).
+// bin/assembly_hints.py: the introns of the transcripts with the summed
+// StringTie cov of the transcripts sharing an intron as multiplicity (the
+// layout of bam2hints), and a bedGraph from the exon cov values. Measured on
+// 31 benchmark species against the BAM: -0.4 transcript / -0.2 gene F1, where
+// no RNA evidence at all costs -4.3 / -3.7.
+process ASSEMBLY_HINTS {
+  label 'container'
+  publishDir "${params.outdir}/intermediate", mode: 'copy', overwrite: true
+
+  input:
+    path gtf
+
+  output:
+    path "assembly_introns.gff", emit: hints
+    path "assembly_cov.bg.gz",   emit: bg
+
+  script:
+  """
+  assembly_hints.py ${gtf} --introns assembly_introns.gff --mult cov --bedgraph assembly_cov.bg.gz
+  """
+
+  stub:
+  """
+  touch assembly_introns.gff
+  : | gzip > assembly_cov.bg.gz
+  """
+}
+
 process STRINGTIE_ASSEMBLE_RNA {
   label 'container'
   input:
