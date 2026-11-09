@@ -387,8 +387,27 @@ workflow {
     // ab initio prediction, or combined.gff3 of HC_COMBINED (evidence modes
     // and mode proteins).
     if( post_prefix ) {
+      // The data the run used, one line of the report's run summary
+      def evidence = []
+      if( hasProteins ) evidence << 'proteins'
+      if( transcriptMode ) {
+        if( MODE in ['rnaseq', 'mixed'] ) {
+          if( hasPaired || hasSingle ) evidence << 'short reads'
+          if( hasBAM ) evidence << 'short-read BAM'
+          if( nVarus > 0 ) evidence << 'pyVARUS short reads'
+        }
+        if( MODE in ['isoseq', 'mixed'] ) {
+          if( hasIso ) evidence << 'Iso-Seq reads'
+          if( nIsoVarus > 0 ) evidence << 'pyVARUS Iso-Seq reads'
+        }
+        if( hasMixVarus ) evidence << 'pyVARUS mixed assembly'
+        if( useStringtie )
+          evidence << (asmHints ? 'StringTie assembly (intron hints and coverage derived from it; no reads)' : 'StringTie assembly')
+        if( chainFiles ) evidence << 'full-length transcripts (chains)'
+      }
       def runInfo = [
-          version: version, mode: MODE, genefinder: post_prefix, model: gfModel,
+          version: version, mode: MODE, evidence: evidence ? evidence.join(', ') : 'none (ab initio)',
+          genefinder: post_prefix, model: gfModel,
           hc: MODE == 'abinitio' ? null : 'combined',
       ]
       POSTPROCESS(final_gff, inp.genome, genome_chunks, post_prefix, genefinder_versions, MODE,

@@ -56,7 +56,7 @@ workflow POSTPROCESS {
     asm_short   // channel: StringTie assemblies of short reads (may be empty)
     asm_long    // channel: StringTie assemblies of Iso-Seq reads (may be empty)
     hints       // channel: hintsfile.gff (empty in mode abinitio)
-    run_info    // value: map for the report (version, mode, genefinder, model, hc)
+    run_info    // value: map for the report (version, mode, evidence, genefinder, model, hc)
 
     main:
     def stem = mode == 'abinitio' ? "${prefix}_ab_initio" : "${prefix}_evidence"

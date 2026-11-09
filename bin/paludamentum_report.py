@@ -39,8 +39,9 @@ The stem (file prefix, e.g. tiberius_evidence) is the 'stem' of run_info.json,
 else the prefix of the one '<stem>_proteins.fa' or '<stem>.gff3' in STAGED_DIR.
 
 run_info.json (optional, every key optional): {"version", "mode",
-"genefinder", "model", "hc", "stem", "busco_lineage", "outdir"}; further
-keys are listed as they are.
+"evidence" (the data the run used: proteins, reads or BAMs, a given StringTie
+assembly, chains), "genefinder", "model", "hc", "stem", "busco_lineage",
+"outdir"}; further keys are listed as they are.
 
 Usage:
     paludamentum_report.py --dir STAGED_DIR --out report.html [--run-info run_info.json]
@@ -114,7 +115,7 @@ CSS_PX_PER_INCH = 96
 GFFCOMPARE_LEVELS = ["Base level", "Exon level", "Intron level", "Intron chain level", "Transcript level",
                      "Locus level"]
 RUN_INFO_LABELS = OrderedDict([
-    ("version", "Paludamentum version"), ("mode", "Mode"), ("genefinder", "Gene finder"),
+    ("version", "Paludamentum version"), ("mode", "Mode"), ("evidence", "Evidence"), ("genefinder", "Gene finder"),
     ("model", "Model"), ("hc", "High-confidence genes"), ("stem", "Output prefix"),
     ("busco_lineage", "BUSCO lineage"), ("outdir", "Output directory"),
 ])

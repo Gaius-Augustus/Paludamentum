@@ -334,7 +334,9 @@ limit.
 ## Report
 
 `report.html` (`bin/paludamentum_report.py`): the Paludamentum logo, run
-summary, methods (`methods.md`), output files, gene set statistics,
+summary (version, mode, the evidence the run used: proteins, reads or BAMs,
+a given StringTie assembly with or without reads, chains; gene finder, model,
+HC genes, output prefix), methods (`methods.md`), output files, gene set statistics,
 completeness (chart in the colours of the BUSCO plot), evidence support,
 sanity filter, UTRs, ncRNA (bar chart of the ncRNAs per type and tool),
 OMArk, gffcompare, FANTASIA, software versions (`qc/software_versions.tsv`)

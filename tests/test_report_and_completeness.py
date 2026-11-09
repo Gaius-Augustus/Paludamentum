@@ -289,7 +289,9 @@ def full_staged_dir(tmp_path: Path) -> Path:
 def test_report_with_every_file(tmp_path: Path):
     staged = full_staged_dir(tmp_path)
     (tmp_path / "run_info.json").write_text(json.dumps({
-        "version": "0.5.0", "mode": "rnaseq", "genefinder": "tiberius", "model": "vertebrates", "hc": "combined",
+        "version": "0.5.0", "mode": "rnaseq",
+        "evidence": "proteins, StringTie assembly (intron hints and coverage derived from it; no reads)",
+        "genefinder": "tiberius", "model": "vertebrates", "hc": "combined",
         "stem": "tiberius_evidence", "busco_lineage": "eukaryota_odb12", "outdir": "/abs/out"}))
     out = tmp_path / "out" / "report.html"
     out.parent.mkdir()
@@ -300,6 +302,10 @@ def test_report_with_every_file(tmp_path: Path):
     check_html(text)
     no_remote_loads(text)
     assert "<title>Paludamentum report – tiberius_evidence</title>" in text
+    # the run summary names the data the run used, between the mode and the gene finder
+    summary = text.split('<section id="run-summary"', 1)[1].split("</section>", 1)[0]
+    assert summary.index("Mode") < summary.index("Evidence") < summary.index("Gene finder")
+    assert "StringTie assembly (intron hints and coverage derived from it; no reads)" in summary
     assert re.findall(r'<section id="([^"]+)"', text) == [
         "run-summary", "methods", "output-files", "gene-set-statistics", "completeness", "evidence-support",
         "sanity-filter", "utrs", "ncrna", "omark", "gffcompare", "fantasia", "software-versions", "references"]
