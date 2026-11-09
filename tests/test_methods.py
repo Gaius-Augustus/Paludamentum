@@ -144,6 +144,25 @@ def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:
     assert "if its probability reached 0.4," in methods
 
 
+def test_stub_run_rnaseq_without_tiberius(tmp_path: Path) -> None:
+    """Vipsania as the only ab initio gene set: three gene sets, the classifier for runs without Tiberius,
+    no Tiberius anywhere in the methods or the references."""
+    params = {"vipsania": {"model": "Nematoda"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "Genes were predicted *ab initio* with Vipsania" in methods
+    assert "The three gene sets (Vipsania, revised TD2, Drusilla) were integrated" in methods
+    assert "gradient-boosted tree classifier for runs without Tiberius" in methods
+    assert "RNA and protein features" in methods
+    # thresholds of the model, which also apply to clades outside the HC table (Nematoda)
+    assert "if its probability reached 0.225" in methods
+    assert "further models of the locus if theirs reached 0.3" in methods
+    assert "Tiberius" not in methods and "tiberius" not in methods
+    citations = (tmp_path / "out" / "citations.md").read_text()
+    assert "**Vipsania**" in citations and "**Tiberius**" not in citations and "gene finder: vipsania" in citations
+
+
 def test_stub_run_stringtie_without_reads(tmp_path: Path) -> None:
     """A given assembly without reads: the methods say that the intron hints and the coverage track were
     derived from the assembly, and the integration and the gene support count RNA evidence."""

@@ -130,6 +130,37 @@ def test_proteins_mode_combines_both_finders_without_transcripts(tmp_path: Path)
     assert not [f for f in published if Path(f).name.startswith(("tiberius_evidence", "vipsania_evidence"))], sorted(published)
 
 
+def test_rnaseq_without_tiberius_model_runs_vipsania_alone(tmp_path: Path) -> None:
+    """A species outside the Tiberius clades: no tiberius.model_cfg, no tiberius.result. Vipsania runs first (its
+    proteins select the protein database species), Tiberius not at all, and the combined step selects with the
+    classifier trained without Tiberius."""
+    params = {"vipsania": {"model": "Nematoda"}, **EVIDENCE["rnaseq"]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "Gene finders: vipsania (no Tiberius model given" in proc.stdout
+    for p in ("RUN_VIPSANIA", "PREPROCESS_PROTEINDB", "TD_ALL", "DRUSILLA_ANNOTATE", "DIAMOND_VIP", "COMBINE_GENESETS"):
+        assert p in proc.stdout, f"{p} not in: {proc.stdout[-2000:]}"
+    for p in ("RUN_TIBERIUS", "DIAMOND_TIB", "HC_COMBINED:GENEFINDER_VIPSANIA"):
+        assert p not in proc.stdout, f"{p} ran: {proc.stdout[-2000:]}"
+    assert final_files("combined_evidence") <= published, f"missing {final_files('combined_evidence') - published}"
+    assert "intermediate/vipsania_ab_initio.gff3" in published
+    assert not [f for f in published if "tiberius" in Path(f).name], sorted(published)
+    # the HC table does not know Nematoda: the classifier's threshold for clades outside its training clades applies
+    assert "no classifier_clade in the HC table" in proc.stdout
+
+
+def test_proteins_mode_needs_a_tiberius_model(tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, {"vipsania": {"model": "Nematoda"}, **PROTEINS})
+    assert proc.returncode != 0
+    assert "params.mode 'proteins' needs a Tiberius model" in proc.stdout + proc.stderr, proc.stdout[-2000:]
+
+
+def test_evidence_mode_without_any_model_stops(tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, EVIDENCE["rnaseq"])
+    assert proc.returncode != 0
+    assert "params.vipsania.model is required" in proc.stdout + proc.stderr, proc.stdout[-2000:]
+
+
 def test_proteins_mode_requires_both_models(tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS})
     assert proc.returncode != 0

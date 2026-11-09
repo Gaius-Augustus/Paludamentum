@@ -9,7 +9,7 @@ include { methodsText } from './lib_nf/methods.nf'
 
 include { INPUTS } from './subworkflows/inputs.nf'
 include { PROTEIN_EVIDENCE } from './subworkflows/protein_evidence.nf'
-include { GENEFINDER as GENEFINDER_TIBERIUS } from './subworkflows/genefinder.nf'
+include { GENEFINDER as GENEFINDER_TIBERIUS; GENEFINDER as GENEFINDER_VIPSANIA_FIRST } from './subworkflows/genefinder.nf'
 include { RNASEQ_EVIDENCE } from './subworkflows/rnaseq_evidence.nf'
 include { ISOSEQ_EVIDENCE } from './subworkflows/isoseq_evidence.nf'
 include { AB_INITIO } from './subworkflows/ab_initio.nf'
@@ -80,14 +80,28 @@ workflow {
     def combinedMode = transcriptMode || MODE == 'proteins'
     log.info "Running mode: ${MODE}"
 
-    // Both gene finders always run in evidence modes and in mode proteins;
-    // mode abinitio picks one via params.genefinder or <tool>.run.
+    // Both gene finders run in evidence modes and in mode proteins; mode
+    // abinitio picks one via params.genefinder or <tool>.run. Without a
+    // Tiberius model (no tiberius.model_cfg and no tiberius.result: a species
+    // outside the Tiberius clades, e.g. Nematoda, Arachnida) an evidence mode
+    // runs Vipsania as the only ab initio gene set, with the classifier trained
+    // for that (combine.classifier_vipsania). Measured on 31 benchmark species:
+    // 57.4 transcript / 71.2 gene F1, Vipsania alone 44.2 / 54.8, with Tiberius
+    // 60.1 / 74.6. Mode proteins needs Tiberius: Vipsania with protein evidence
+    // alone ends below Vipsania alone (no agreement signal, no ORF callers).
+    def runTiberius = combinedMode && (params.tiberius?.model_cfg || params.tiberius?.result) as boolean
     if( combinedMode ) {
-      log.info "Gene finders: tiberius + vipsania"
-      if( !params.tiberius?.model_cfg && !params.tiberius?.result )
-        error "params.tiberius.model_cfg is required (both gene finders run in evidence modes and in mode proteins)."
       if( !params.vipsania?.model && !params.vipsania?.result )
-        error "params.vipsania.model is required (both gene finders run in evidence modes and in mode proteins)."
+        error "params.vipsania.model is required (Vipsania runs in every evidence mode and in mode proteins)."
+      if( !runTiberius && MODE == 'proteins' )
+        error "params.mode 'proteins' needs a Tiberius model (tiberius.model_cfg or tiberius.result): with Vipsania " +
+              "alone and no transcript evidence the combined selection falls below Vipsania alone. Give a Tiberius " +
+              "model, or RNA-Seq / Iso-Seq reads, a BAM, pyVARUS directories or a StringTie assembly."
+      if( runTiberius )
+        log.info "Gene finders: tiberius + vipsania"
+      else
+        log.info "Gene finders: vipsania (no Tiberius model given: tiberius.model_cfg / tiberius.result; " +
+                 "the combined step selects with combine.classifier_vipsania)"
     } else {
       def gfRun = genefinderEnabled(params)
       def gfSel = gfRun ? resolveGenefinder(params) : null
@@ -146,15 +160,18 @@ workflow {
         (resolveGenefinder(params) == 'tiberius' ? tibModel : vipModel)
     // thresholds of the selection model of combine_genesets.py, read from its JSON file: the model of
     // the evidence modes (combine.classifier) or of the protein-only mode (combine.classifier_proteins)
-    def clfParam = transcriptMode ? params.combine?.classifier : (MODE == 'proteins' ? params.combine?.classifier_proteins : null)
+    def clfParam = transcriptMode ? (runTiberius ? params.combine?.classifier : params.combine?.classifier_vipsania) :
+                   (MODE == 'proteins' ? params.combine?.classifier_proteins : null)
     def clfFile = clfParam ? file(clfParam.toString()) : null
     def clfModel = clfFile?.exists() ? new groovy.json.JsonSlurper().parse(clfFile.toFile()) : null
     def run = [
         // keys of citationKeys (lib_nf/citations.nf)
         mode: MODE,
-        genefinder: combinedMode ? 'both' : (genefinderEnabled(params) ? resolveGenefinder(params) : null),
+        genefinder: combinedMode ? (runTiberius ? 'both' : 'vipsania') : (genefinderEnabled(params) ? resolveGenefinder(params) : null),
         tiberiusModel: params.tiberius?.model_cfg,
         hc: combinedMode ? 'combined' : null,
+        // Tiberius in the combined gene sets (false: Vipsania is the only ab initio gene set)
+        hcTiberius: combinedMode ? runTiberius : null,
         orfFinder: transcriptMode ? 'td2' : null,
         odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
@@ -265,7 +282,7 @@ workflow {
       def hc = HC_COMBINED(
           inp.genome, nextflow.Channel.empty(), empty_file, false, empty_file, empty_file,
           pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
-          tib.gff, tib_prot, params, false
+          tib.gff, tib_prot, params, false, true, false, nextflow.Channel.empty(), nextflow.Channel.empty()
       )
       final_gff = hc.gff
       genome_chunks = tib.chunks
@@ -282,11 +299,14 @@ workflow {
 
       // Run Tiberius first; its proteins feed PREPROCESS_PROTEINDB (species
       // selection in large OrthoDB databases) and HC_COMBINED reuses the
-      // same prediction (same task hash => Nextflow cache hit).
-      def tib = GENEFINDER_TIBERIUS(inp.genome, params, 'tiberius', false)
-      def tib_prot = PROTEIN_FROM_GFF('tiberius', tib.gff, inp.genome)
+      // same prediction (same task hash => Nextflow cache hit). Without a
+      // Tiberius model Vipsania takes that place: it runs here, its proteins
+      // select the species, and HC_COMBINED gets it passed in (vip_given).
+      def ab = runTiberius ? GENEFINDER_TIBERIUS(inp.genome, params, 'tiberius', false) :
+                             GENEFINDER_VIPSANIA_FIRST(inp.genome, params, 'vipsania', false)
+      def ab_prot = PROTEIN_FROM_GFF(runTiberius ? 'tiberius' : 'vipsania', ab.gff, inp.genome)
 
-      def pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, tib_prot, params)
+      def pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, ab_prot, params)
 
       // One StringTie assembly of all reads; one merged BAM for coverage
       // (BAM2COV) and intron hints (BAM2HINTS). With a given assembly the
@@ -360,15 +380,19 @@ workflow {
       else
         chains_combine = empty_file
 
+      // Tiberius slots: the prediction and its proteins, or the empty placeholder
+      // without a Tiberius model (then Vipsania goes in through the vip_* slots)
       def hc = HC_COMBINED(
           inp.genome, asm_gtf, merged_bam, haveBam, introns_combine, chains_combine,
           pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
-          tib.gff, tib_prot, params, true
+          runTiberius ? ab.gff : empty_file, runTiberius ? ab_prot : empty_file, params, true,
+          runTiberius, !runTiberius,
+          runTiberius ? nextflow.Channel.empty() : ab.gff, runTiberius ? nextflow.Channel.empty() : ab_prot
       )
 
       final_gff = hc.gff
-      genome_chunks = tib.chunks
-      genefinder_versions = tib.versions.mix(hc.versions)
+      genome_chunks = ab.chunks
+      genefinder_versions = ab.versions.mix(hc.versions)
       post_prefix = 'combined'
 
       // UTRs: use the one StringTie assembly as asm_short (same as today's

@@ -333,10 +333,14 @@ Nextflow's timeline, trace and report files are written as well.
 ## Gene finders
 
 In evidence modes (`rnaseq`, `isoseq`, `mixed`) and in mode `proteins`
-**both** Tiberius and Vipsania run; both model keys are required (or an
-existing prediction via `result` for either). The `run` flags are only
-consulted in `abinitio` mode, where exactly one gene finder runs;
-`--genefinder` or the block with `run: true` picks which.
+**both** Tiberius and Vipsania run; `vipsania.model` is always required (or
+an existing prediction via `result`). Without a Tiberius model (no
+`tiberius.model_cfg` and no `tiberius.result`, the case of a species outside
+the Tiberius clades) an evidence mode runs Vipsania as its only *ab initio*
+gene set, see [Species without a Tiberius model](#species-without-a-tiberius-model);
+mode `proteins` then stops. The `run` flags are only consulted in `abinitio`
+mode, where exactly one gene finder runs; `--genefinder` or the block with
+`run: true` picks which.
 
 | Gene finder | Model | Parameters |
 | --- | --- | --- |
@@ -517,6 +521,34 @@ transcripts the pool holds the exact structure of 48 % of the reference
 transcripts, with the ORF callers 60 %, and the selection recovers about 90 %
 of either pool. Protein-only runs are therefore the choice for genomes
 without RNA-Seq, not a substitute for it.
+
+### Species without a Tiberius model
+
+Vipsania has models for many clades that Tiberius has none for (Nematoda,
+Arthropoda beyond insects, Spiralia, Cnidaria, Echinodermata, Porifera,
+Tunicata, Alveolata, Amoebozoa, Discoba, Rhodophyta, and a fallback model).
+For such a species leave `tiberius.model_cfg` and `tiberius.result` unset and
+give `vipsania.model`: the evidence modes then run Vipsania (fine-tuned on
+the genome by default) as the only *ab initio* gene set, Vipsania's proteins
+select the species of a large protein database, and `combine_genesets.py`
+integrates the three gene sets (Vipsania, revised TD2, Drusilla) with the
+protein and RNA-Seq evidence, selecting with `combine.classifier_vipsania`
+(`conf/combiner_classifier_vipsania_v1.json`): the same recipe trained on
+the keep-all pools of the same 15 species without the Tiberius gene set,
+thresholds 0.225 / 0.30 (its species-out optimum, also for clades outside
+the HC table, which the clades of this flow are by definition). The RNA-Seq
+multiplicity is normalised by the median over the structures that all tools
+of the run predicted (three here, four with Tiberius).
+
+Measured on the 31 benchmark species with the Tiberius gene set removed
+(gffcompare `--strict-match -e 3 -T`, CDS level): 57.4 transcript / 71.2
+gene F1, against 44.2 / 54.8 for Vipsania alone (better in 31 of 31 species)
+and 60.1 / 74.6 for the same inputs with Tiberius. The ORF callers on the
+StringTie assembly supply most candidate structures, so this flow needs
+transcript evidence: Vipsania with protein evidence alone ended 12 F1 points
+below Vipsania alone, which is why mode `proteins` requires a Tiberius model.
+Vipsania's own accuracy sets the ceiling and differs by clade (its README
+reports locus F1 0.54 for Nematoda, 0.21 for Arthropoda beyond insects).
 
 ### Insects
 

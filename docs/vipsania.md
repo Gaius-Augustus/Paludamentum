@@ -8,8 +8,12 @@ transcripts.
 
 ## Selecting Vipsania
 
-Set `vipsania.run: true` in the params file, or `genefinder: vipsania`.
-Only one gene finder can run per pipeline run.
+In the evidence modes and in mode `proteins` Vipsania always runs next to
+Tiberius (`vipsania.model` is required); without a Tiberius model it is the
+only *ab initio* gene set, see
+[Species without a Tiberius model](#species-without-a-tiberius-model). In
+mode `abinitio` exactly one gene finder runs: set `vipsania.run: true` in the
+params file, or `genefinder: vipsania`.
 
 ```yaml
 genome: /abs/path/genome.fa
@@ -52,6 +56,23 @@ paludamentum --genefinder vipsania --nf_config slurm_generic --genome genome.fa 
 | `vipsania.max_files` | `20` | Maximal number of genome chunks. |
 | `vipsania.max_parallel` | unlimited | Cap of concurrently running Vipsania tasks. |
 | `vipsania.extra_args` | none | Appended verbatim to `vipsania annotate`. |
+
+## Species without a Tiberius model
+
+Vipsania has models for clades that Tiberius has none for (`Nematoda`,
+`Arthropoda`, `Spiralia`, `Cnidaria`, `Echinodermata`, `Porifera`, `Tunicata`,
+`Alveolata`, `Amoebozoa`, `Discoba`, `Rhodophyta`, and a fallback model; see
+the model table in the Vipsania README). In an evidence mode, leave
+`tiberius.model_cfg` and `tiberius.result` unset and give `vipsania.model`:
+Vipsania (fine-tuned by default) is then the only *ab initio* gene set, and
+the combined HC step selects among Vipsania, TD2 and Drusilla with the
+classifier trained for runs without Tiberius (`combine.classifier_vipsania`,
+thresholds 0.225 / 0.30). On the 31 benchmark species this reached 57.4
+transcript / 71.2 gene F1 against 44.2 / 54.8 for Vipsania alone and
+60.1 / 74.6 with Tiberius. Transcript evidence is required: with proteins
+alone the selection ends below Vipsania alone, so mode `proteins` without a
+Tiberius model stops with an error. See the
+[README](../README.md#species-without-a-tiberius-model).
 
 ## Finetuning
 

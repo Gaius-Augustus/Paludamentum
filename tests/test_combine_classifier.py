@@ -17,11 +17,14 @@ BIN = ROOT / "bin"
 SCRIPT = BIN / "combine_genesets.py"
 MODEL = ROOT / "conf" / "combiner_classifier_v1.json"
 MODEL_PROTEINS = ROOT / "conf" / "combiner_classifier_protonly_v1.json"
+MODEL_VIPSANIA = ROOT / "conf" / "combiner_classifier_vipsania_v1.json"
 FIXTURES = ROOT / "tests" / "data" / "combine_classifier"
 FIXTURE = FIXTURES / "fixture_Tilletiopsis_washingtonensis_300.tsv"
 FIXTURE_PROTEINS = FIXTURES / "fixture_Tilletiopsis_washingtonensis_protonly_300.tsv"
+FIXTURE_VIPSANIA = FIXTURES / "fixture_Tilletiopsis_washingtonensis_noT_300.tsv"
 # model file, its feature count, its fixture (300 structures of a test species never used for training)
-MODELS = {"evidence": (MODEL, 47, FIXTURE), "proteins": (MODEL_PROTEINS, 41, FIXTURE_PROTEINS)}
+MODELS = {"evidence": (MODEL, 47, FIXTURE), "proteins": (MODEL_PROTEINS, 41, FIXTURE_PROTEINS),
+          "vipsania": (MODEL_VIPSANIA, 47, FIXTURE_VIPSANIA)}
 
 sys.path.insert(0, str(BIN))
 import combine_genesets as cg  # noqa: E402
@@ -38,7 +41,7 @@ def test_model_file_is_complete(which):
     assert clf["format"] == cg.CLASSIFIER_FORMAT
     assert len(clf["features"]) == n_features and "clade_code" not in clf["features"]
     assert len(clf["trees"]) == 400
-    assert 0 < clf["t_locus"] < clf["t_locus_unknown_clade"] < 1 and 0 < clf["t_iso"] < 1
+    assert 0 < clf["t_locus"] <= clf["t_locus_unknown_clade"] < 1 and 0 < clf["t_iso"] < 1
     assert len(clf["trained_on"]) == 15
     for t in clf["trees"]:
         n = len(t["feat"])
@@ -193,6 +196,31 @@ def test_classifier_thresholds_override_and_unknown_clade(synth):
     assert rows["tB"]["reason"] == "isoform_classifier"
     _, _, err = combine(synth, "unk", "--classifier", str(MODEL), "--unknown-clade")
     assert "t_locus=0.3 " in err and "unknown_clade=True" in err
+
+
+def test_vipsania_model_without_tiberius_set(synth):
+    """Evidence modes without a Tiberius model: the Tiberius slot and its DIAMOND table are empty files; the
+    model trained without Tiberius selects among Vipsania, Drusilla and TD2 at 0.225 / 0.30, also for a clade
+    outside the HC table (--unknown-clade)."""
+    clf = cg.load_classifier(str(MODEL_VIPSANIA))
+    assert clf["features"] == cg.load_classifier(str(MODEL))["features"]
+    assert (clf["t_locus"], clf["t_iso"], clf["t_locus_unknown_clade"]) == (0.225, 0.3, 0.225)
+    (synth / "none.gtf").write_text("")
+    (synth / "none.tsv").write_text("")
+    out, rep = synth / "vip.gtf", synth / "vip.report.tsv"
+    cmd = [sys.executable, str(SCRIPT), "--tiberius", str(synth / "none.gtf"), "--diamond-tiberius", str(synth / "none.tsv"),
+           "--diamond-format", "full", "--vipsania", str(synth / "vipsania.gtf"), "--drusilla", str(synth / "drusilla.gtf"),
+           "--td2", str(synth / "td2.gtf"), "--classifier", str(MODEL_VIPSANIA), "--unknown-clade",
+           "-o", str(out), "--report", str(rep)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "input transcripts with CDS: tiberius=0, vipsania=2, drusilla=1, td2=1" in r.stderr
+    assert "t_locus=0.225 t_iso=0.3 unknown_clade=True" in r.stderr
+    with open(rep) as fh:
+        rows = {row["member_ids"].split(",")[0].split(":")[1]: row for row in csv.DictReader(fh, delimiter="\t")}
+    assert set(rows) == {"vA", "vD"}      # the Tiberius-only structures tB and tC are gone
+    assert rows["vA"]["tools"] == "drusilla,td2,vipsania" and rows["vA"]["reason"] == "primary"
+    assert all(0.0 <= float(row["p_classifier"]) <= 1.0 for row in rows.values())
 
 
 def test_protein_only_model_on_empty_orf_caller_sets(synth):

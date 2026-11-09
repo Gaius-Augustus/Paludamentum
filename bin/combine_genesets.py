@@ -820,7 +820,7 @@ def classifier_features(S, by_cl):
     """One feature dict per structure (S order), computed from the report values exactly as the training code
     (select_classifier.py features()) computes them from a --keep-all report: missing evidence is NaN, locus
     context comes from all structures of the cluster, RNA multiplicity is normalised by the species' median
-    over the four-tool structures."""
+    over the structures predicted by every tool of the run (the four-tool structures with Tiberius)."""
     F = []
     for s in S:
         r = dict(zip(REPORT_COLS, report_row(s)))
@@ -838,7 +838,10 @@ def classifier_features(S, by_cl):
         lr = _num(r['dmd_len_ratio'])
         f['lr_dev'] = NAN if _isnan(lr) else abs(math.log(min(max(lr, 0.01), 100.0)))
         F.append(f)
-    ref = _agg([f['log_mult'] for f in F if f['ntools'] == 4], _median)
+    # species-level depth reference: the structures predicted by every tool of the run (4 with Tiberius,
+    # 3 in runs without it, where no structure reaches 4 and the reference used to fall back to 0)
+    max_tools = max((f['ntools'] for f in F), default=0)
+    ref = _agg([f['log_mult'] for f in F if f['ntools'] == max_tools], _median)
     ref = 0.0 if _isnan(ref) else ref
     for members in by_cl.values():
         fs = [F[s['_ix']] for s in members]

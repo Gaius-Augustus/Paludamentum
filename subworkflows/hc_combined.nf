@@ -39,6 +39,17 @@ nextflow.enable.dsl=2
 // (params.combine.classifier_proteins, the shipped
 // conf/combiner_classifier_protonly_v1.json, trained on the same 15 species
 // on candidate pools without transcript evidence); false: the tier rules.
+//
+// Without a Tiberius model (tiberius = false: no tiberius.model_cfg and no
+// tiberius.result, a species outside the Tiberius clades) Vipsania is the only
+// ab initio gene set. main.nf then runs Vipsania first (its proteins select
+// the species of a large protein database) and passes it in (vip_given), the
+// empty placeholder stands for the Tiberius gene set and its DIAMOND table,
+// and the selection uses the classifier trained on candidate pools without
+// Tiberius (params.combine.classifier_vipsania, the shipped
+// conf/combiner_classifier_vipsania_v1.json; thresholds 0.225 / 0.30).
+// Measured on 31 benchmark species: 57.4 transcript / 71.2 gene F1 against
+// 44.2 / 54.8 for Vipsania alone and 60.1 / 74.6 with Tiberius.
 
 include { GENEFINDER as GENEFINDER_VIPSANIA } from './genefinder.nf'
 include { STRINGTIE_MERGE } from '../modules/assembly.nf'
@@ -71,14 +82,33 @@ workflow HC_COMBINED {
     miniprot_scored        // path: scored miniprot alignments (miniprot_parsed.gff)
     prot_train_gff         // path: miniprot_trainingGenes.gff
     prot_hc_hints          // path: miniprothint hc.gff
-    tib_gff                // channel: Tiberius ab initio GFF (produced in main.nf for PROTEIN_EVIDENCE)
-    tib_proteins           // channel: Tiberius protein FASTA (same, reused as the gffread output)
+    tib_gff                // channel: Tiberius ab initio GFF (produced in main.nf for PROTEIN_EVIDENCE), or the empty placeholder
+    tib_proteins           // channel: Tiberius protein FASTA (same, reused as the gffread output), or the empty placeholder
     params_map
     transcripts            // value: true in the evidence modes (StringTie assembly, ORF callers), false in mode proteins
+    tiberius               // value: false without a Tiberius model: tib_gff and tib_proteins are the placeholder
+    vip_given              // value: true when main.nf ran Vipsania already (no Tiberius model) and passes it in
+    vip_gff                // channel: Vipsania ab initio GFF when vip_given, else empty
+    vip_proteins           // channel: Vipsania protein FASTA when vip_given, else empty
 
     main:
-    // ---- gene finders
-    def vip = GENEFINDER_VIPSANIA(CH_GENOME, params_map, 'vipsania', false)
+    // ---- gene finders: Vipsania runs here unless main.nf ran it first
+    def vip_gff_ch
+    def pep_vip
+    def vip_chunks
+    def vip_versions
+    if( vip_given ) {
+        vip_gff_ch   = vip_gff
+        pep_vip      = vip_proteins
+        vip_chunks   = channel.empty()
+        vip_versions = channel.empty()
+    } else {
+        def vip = GENEFINDER_VIPSANIA(CH_GENOME, params_map, 'vipsania', false)
+        vip_gff_ch   = vip.gff
+        pep_vip      = PROT_VIP('vipsania', vip.gff, CH_GENOME)
+        vip_chunks   = vip.chunks
+        vip_versions = vip.versions
+    }
 
     // ---- the protein database for the DIAMOND runs of every gene set
     def db = DIAMOND_MAKEDB(proteindb)
@@ -144,10 +174,10 @@ workflow HC_COMBINED {
         dia_dru  = none
     }
 
-    // ---- proteins of the Vipsania gene set; the DIAMOND runs of both gene finders (14-column)
-    def pep_vip = PROT_VIP('vipsania', vip.gff, CH_GENOME)
-    def dia_tib = DIAMOND_TIB(tib_proteins, db.db)
-    def dia_vip = DIAMOND_VIP(pep_vip,      db.db)
+    // ---- the DIAMOND runs of the gene finders (14-column); without Tiberius its
+    // placeholder stands for the table as well
+    def dia_tib = tiberius ? DIAMOND_TIB(tib_proteins, db.db).tsv : tib_proteins
+    def dia_vip = DIAMOND_VIP(pep_vip, db.db)
 
     // ---- RNA-Seq coverage; without a BAM the given track goes on as it is:
     // the bedGraph of a given assembly, or the placeholder (COMBINE_GENESETS
@@ -158,17 +188,19 @@ workflow HC_COMBINED {
     def clade  = hcClade(params_map)
     def insect = clade.name?.toLowerCase() in ['insecta', 'lepidoptera']
     def min_locus = (params_map.combine?.min_locus != null) ? params_map.combine.min_locus : 4
-    // learned selection: the model of params.combine.classifier (evidence modes)
-    // or params.combine.classifier_proteins (mode proteins); false / null:
-    // tier rules, the empty placeholder goes in. The clade is known to the
-    // model when its HC-table entry names a classifier_clade; otherwise the
-    // model's conservative locus threshold applies (--unknown-clade).
-    def clfParam = transcripts ? params_map.combine?.classifier : params_map.combine?.classifier_proteins
+    // learned selection: the model of params.combine.classifier (evidence modes
+    // with Tiberius), classifier_vipsania (evidence modes without a Tiberius
+    // model) or classifier_proteins (mode proteins); false / null: tier rules,
+    // the empty placeholder goes in. The clade is known to the model when its
+    // HC-table entry names a classifier_clade; otherwise the model's
+    // conservative locus threshold applies (--unknown-clade).
+    def clfParam = !transcripts ? params_map.combine?.classifier_proteins :
+                   tiberius ? params_map.combine?.classifier : params_map.combine?.classifier_vipsania
     def classifier = clfParam ? channel.value(file(clfParam.toString(), checkIfExists: true)) : NO_CLASSIFIER()
     def unknown_clade = !(clade.entry?.classifier_clade)
     if( clfParam && unknown_clade )
         log.info "combine_genesets: clade ${clade.name ?: 'unknown'} has no classifier_clade in the HC table; " +
-                 "the classifier uses its conservative locus threshold (--unknown-clade)."
+                 "the classifier uses its locus threshold for clades outside its training clades (--unknown-clade)."
     // the thresholds of params.combine.t_locus / t_iso override the model's;
     // with -resume a change here reruns only the combine step and what follows
     def clf_opts = [unknown_clade ? '--unknown-clade' : '',
@@ -177,15 +209,15 @@ workflow HC_COMBINED {
                    .findAll().join(' ')
 
     def combined = COMBINE_GENESETS(
-        tib_gff, vip.gff, dru_gtf, td2_gff3,
+        tib_gff, vip_gff_ch, dru_gtf, td2_gff3,
         intron_hints, cov_bg, chains,
-        dia_tib.tsv, dia_vip.tsv, dia_dru, dia_td2,
+        dia_tib, dia_vip.tsv, dia_dru, dia_td2,
         prot_train_gff, miniprot_scored, prot_hc_hints,
         classifier, insect, min_locus, clf_opts)
 
     emit:
     gff      = combined.gff3
     report   = combined.report
-    chunks   = vip.chunks            // for cmscan in POSTPROCESS
-    versions = vip.versions
+    chunks   = vip_chunks            // for cmscan in POSTPROCESS (empty when Vipsania ran in main.nf)
+    versions = vip_versions
 }

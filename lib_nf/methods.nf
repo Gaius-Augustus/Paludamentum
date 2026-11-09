@@ -308,7 +308,9 @@ def methodsHighConfidence(Map ctx, Map run) {
                      'a model whose CDS chain lay within one of them ranked higher in its locus, lone *ab initio* models ' +
                      'with such a chain were kept, and so were further isoforms with such a chain.')
     }
-    def insect = run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
+    // Tiberius is in the pool unless hcTiberius says false (Vipsania-only run); the insect flag then acts on nothing
+    def withTiberius = run.hcTiberius != false
+    def insect = withTiberius && run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
     def dropFlag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
     // the coverage track needs a BAM; pyVARUS directories and a given assembly without reads have none
     def bams = (run.mode in ['rnaseq', 'mixed'] && (run.shortFastq || run.shortBam)) ||
@@ -322,11 +324,13 @@ def methodsHighConfidence(Map ctx, Map run) {
               run.asmHints ? ', and the intron hints and the coverage track derived from the assembly were used' :
                            ' (without reads, no coverage track and no intron hints entered the integration)'
     def rnaEvidence = bams || varusHints || run.asmHints
-    def sets = transcripts ? 'The four gene sets (Tiberius, Vipsania, revised TD2, Drusilla)' :
-                             'The two *ab initio* gene sets (Tiberius, Vipsania)'
+    def sets = !transcripts ? 'The two *ab initio* gene sets (Tiberius, Vipsania)' :
+               withTiberius ? 'The four gene sets (Tiberius, Vipsania, revised TD2, Drusilla)' :
+                              'The three gene sets (Vipsania, revised TD2, Drusilla)'
     // DIAMOND is cited at its first mention: the TD2 revision above, or here without transcripts
-    def protOnlyClf = transcripts ? '' :
-        ' for runs without transcript evidence (trained on candidate pools of the two gene finders with protein evidence alone)'
+    def protOnlyClf = !transcripts ?
+        ' for runs without transcript evidence (trained on candidate pools of the two gene finders with protein evidence alone)' :
+        withTiberius ? '' : ' for runs without Tiberius (trained on candidate pools without the Tiberius gene set)'
     s << "${sets} were integrated by `combine_genesets.py`: " +
          "DIAMOND${transcripts ? '' : ' ' + dmd} blastp was run on each gene set's proteins (14-column outfmt, including query and subject lengths)" +
          rna + '. combine_genesets.py merged transcripts with identical CDS, clustered them into loci on the same strand, ' +
