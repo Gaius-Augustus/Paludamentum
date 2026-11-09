@@ -16,6 +16,13 @@ nextflow.enable.dsl=2
 // Inputs that may share a file name are staged apart (Nextflow refuses two
 // input files of one name): the four DIAMOND tables are all diamond.tsv, and
 // in mixed mode both intron hint files are named after the merged BAM.
+//
+// Mode proteins (HC_COMBINED with transcripts = false) passes the empty
+// placeholder for the Drusilla and TD2 gene sets, their DIAMOND tables, the
+// intron hints, the coverage track and the chains: combine_genesets.py reads
+// an empty gene set and an empty DIAMOND table as no structures and no hits,
+// and the RNA rules stay off as without reads. The classifier is then the
+// protein-only model (params.combine.classifier_proteins).
 process COMBINE_GENESETS {
   label 'container'
   publishDir "${params.outdir}/intermediate", pattern: "combined.{gff3,report.tsv}", mode: 'copy', overwrite: true

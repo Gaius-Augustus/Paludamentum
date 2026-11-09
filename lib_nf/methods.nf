@@ -256,7 +256,7 @@ def methodsHighConfidence(Map ctx, Map run) {
     def transcripts = run.mode in ['rnaseq', 'isoseq', 'mixed']
     def stopCheck = 'The CDS of the HC genes were extended to include the stop codon, and genes without a valid ' +
                     'terminal stop codon or with an in-frame internal stop codon were removed.'
-    if( !transcripts ) {
+    if( !transcripts && run.hc != 'combined' ) {
         s << 'Without transcript evidence, the high-confidence (HC) genes were the gene structures of the ' +
              "high-confidence protein alignments selected by miniprothint ${cite(ctx, ['galba'])}."
         s << stopCheck
@@ -264,55 +264,66 @@ def methodsHighConfidence(Map ctx, Map run) {
     }
     // Unified HC flow (combine_genesets): both ORF callers + the four
     // DIAMOND searches + bedtools genomecov coverage + bam2hints introns.
+    // Mode proteins: the two ab initio gene sets, their DIAMOND searches and
+    // the protein evidence alone (no ORF callers, no coverage, no introns).
     def dmd = cite(ctx, ['diamond'])
-    def dr  = cite(ctx, ['drusilla'])
-    def td2 = cite(ctx, ['td2'])
-    def psa = cite(ctx, ['psauron'])
-    s << "High-confidence (HC) genes were derived from two ORF callers on the StringTie transcript assembly: " +
-         "TD2 ${td2} (which scores candidate ORFs with PSAURON ${psa}" +
-         (run.td2PredictArgs ? ", `TD2.Predict ${run.td2PredictArgs}`" : '') + ") and Drusilla ${dr}."
-    s << "For TD2, 5' partial and internal ORFs were also trimmed to their first methionine, both versions were " +
-         "searched against the protein database with DIAMOND ${dmd} blastp (five targets per query), and " +
-         'the comparison of their hits decided whether an ORF was revised to the trimmed, complete start; the ' +
-         'revised ORFs were converted back to genome coordinates with `cdna_alignment_orf_to_genome_orf.pl` of ' +
-         "TransDecoder ${cite(ctx, ['transdecoder'])}."
-    def dru = []
-    if( run.drusillaBothStrands )
-        dru << 'scanning both strands of transcripts without an assembled strand'
-    if( run.drusillaFlank )
-        dru << "completing ORFs that reached a transcript end with up to ${numText(run.drusillaFlank)} bp of genomic sequence"
-    if( run.drusillaOrfsPerTx != null ) {
-        def nOrfs = run.drusillaOrfsPerTx as Integer
-        if( nOrfs == 0 )     dru << 'reporting every ORF of a transcript'
-        else if( nOrfs > 1 ) dru << "reporting up to ${numText(nOrfs)} ORFs per transcript"
+    if( transcripts ) {
+        def dr  = cite(ctx, ['drusilla'])
+        def td2 = cite(ctx, ['td2'])
+        def psa = cite(ctx, ['psauron'])
+        s << "High-confidence (HC) genes were derived from two ORF callers on the StringTie transcript assembly: " +
+             "TD2 ${td2} (which scores candidate ORFs with PSAURON ${psa}" +
+             (run.td2PredictArgs ? ", `TD2.Predict ${run.td2PredictArgs}`" : '') + ") and Drusilla ${dr}."
+        s << "For TD2, 5' partial and internal ORFs were also trimmed to their first methionine, both versions were " +
+             "searched against the protein database with DIAMOND ${dmd} blastp (five targets per query), and " +
+             'the comparison of their hits decided whether an ORF was revised to the trimmed, complete start; the ' +
+             'revised ORFs were converted back to genome coordinates with `cdna_alignment_orf_to_genome_orf.pl` of ' +
+             "TransDecoder ${cite(ctx, ['transdecoder'])}."
+        def dru = []
+        if( run.drusillaBothStrands )
+            dru << 'scanning both strands of transcripts without an assembled strand'
+        if( run.drusillaFlank )
+            dru << "completing ORFs that reached a transcript end with up to ${numText(run.drusillaFlank)} bp of genomic sequence"
+        if( run.drusillaOrfsPerTx != null ) {
+            def nOrfs = run.drusillaOrfsPerTx as Integer
+            if( nOrfs == 0 )     dru << 'reporting every ORF of a transcript'
+            else if( nOrfs > 1 ) dru << "reporting up to ${numText(nOrfs)} ORFs per transcript"
+        }
+        s << 'For Drusilla, assembled transcripts were pre-filtered by length, StringTie coverage and TPM; Drusilla ' +
+             'predicted their ORFs' + (dru ? " (${joinAnd(dru)})" : '') +
+             ', and isoforms whose CDS was a subsequence of another were collapsed.'
+        if( run.chains )
+            s << (run.chains == 'given' ? 'The given full-length transcripts' :
+                  'Transcripts assembled from the long reads alone (StringTie -L)') +
+                 ' served as full-length transcript evidence in the integration: ' +
+                 (run.classifier ?
+                     'the log-odds of the selection probability of a model whose CDS chain lay within one of them ' +
+                     'were raised by 1.5.' :
+                     'a model whose CDS chain lay within one of them ranked higher in its locus, lone *ab initio* models ' +
+                     'with such a chain were kept, and so were further isoforms with such a chain.')
     }
-    s << 'For Drusilla, assembled transcripts were pre-filtered by length, StringTie coverage and TPM; Drusilla ' +
-         'predicted their ORFs' + (dru ? " (${joinAnd(dru)})" : '') +
-         ', and isoforms whose CDS was a subsequence of another were collapsed.'
-    if( run.chains )
-        s << (run.chains == 'given' ? 'The given full-length transcripts' :
-              'Transcripts assembled from the long reads alone (StringTie -L)') +
-             ' served as full-length transcript evidence in the integration: ' +
-             (run.classifier ?
-                 'the log-odds of the selection probability of a model whose CDS chain lay within one of them ' +
-                 'were raised by 1.5.' :
-                 'a model whose CDS chain lay within one of them ranked higher in its locus, lone *ab initio* models ' +
-                 'with such a chain were kept, and so were further isoforms with such a chain.')
     def insect = run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
     def dropFlag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
     // the coverage track needs a BAM; pyVARUS directories and a given assembly without reads have none
     def bams = (run.mode in ['rnaseq', 'mixed'] && (run.shortFastq || run.shortBam)) ||
                (run.mode in ['isoseq', 'mixed'] && run.isoFastq)
     def varusHints = (run.mode in ['rnaseq', 'mixed'] && run.shortVarus) || (run.mode in ['isoseq', 'mixed'] && run.isoVarus)
-    def rna = bams ? ', bedtools genomecov produced a per-base read-depth bedGraph of the merged read alignments, and ' +
+    def rna = !transcripts ? ' (without transcript evidence no ORF caller ran, and no coverage track and no intron ' +
+                             'hints entered the integration)' :
+              bams ? ', bedtools genomecov produced a per-base read-depth bedGraph of the merged read alignments, and ' +
                      'bam2hints produced intron hints' :
               varusHints ? ', and the intron hints of the pyVARUS runs were used (without alignments there was no coverage track)' :
                            ' (without reads, no coverage track and no intron hints entered the integration)'
-    s << "The four gene sets (Tiberius, Vipsania, revised TD2, Drusilla) were integrated by `combine_genesets.py`: " +
-         "DIAMOND blastp was run on each gene set's proteins (14-column outfmt, including query and subject lengths)" +
+    def sets = transcripts ? 'The four gene sets (Tiberius, Vipsania, revised TD2, Drusilla)' :
+                             'The two *ab initio* gene sets (Tiberius, Vipsania)'
+    // DIAMOND is cited at its first mention: the TD2 revision above, or here without transcripts
+    def protOnlyClf = transcripts ? '' :
+        ' for runs without transcript evidence (trained on candidate pools of the two gene finders with protein evidence alone)'
+    s << "${sets} were integrated by `combine_genesets.py`: " +
+         "DIAMOND${transcripts ? '' : ' ' + dmd} blastp was run on each gene set's proteins (14-column outfmt, including query and subject lengths)" +
          rna + '. combine_genesets.py merged transcripts with identical CDS, clustered them into loci on the same strand, ' +
          (run.classifier ?
-             'and selected them with its gradient-boosted tree classifier, which predicts from tool, structure, locus, ' +
+             "and selected them with its gradient-boosted tree classifier${protOnlyClf}, which predicts from tool, structure, locus, " +
              ((bams || varusHints) ? 'RNA and ' : '') + 'protein features the probability that the CDS of a model is ' +
              "correct: the most probable model of a locus was kept if its probability reached ${run.clfTLocus}" +
              (run.clfUnknownClade ? ' (the threshold for clades outside the training clades of the classifier)' : '') +

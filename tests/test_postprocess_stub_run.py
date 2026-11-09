@@ -17,8 +17,9 @@ pytestmark = [
     pytest.mark.skipif(NEXTFLOW is None, reason="nextflow executable not found"),
 ]
 
-# evidence modes run both gene finders; the published stem is combined_evidence
+# evidence modes and mode proteins run both gene finders; the published stem is combined_evidence
 COMBINED_RNASEQ = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
+COMBINED_PROTEINS = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["proteins"]}
 
 
 def busco_cache(tmp_path: Path, lineage: str = "eukaryota_odb12", ready: bool = True) -> str:
@@ -49,7 +50,7 @@ def test_postprocess_abinitio_publishes_proteins(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("mode", ["proteins", "rnaseq"])
 def test_utrs_only_with_transcripts(mode: str, tmp_path: Path) -> None:
-    params = COMBINED_RNASEQ if mode == "rnaseq" else {**GENEFINDER["tiberius"], **EVIDENCE[mode]}
+    params = COMBINED_RNASEQ if mode == "rnaseq" else COMBINED_PROTEINS
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
     assert ("ADD_UTRS" in proc.stdout) == (mode == "rnaseq")

@@ -117,8 +117,8 @@ genome: /path/to/genome.fa
 
 # ------------------------------------------------------------
 # Gene finders.
-# Evidence modes (rnaseq / isoseq / mixed) always run BOTH Tiberius and
-# Vipsania; both model keys are required. In abinitio and proteins modes only
+# Evidence modes (rnaseq / isoseq / mixed) and mode proteins always run BOTH
+# Tiberius and Vipsania; both model keys are required. In abinitio mode only
 # one gene finder runs, picked by params.genefinder or <tool>.run.
 # ------------------------------------------------------------
 tiberius:
@@ -131,7 +131,7 @@ tiberius:
   # max_parallel: null           # cap of concurrent GPU tasks, e.g. 1 on a workstation
   # model_dir: null              # extracted weights instead of the download at the start of the run
   # result: /abs/path/tiberius.gff3   # existing Tiberius prediction (GFF3/GTF): Tiberius does not run
-  # run: true                    # only used in abinitio / proteins modes (evidence modes always run it)
+  # run: true                    # only used in abinitio mode (evidence modes and mode proteins always run it)
 
 vipsania:
   model: Vertebrata              # clade name or model id (see docs/vipsania.md)
@@ -141,7 +141,7 @@ vipsania:
   # finetune_B: null
   # finetune_lr: null
   # result: /abs/path/vipsania.gff    # existing Vipsania prediction (GFF3/GTF): Vipsania does not run
-  # run: true                    # only used in abinitio / proteins modes (evidence modes always run it)
+  # run: true                    # only used in abinitio mode (evidence modes and mode proteins always run it)
 
 # Insects (recommended, docs/drusilla_flow.md "Insects"): Vipsania Insecta
 # fine-tuned on the genome, RNA-Seq / Iso-Seq AND protein evidence
@@ -161,10 +161,14 @@ vipsania:
 #   orfs_per_tx: null            # null = one ORF per transcript; 0 = all (fused transcripts)
 
 # ------------------------------------------------------------
-# combine_genesets.py (the HC integration step; evidence modes)
+# combine_genesets.py (the HC integration step; evidence modes and mode proteins)
 # ------------------------------------------------------------
 # combine:
-#   min_locus: 4                 # keep a locus if its best model reaches this tier (default 4)
+#   classifier: conf/combiner_classifier_v1.json            # selection model of the evidence modes; false = tier rules
+#   classifier_proteins: conf/combiner_classifier_protonly_v1.json   # selection model of mode proteins; false = tier rules
+#   t_locus: null                # locus threshold on P, overrides the model's (0.25; mode proteins 0.20)
+#   t_iso: null                  # isoform threshold on P, overrides the model's (0.30)
+#   min_locus: 4                 # tier rules: keep a locus if its best model reaches this tier (default 4)
 
 # ------------------------------------------------------------
 # Post-processing and quality control (docs/postprocessing.md)

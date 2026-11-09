@@ -96,9 +96,11 @@ only decides a few per-clade switches in `conf/hc_genes.yaml` (insect flag,
    GPU). `report.html` sums it up. See
    [docs/postprocessing.md](docs/postprocessing.md).
 
-Without transcripts the pipeline runs modes `abinitio` (one gene finder) or
-`proteins` (one gene finder, miniprot-based training genes become the
-annotation). The unified HC flow of step 4 is for evidence modes only.
+Without transcripts the pipeline runs mode `abinitio` (one gene finder, no
+evidence) or mode `proteins` (a genome and proteins): both gene finders, the
+protein evidence of step 2, and step 4 without the ORF callers, the coverage
+track and the intron hints, with a classifier trained for protein-only runs,
+see [Protein-only runs](#protein-only-runs).
 `conf/hc_genes.yaml` lists the known clades (vertebrates, mammals, insects,
 angiosperms, fungi); a new clade is added there with its `classifier_clade`
 (and `recommended` for the clade-specific warning). The Drusilla model does
@@ -242,7 +244,7 @@ The mode is inferred from the inputs and can be forced with `mode`
 | Mode | Inputs | Gene finders |
 | --- | --- | --- |
 | `abinitio` (historic name: `tiberius`) | genome only | one (`genefinder`, else the block with `run: true`) |
-| `proteins` | proteins | one (as above); the miniprothint training genes become the HC genes |
+| `proteins` | proteins | **both** Tiberius and Vipsania; the combined HC flow without transcript evidence, see [Protein-only runs](#protein-only-runs) |
 | `rnaseq` | short reads or a StringTie assembly, and proteins | **both** Tiberius and Vipsania |
 | `isoseq` | Iso-Seq, and proteins | **both** Tiberius and Vipsania |
 | `mixed` | short reads and Iso-Seq, and proteins | **both** Tiberius and Vipsania |
@@ -293,9 +295,9 @@ need no GPU, no mapping and no assembly step. Notes:
 ## Outputs
 
 All files are written to `outdir` (default `<genefinder>_results`). `<stem>`
-is `combined_evidence` in evidence modes and `<tool>_ab_initio` /
-`<tool>_evidence` in modes `abinitio` and `proteins` (with `<tool>` =
-`tiberius` or `vipsania`).
+is `combined_evidence` in evidence modes and in mode `proteins`, and
+`<tool>_ab_initio` in mode `abinitio` (with `<tool>` = `tiberius` or
+`vipsania`).
 
 | File | Content |
 | --- | --- |
@@ -325,11 +327,11 @@ Nextflow's timeline, trace and report files are written as well.
 
 ## Gene finders
 
-In evidence modes (`rnaseq`, `isoseq`, `mixed`) **both** Tiberius and
-Vipsania run; both model keys are required (or an existing prediction via
-`result` for either). The `run` flags are only consulted in `abinitio` and
-`proteins` modes, where exactly one gene finder runs; `--genefinder` or
-the block with `run: true` picks which.
+In evidence modes (`rnaseq`, `isoseq`, `mixed`) and in mode `proteins`
+**both** Tiberius and Vipsania run; both model keys are required (or an
+existing prediction via `result` for either). The `run` flags are only
+consulted in `abinitio` mode, where exactly one gene finder runs;
+`--genefinder` or the block with `run: true` picks which.
 
 | Gene finder | Model | Parameters |
 | --- | --- | --- |
@@ -483,6 +485,33 @@ cross-validation on 46 species) this gave +1.4 transcript / +1.3 gene F1
 over the rules with that threshold, 27 of 31 species better; insect-like
 genomes are the weak case (gene F1 about -0.3 to -1 when insects were
 unseen).
+
+### Protein-only runs
+
+Mode `proteins` (a genome and proteins, no reads) runs the same step with
+the two *ab initio* gene sets alone: no StringTie assembly, no ORF callers,
+no coverage track and no intron hints. `combine_genesets.py` receives the
+Tiberius and Vipsania gene sets, their two DIAMOND tables and the miniprot
+and miniprothint evidence, and selects with `combine.classifier_proteins`
+(`conf/combiner_classifier_protonly_v1.json`): the same recipe, trained on
+the keep-all pools of the same 15 species without transcript evidence (41
+features, no RNA-Seq features). Its thresholds are the sensitive end of the
+F1 plateau of the species-out cross-validation: locus 0.20 (0.30 for a clade
+without `classifier_clade`), isoforms 0.30; the plateau is flat from 0.20 to
+0.30, and the lower end trades 4 points of precision for 2 points of
+sensitivity at equal F1 (`combine.t_locus: 0.15` buys another point of
+sensitivity for up to one point of gene-level F1). `combine.classifier_proteins
+= false` selects with the tier rules, whose RNA rules stay off.
+
+Measured on the 31 benchmark species with OrthoDB protein sets (gffcompare
+`--strict-match -e 3 -T`, CDS level), against Tiberius alone: +5.4
+transcript F1 and +8.9 gene F1, better in 29 of 31 species (the tier rules:
++2.7 / +5.4, 27 and 30 of 31). The RNA-Seq modes reach +12.2 / +15.4 on the
+same species. The gap is the candidate pool, not the selection: without
+transcripts the pool holds the exact structure of 48 % of the reference
+transcripts, with the ORF callers 60 %, and the selection recovers about 90 %
+of either pool. Protein-only runs are therefore the choice for genomes
+without RNA-Seq, not a substitute for it.
 
 ### Insects
 

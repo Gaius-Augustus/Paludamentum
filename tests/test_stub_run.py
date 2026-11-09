@@ -2,8 +2,9 @@
 unified combined-genesets flow.
 
 Evidence modes (rnaseq / isoseq / mixed) always run both gene finders, both
-ORF callers and combine_genesets.py; abinitio / proteins modes still run ONE
-gene finder (params.genefinder or <tool>.run).
+ORF callers and combine_genesets.py; mode proteins runs both gene finders and
+combine_genesets.py without the ORF callers; abinitio mode runs ONE gene
+finder (params.genefinder or <tool>.run).
 
 No tools, containers or GPU are needed, only a ``nextflow`` executable (or the
 environment variable ``NEXTFLOW_BIN``). The tests are skipped without it.
@@ -41,7 +42,7 @@ EVIDENCE = {
     "mixed": {**PROTEINS, **SHORT_READS, **ISOSEQ},
 }
 
-# Evidence modes always require BOTH models. Ab initio / proteins pick one.
+# Evidence modes and mode proteins always require BOTH models. Ab initio picks one.
 BOTH_FINDERS = {
     "tiberius": {"model_cfg": str(DATA / "tiny.fa")},
     "vipsania": {"model": "Fungi"},
@@ -50,6 +51,8 @@ GENEFINDER = {
     "tiberius": {"tiberius": {"run": True, "model_cfg": str(DATA / "tiny.fa")}},
     "vipsania": {"vipsania": {"run": True, "model": "Fungi"}},
 }
+# protein-only mode: both gene finders, protein evidence, no reads
+COMBINED_PROTEINS = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **PROTEINS}
 
 
 STATISTICS = {
@@ -93,19 +96,53 @@ def assert_ok(proc: subprocess.CompletedProcess) -> None:
     assert proc.returncode == 0, proc.stdout[-4000:] + proc.stderr[-2000:]
 
 
-# ---- ab initio / proteins modes ------------------------------------------------
+# ---- ab initio mode (one gene finder) and protein-only mode (both) ------------
 
 
-@pytest.mark.parametrize("mode", ["abinitio", "proteins"])
 @pytest.mark.parametrize("tool", sorted(GENEFINDER))
-def test_abinitio_or_proteins_mode(tool: str, mode: str, tmp_path: Path) -> None:
-    proc, published = run_pipeline(tmp_path, {**GENEFINDER[tool], **EVIDENCE[mode]})
+def test_abinitio_mode(tool: str, tmp_path: Path) -> None:
+    proc, published = run_pipeline(tmp_path, GENEFINDER[tool])
     assert_ok(proc)
-    stem = f"{tool}_ab_initio" if mode == "abinitio" else f"{tool}_evidence"
+    stem = f"{tool}_ab_initio"
     assert final_files(stem) <= published, f"missing {final_files(stem) - published}"
     # the other gene finder must not be published
     other = "vipsania" if tool == "tiberius" else "tiberius"
     assert not [f for f in published if Path(f).name.startswith(other)], sorted(published)
+
+
+def test_proteins_mode_combines_both_finders_without_transcripts(tmp_path: Path) -> None:
+    """Protein-only mode: both gene finders, protein evidence and combine_genesets.py; no assembly,
+    no ORF callers, no coverage, no intron hints. The published stem is combined_evidence."""
+    proc, published = run_pipeline(tmp_path, COMBINED_PROTEINS)
+    assert_ok(proc)
+    assert "Running mode: proteins" in proc.stdout
+    assert "Gene finders: tiberius + vipsania" in proc.stdout
+    for p in ("RUN_TIBERIUS", "RUN_VIPSANIA", "MINIPROT_ALIGN", "MINIPROTHINT_CONVERT", "DIAMOND_MAKEDB",
+              "DIAMOND_TIB", "DIAMOND_VIP", "COMBINE_GENESETS"):
+        assert p in proc.stdout, f"{p} not in: {proc.stdout[-2000:]}"
+    for p in ("STRINGTIE", "TD_ALL", "DRUSILLA_ANNOTATE", "DIAMOND_TD2", "DIAMOND_DRU", "DIAMOND_NORM",
+              "BAM2COV", "BAM2HINTS", "HISAT2", "ADD_UTRS"):
+        assert p not in proc.stdout, f"{p} ran in mode proteins: {proc.stdout[-2000:]}"
+    assert final_files("combined_evidence") <= published, f"missing {final_files('combined_evidence') - published}"
+    assert {"intermediate/combined.gff3", "intermediate/combined.report.tsv", "intermediate/tiberius_ab_initio.gff3",
+            "intermediate/vipsania_ab_initio.gff3", "hintsfile.gff"} <= published, sorted(published)
+    # no per-tool annotation of the old proteins mode (<tool>_evidence.*)
+    assert not [f for f in published if Path(f).name.startswith(("tiberius_evidence", "vipsania_evidence"))], sorted(published)
+
+
+def test_proteins_mode_requires_both_models(tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS})
+    assert proc.returncode != 0
+    assert "params.vipsania.model is required" in proc.stdout + proc.stderr, proc.stdout[-2000:] + proc.stderr[-1000:]
+
+
+def test_proteins_mode_tier_rules(tmp_path: Path) -> None:
+    """combine.classifier_proteins = false: the tier rules select; combine.classifier is not consulted."""
+    params = {**COMBINED_PROTEINS, "combine": {"classifier_proteins": False, "classifier": "/nonexistent/model.json"}}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "COMBINE_GENESETS" in proc.stdout
+    assert "intermediate/combined.gff3" in published
 
 
 # ---- unified combined flow (rnaseq / isoseq / mixed) --------------------------
@@ -314,7 +351,8 @@ def test_input_forms(form: str, tmp_path: Path) -> None:
     ({"mode": "isoseq", **PROTEINS}, "needs Iso-Seq reads"),
     ({"mode": "proteins"}, "needs protein evidence"),
     (ISOSEQ, "needs protein evidence"),
-    ({"tiberius": {"run": True, "result": "/nonexistent/old.gtf"}, **PROTEINS}, "does not exist"),
+    # mode proteins needs both finders: the Vipsania model is given so that the missing result is what stops the run
+    ({"tiberius": {"result": "/nonexistent/old.gtf"}, "vipsania": BOTH_FINDERS["vipsania"], **PROTEINS}, "does not exist"),
     ({"tiberius": {"run": True, "model_cfg": "/nonexistent/m.yaml"}}, "not a file"),
 ], ids=["mode-typo", "rnaseq-without-reads", "isoseq-without-reads", "proteins-without-proteins",
         "isoseq-without-proteins", "missing-result", "missing-model-cfg"])
@@ -422,6 +460,6 @@ def test_mixed_two_short_and_two_isoseq_libraries(tmp_path: Path) -> None:
 
 
 def test_proteins_mode_publishes_hints_and_gene_support(tmp_path: Path) -> None:
-    proc, published = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], **PROTEINS})
+    proc, published = run_pipeline(tmp_path, COMBINED_PROTEINS)
     assert_ok(proc)
     assert {"hintsfile.gff", "qc/gene_support.tsv", "qc/gene_set_statistics.txt"} <= published, sorted(published)

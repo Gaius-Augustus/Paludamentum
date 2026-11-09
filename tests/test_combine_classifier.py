@@ -1,6 +1,7 @@
-"""bin/combine_genesets.py --classifier: learned selection with the shipped model conf/combiner_classifier_v1.json.
-Unit tests of the tree predictor (against probabilities of the scikit-learn model that produced the JSON) and of
-the per-locus selection, plus runs of the script on a tiny synthetic set of four tool GTFs."""
+"""bin/combine_genesets.py --classifier: learned selection with the shipped models conf/combiner_classifier_v1.json
+(evidence modes) and conf/combiner_classifier_protonly_v1.json (mode proteins: no RNA-Seq features).
+Unit tests of the tree predictor (against probabilities of the scikit-learn models that produced the JSON files)
+and of the per-locus selection, plus runs of the script on a tiny synthetic set of four tool GTFs."""
 from __future__ import annotations
 
 import csv
@@ -15,7 +16,12 @@ ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin"
 SCRIPT = BIN / "combine_genesets.py"
 MODEL = ROOT / "conf" / "combiner_classifier_v1.json"
-FIXTURE = ROOT / "tests" / "data" / "combine_classifier" / "fixture_Tilletiopsis_washingtonensis_300.tsv"
+MODEL_PROTEINS = ROOT / "conf" / "combiner_classifier_protonly_v1.json"
+FIXTURES = ROOT / "tests" / "data" / "combine_classifier"
+FIXTURE = FIXTURES / "fixture_Tilletiopsis_washingtonensis_300.tsv"
+FIXTURE_PROTEINS = FIXTURES / "fixture_Tilletiopsis_washingtonensis_protonly_300.tsv"
+# model file, its feature count, its fixture (300 structures of a test species never used for training)
+MODELS = {"evidence": (MODEL, 47, FIXTURE), "proteins": (MODEL_PROTEINS, 41, FIXTURE_PROTEINS)}
 
 sys.path.insert(0, str(BIN))
 import combine_genesets as cg  # noqa: E402
@@ -23,12 +29,14 @@ import combine_genesets as cg  # noqa: E402
 pytest.importorskip("numpy")
 
 
-# ---------------------------------------------------------------- model file and predictor
+# ---------------------------------------------------------------- model files and predictor
 
-def test_model_file_is_complete():
-    clf = cg.load_classifier(str(MODEL))
+@pytest.mark.parametrize("which", sorted(MODELS))
+def test_model_file_is_complete(which):
+    model, n_features, _ = MODELS[which]
+    clf = cg.load_classifier(str(model))
     assert clf["format"] == cg.CLASSIFIER_FORMAT
-    assert len(clf["features"]) == 47 and "clade_code" not in clf["features"]
+    assert len(clf["features"]) == n_features and "clade_code" not in clf["features"]
     assert len(clf["trees"]) == 400
     assert 0 < clf["t_locus"] < clf["t_locus_unknown_clade"] < 1 and 0 < clf["t_iso"] < 1
     assert len(clf["trained_on"]) == 15
@@ -38,19 +46,37 @@ def test_model_file_is_complete():
         assert all(0 <= c < n for c, is_leaf in zip(t["left"] + t["right"], t["leaf"] + t["leaf"]) if not is_leaf)
 
 
-def test_predictor_reproduces_sklearn_probabilities():
+def test_protein_only_model_has_no_rna_features():
+    """The protein-only model is trained on pools without reads: its features are a subset of the evidence
+    model's without the RNA-Seq columns (intron support, multiplicity, coverage), which the script still
+    computes (NaN or 0 without --introns / --coverage) but the model never reads."""
+    clf, clf_p = cg.load_classifier(str(MODEL)), cg.load_classifier(str(MODEL_PROTEINS))
+    assert set(clf_p["features"]) < set(clf["features"])
+    assert set(clf["features"]) - set(clf_p["features"]) == \
+        {"rna_frac", "log_mult", "log_mult_rel", "rna_cov", "novel_rna_frac", "rna_frac_rel"}
+    assert clf_p["trained_on"] == clf["trained_on"]
+    # the sensitive end of the F1 plateau of the species-out cross-validation (0.20-0.30), not its optimum 0.275 / 0.40
+    assert (clf_p["t_locus"], clf_p["t_iso"], clf_p["t_locus_unknown_clade"]) == (0.2, 0.3, 0.3)
+
+
+@pytest.mark.parametrize("which", sorted(MODELS))
+def test_predictor_reproduces_sklearn_probabilities(which):
     """300 structures of a test species (never used for training) with the raw feature values and the
     probability of the scikit-learn model that was exported to the JSON."""
-    clf = cg.load_classifier(str(MODEL))
-    with open(FIXTURE) as fh:
+    model, _, fixture = MODELS[which]
+    clf = cg.load_classifier(str(model))
+    with open(fixture) as fh:
         rows = list(csv.DictReader(fh, delimiter="\t"))
     assert len(rows) == 300
     F = [{c: cg._num(r[c]) for c in clf["features"]} for r in rows]
     p = cg.classifier_predict(clf, F)
     diff = max(abs(a - float(r["p"])) for a, r in zip(p, rows))
     assert diff < 1e-6, diff
-    # missing evidence (single-exon structures without introns, structures without a DIAMOND hit) is NaN
-    assert any(math.isnan(f["rna_frac"]) for f in F) and any(math.isnan(f["dmd_pident"]) for f in F)
+    # missing evidence (structures without a DIAMOND hit; for the evidence model also single-exon structures
+    # without introns) is NaN
+    assert any(math.isnan(f["dmd_pident"]) for f in F)
+    if which == "evidence":
+        assert any(math.isnan(f["rna_frac"]) for f in F)
     assert 0.0 < sum(p) / len(p) < 1.0
 
 
@@ -167,6 +193,30 @@ def test_classifier_thresholds_override_and_unknown_clade(synth):
     assert rows["tB"]["reason"] == "isoform_classifier"
     _, _, err = combine(synth, "unk", "--classifier", str(MODEL), "--unknown-clade")
     assert "t_locus=0.3 " in err and "unknown_clade=True" in err
+
+
+def test_protein_only_model_on_empty_orf_caller_sets(synth):
+    """Mode proteins: the Drusilla and TD2 slots and their DIAMOND tables are empty files, no --introns and
+    no --coverage; the protein-only model selects among the Tiberius and Vipsania structures."""
+    (synth / "none.gtf").write_text("")
+    (synth / "none.tsv").write_text("")
+    out, rep = synth / "prot.gtf", synth / "prot.report.tsv"
+    cmd = [sys.executable, str(SCRIPT), "--tiberius", str(synth / "tiberius.gtf"),
+           "--vipsania", str(synth / "vipsania.gtf"), "--drusilla", str(synth / "none.gtf"),
+           "--td2", str(synth / "none.gtf"), "--diamond-drusilla", str(synth / "none.tsv"),
+           "--diamond-td2", str(synth / "none.tsv"), "--diamond-format", "full",
+           "--classifier", str(MODEL_PROTEINS), "-o", str(out), "--report", str(rep)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "input transcripts with CDS: tiberius=3, vipsania=2, drusilla=0, td2=0" in r.stderr
+    assert "t_locus=0.2 t_iso=0.3" in r.stderr
+    with open(rep) as fh:
+        rows = {row["member_ids"].split(",")[0].split(":")[1]: row for row in csv.DictReader(fh, delimiter="\t")}
+    assert set(rows) == {"tA", "tB", "tC", "vD"}
+    assert all(0.0 <= float(row["p_classifier"]) <= 1.0 for row in rows.values())
+    assert rows["tA"]["tools"] == "tiberius,vipsania" and rows["tA"]["reason"] == "primary"
+    # RNA columns stay empty without reads; the model does not read them
+    assert rows["tA"]["rna_min_mult"] == "" and rows["tA"]["rna_cov"] == ""
 
 
 def test_classifier_mode_keeps_the_insect_flag(synth):

@@ -143,28 +143,56 @@ def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:
     assert "if its probability reached 0.4," in methods
 
 
-def test_stub_run_proteins_tiberius(tmp_path: Path) -> None:
+def test_stub_run_proteins_combined(tmp_path: Path) -> None:
+    """Protein-only mode: both gene finders and combine_genesets.py with the protein-only classifier,
+    no transcript steps in the text."""
     cfg = tmp_path / "vertebrates.yaml"
     cfg.write_text('target_species: "Vertebrata"\n')
-    params = {"tiberius": {"run": True, "model_cfg": str(cfg)}, **EVIDENCE["proteins"]}
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["proteins"]}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
     assert "methods.md" in published
     methods = check_stub_run(tmp_path)
-    assert "in mode `proteins`" in methods and "Vertebrata" in methods
-    assert "StringTie" not in methods
+    assert "in mode `proteins` (with protein evidence)" in methods
+    for phrase in ("Tiberius", "Vipsania", "miniprot", "DIAMOND", "two *ab initio* gene sets (Tiberius, Vipsania)",
+                   "gradient-boosted tree classifier for runs without transcript evidence",
+                   "without transcript evidence no ORF caller ran"):
+        assert phrase in methods, phrase
+    for phrase in ("StringTie", "TD2", "Drusilla", "bedtools", "bam2hints", "RNA and protein features", "UTR"):
+        assert phrase not in methods, phrase
+    # the protein-only model's thresholds (Vertebrata has classifier_clade vertebrates: no unknown-clade threshold)
+    assert "if its probability reached 0.2," in methods
+    assert "further models of the locus if theirs reached 0.3" in methods
+    assert "outside the training clades" not in methods
     assert "reduced to the proteins of 13 species" in methods
     assert "the genus and species in front of the identifiers of reference proteomes" in methods
+    citations = (tmp_path / "out" / "citations.md").read_text()
+    for tool in ("Tiberius", "Vipsania", "miniprot", "DIAMOND"):
+        assert f"**{tool}**" in citations, tool
+    for tool in ("StringTie", "TD2", "Drusilla", "PSAURON"):
+        assert f"**{tool}**" not in citations, tool
 
 
 def test_stub_run_proteins_no_species_reduction(tmp_path: Path) -> None:
     cfg = tmp_path / "vertebrates.yaml"
     cfg.write_text('target_species: "Vertebrata"\n')
-    params = {"tiberius": {"run": True, "model_cfg": str(cfg)}, "protein_top_species": 0, **EVIDENCE["proteins"]}
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": BOTH_FINDERS["vipsania"],
+              "protein_top_species": 0, **EVIDENCE["proteins"]}
     proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
     methods = check_stub_run(tmp_path)
     assert "reduced to the proteins of" not in methods
+
+
+def test_stub_run_proteins_tier_rules(tmp_path: Path) -> None:
+    """combine.classifier_proteins = false: the tier rules are described, without RNA rules."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"],
+              "combine": {"classifier_proteins": False}, **EVIDENCE["proteins"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "reached a tier of 4" in methods and "classifier" not in methods
+    assert "adjusted the tier with protein and DIAMOND features" in methods
 
 
 def test_stub_run_ab_initio_vipsania(tmp_path: Path) -> None:

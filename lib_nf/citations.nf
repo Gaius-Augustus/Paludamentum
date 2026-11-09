@@ -115,8 +115,9 @@ def references() {
 }
 
 // Keys of references() for a run. run: [mode, genefinder ('both' in evidence
-// modes, else name or null), tiberiusModel (params.tiberius.model_cfg or null),
-// hc ('combined' in evidence modes, else null), orfFinder ('td2' in evidence
+// modes and in mode proteins, else name or null), tiberiusModel
+// (params.tiberius.model_cfg or null), hc ('combined' in evidence modes and
+// in mode proteins, else null), orfFinder ('td2' in evidence
 // modes, else null), odb12, shortFastq, shortBam, shortVarus, isoFastq,
 // isoVarus, busco, compleasm, omark, gffcompare, ncrna, lncrna, fantasia] and
 // proteinFiles (0 and no odb12: no protein evidence).
@@ -166,10 +167,11 @@ def evidenceCitationKeys(Map run) {
     if( run.odb12 ) keys << 'orthodb'
     if( withProteins(run) ) keys << 'miniprot' << 'galba'
     // DIAMOND runs in every evidence mode (species selection + the four
-    // combine_genesets runs + the TD2 revise auxiliary runs) and, in mode
-    // proteins, for the species selection of a large database (the methods
-    // text describes it whenever protein_top_species is not 0).
-    if( transcripts || (withProteins(run) && run.genefinder && run.proteinTopSpecies) ) keys << 'diamond'
+    // combine_genesets runs + the TD2 revise auxiliary runs), in mode
+    // proteins for the two combine_genesets runs (hc 'combined') and for the
+    // species selection of a large database (the methods text describes it
+    // whenever protein_top_species is not 0).
+    if( transcripts || run.hc == 'combined' || (withProteins(run) && run.genefinder && run.proteinTopSpecies) ) keys << 'diamond'
 
     if( shortReads && run.shortFastq ) keys << 'hisat2'
     if( longReads && run.isoFastq ) keys << 'minimap2'

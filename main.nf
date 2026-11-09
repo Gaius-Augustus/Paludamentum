@@ -74,16 +74,20 @@ workflow {
     def transcriptMode = MODE in ['rnaseq', 'isoseq', 'mixed']
     if( transcriptMode && !hasProteins )
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions): the unified HC-gene step runs DIAMOND, miniprot and miniprothint on the four gene sets."
+    // The protein-only mode runs the same unified HC step (both gene finders,
+    // protein evidence, combine_genesets) without transcript inputs: no
+    // assembly, no ORF callers, no coverage track, no intron hints.
+    def combinedMode = transcriptMode || MODE == 'proteins'
     log.info "Running mode: ${MODE}"
 
-    // Both gene finders always run in evidence modes; abinitio / proteins
-    // modes still pick one via params.genefinder or <tool>.run.
-    if( transcriptMode ) {
+    // Both gene finders always run in evidence modes and in mode proteins;
+    // mode abinitio picks one via params.genefinder or <tool>.run.
+    if( combinedMode ) {
       log.info "Gene finders: tiberius + vipsania"
       if( !params.tiberius?.model_cfg && !params.tiberius?.result )
-        error "params.tiberius.model_cfg is required (both gene finders run in evidence modes)."
+        error "params.tiberius.model_cfg is required (both gene finders run in evidence modes and in mode proteins)."
       if( !params.vipsania?.model && !params.vipsania?.result )
-        error "params.vipsania.model is required (both gene finders run in evidence modes)."
+        error "params.vipsania.model is required (both gene finders run in evidence modes and in mode proteins)."
     } else {
       def gfRun = genefinderEnabled(params)
       def gfSel = gfRun ? resolveGenefinder(params) : null
@@ -128,17 +132,19 @@ workflow {
     // text (methods.md) of the run: lib_nf/citations.nf, lib_nf/methods.nf
     def tibModel = params.tiberius?.model_cfg ? file(params.tiberius.model_cfg.toString()).baseName : null
     def vipModel = params.vipsania?.model?.toString()?.trim() ?: null
-    def gfModel = transcriptMode ? (tibModel ?: vipModel) :
+    def gfModel = combinedMode ? (tibModel ?: vipModel) :
         (resolveGenefinder(params) == 'tiberius' ? tibModel : vipModel)
-    // thresholds of the selection model of combine_genesets.py (evidence modes), read from its JSON file
-    def clfFile = (transcriptMode && params.combine?.classifier) ? file(params.combine.classifier.toString()) : null
+    // thresholds of the selection model of combine_genesets.py, read from its JSON file: the model of
+    // the evidence modes (combine.classifier) or of the protein-only mode (combine.classifier_proteins)
+    def clfParam = transcriptMode ? params.combine?.classifier : (MODE == 'proteins' ? params.combine?.classifier_proteins : null)
+    def clfFile = clfParam ? file(clfParam.toString()) : null
     def clfModel = clfFile?.exists() ? new groovy.json.JsonSlurper().parse(clfFile.toFile()) : null
     def run = [
         // keys of citationKeys (lib_nf/citations.nf)
         mode: MODE,
-        genefinder: transcriptMode ? 'both' : (genefinderEnabled(params) ? resolveGenefinder(params) : null),
+        genefinder: combinedMode ? 'both' : (genefinderEnabled(params) ? resolveGenefinder(params) : null),
         tiberiusModel: params.tiberius?.model_cfg,
-        hc: transcriptMode ? 'combined' : null,
+        hc: combinedMode ? 'combined' : null,
         orfFinder: transcriptMode ? 'td2' : null,
         odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
@@ -232,23 +238,29 @@ workflow {
       post_prefix = resolveGenefinder(params)
 
     } else if( MODE == 'proteins' ) {
-      // Proteins-only mode: run one gene finder as today, feed its proteins
-      // to PREPROCESS_PROTEINDB for species selection, publish the miniprot
-      // training GFF as the HC gene set. No combine, no transcript evidence.
-      def tool = resolveGenefinder(params)
-      def gf = GENEFINDER_TIBERIUS(inp.genome, params, tool, false)
-      genome_chunks = gf.chunks
-      genefinder_versions = gf.versions
-      def tib_prot = PROTEIN_FROM_GFF(tool, gf.gff, inp.genome)
+      // Protein-only mode: both gene finders and the protein evidence as in the
+      // evidence modes, then the unified HC step without transcript inputs
+      // (HC_COMBINED with transcripts = false): the Tiberius and Vipsania gene
+      // sets, their DIAMOND tables and the miniprot / miniprothint evidence go
+      // to combine_genesets.py; the empty placeholder stands for the
+      // ORF-caller gene sets, the BAM, the intron hints and the chains.
+      // Measured on 31 benchmark species against Tiberius alone: +5.4
+      // transcript / +8.9 gene F1 (the RNA-Seq modes reach +12.2 / +15.4).
+      def empty_file = EMPTY_FILE()
+      def tib = GENEFINDER_TIBERIUS(inp.genome, params, 'tiberius', false)
+      def tib_prot = PROTEIN_FROM_GFF('tiberius', tib.gff, inp.genome)
       def pe = PROTEIN_EVIDENCE(inp.genome, inp.proteins, inp.score, tib_prot, params)
-      // Nothing to merge: the miniprot training genes become the HC genes
-      // (keep today's behaviour; the proteins-only path is unchanged).
-      // Publish via POSTPROCESS prefixed with the gene finder name.
-      final_gff = pe.prot_traingff
-      post_prefix = tool
+      def hc = HC_COMBINED(
+          inp.genome, nextflow.Channel.empty(), empty_file, false, empty_file, empty_file,
+          pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
+          tib.gff, tib_prot, params, false
+      )
+      final_gff = hc.gff
+      genome_chunks = tib.chunks
+      genefinder_versions = tib.versions.mix(hc.versions)
+      post_prefix = 'combined'
       // The protein hints as hintsfile.gff: the gene support of POSTPROCESS
       // (GENE_SUPPORT, which GENE_SET_STATISTICS waits for) reads them.
-      def empty_file = EMPTY_FILE()
       hints = CONCAT_HINTS(pe.prot_hints, empty_file, empty_file).hints
 
     } else {
@@ -336,7 +348,7 @@ workflow {
       def hc = HC_COMBINED(
           inp.genome, asm_gtf, merged_bam, haveBam, introns_combine, chains_combine,
           pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
-          tib.gff, tib_prot, params
+          tib.gff, tib_prot, params, true
       )
 
       final_gff = hc.gff
@@ -355,12 +367,13 @@ workflow {
     }
 
     // Sanity filter, UTRs, GTF and sequences, quality control, ncRNA and GO
-    // terms of the final annotation. Evidence runs always have a final
-    // annotation now (HC_COMBINED or the proteins-only miniprot training GFF).
+    // terms of the final annotation. Every run has a final annotation: the
+    // ab initio prediction, or combined.gff3 of HC_COMBINED (evidence modes
+    // and mode proteins).
     if( post_prefix ) {
       def runInfo = [
           version: version, mode: MODE, genefinder: post_prefix, model: gfModel,
-          hc: MODE in ['abinitio', 'proteins'] ? null : 'combined',
+          hc: MODE == 'abinitio' ? null : 'combined',
       ]
       POSTPROCESS(final_gff, inp.genome, genome_chunks, post_prefix, genefinder_versions, MODE,
                   asm_short, asm_long, hints, runInfo)

@@ -115,6 +115,7 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `threads`                  | `48`                                   | Default number of CPUs reserved per task. Every tool runs with exactly the CPUs reserved for its task (`task.cpus`); a site config that sets `process.cpus` overrides this default. |
 | `outdir`                   | `"results"` (the launcher sets `<genefinder>_results`) | Directory where all final results are written.                                                               |
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
+| `protein_top_species`      | `13`                                   | A protein database of more than 1,000,000 proteins whose ids all name their species (OrthoDB `<taxid>_<n>:<hex>`, or `<Genus>_<species>_<id>` of reference proteomes) is reduced to the proteins of this many species, those with the most best DIAMOND hits of the gene finder proteins, before miniprot. `0` keeps the whole database. |
 | `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
 | `keep_downloads`           | `false`                                | Copy the reads downloaded from SRA to `sra_downloads/` in `outdir`. Off, they are kept in the work directory only, which saves a second copy of every library. |
 | `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. If every RNA-Seq (or every Iso-Seq) library is dropped, the run stops with an error. |
@@ -123,7 +124,8 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `hc_table`                 | `"conf/hc_genes.yaml"`                 | Clade table for the combined HC flow: insect clades trigger `--drop-lone-single-exon tiberius`, `classifier_clade` names the training clade of the selection classifier that covers the clade (a clade without it gets the classifier's conservative locus threshold), `recommended` of a clade warns a run that differs from it. It does not choose the Drusilla model (`drusilla.model`). Today Vertebrata, Mammalia (`classifier_clade: vertebrates`), Insecta, Lepidoptera (`insects`), Mesangiospermae (`embryophyta`) and Fungi (`fungi`). |
 | `td2_predict_args`         | none                                   | Options appended to `TD2.Predict`, for example `"--precise"`.                                                |
 | `combine.classifier`       | `"conf/combiner_classifier_v1.json"`   | Selection model of `combine_genesets.py --classifier`: gradient-boosted trees (JSON, no extra dependency) that give every candidate structure P(model = reference CDS) from the tools, structure, locus context and RNA / protein evidence; a locus is kept when its best candidate reaches the model's locus threshold (0.25; 0.30 for clades the model was not trained on), further isoforms need 0.30. Full-length transcripts (`--chains`, mixed and Iso-Seq runs) raise the log-odds of a structure whose CDS chain lies in one of them by 1.5 (`combine_genesets.py --chain-logit-full`, calibrated on H. sapiens: +1.2 to +1.7 transcript F1). Trained on 15 species outside the benchmark set; measured +2.6 transcript / +2.4 gene F1 over the tier rules on the 31 benchmark species. `false` selects by the tier rules. |
-| `combine.t_locus`          | none                                   | Classifier mode: locus threshold on P, overriding the model's (0.25; 0.30 for a clade without `classifier_clade` in the HC table). With `-resume` a change reruns only the combine step and the post-processing. |
+| `combine.classifier_proteins` | `"conf/combiner_classifier_protonly_v1.json"` | Selection model of mode `proteins` (genome and proteins, no transcript evidence): the same recipe trained on the keep-all pools of the two gene finders of the 15 training species with protein evidence alone (41 features, no RNA-Seq features); a locus is kept when its best candidate reaches 0.20 (0.30 for clades without `classifier_clade`), further isoforms need 0.30 (the sensitive end of the flat F1 plateau 0.20 to 0.30 of the species-out cross-validation; `combine.t_locus: 0.15` adds about one point of sensitivity for up to one point of gene-level F1). Measured on the 31 benchmark species with OrthoDB protein sets: +5.4 transcript / +8.9 gene F1 over Tiberius alone (29 of 31 species better), +2.7 / +3.5 over the tier rules (30 of 31). `false` selects by the tier rules. |
+| `combine.t_locus`          | none                                   | Classifier mode: locus threshold on P, overriding the model's (0.25, in mode `proteins` 0.20; 0.30 for a clade without `classifier_clade` in the HC table). With `-resume` a change reruns only the combine step and the post-processing. |
 | `combine.t_iso`            | none                                   | Classifier mode: isoform threshold on P, overriding the model's 0.30. |
 | `combine.min_locus`        | `4`                                    | Tier rules only (`combine.classifier = false`): minimum tier of the best model of a locus for `combine_genesets.py` to keep the locus. Everything else uses the script defaults; see `combine_genesets.py --help`. |
 
@@ -265,17 +267,17 @@ a chain for Drusilla+TD2 isoforms; it cost 1.5 to 1.8 F1 there.
 
 ## Gene finder: Tiberius
 
-In evidence modes Tiberius always runs; set `tiberius.model_cfg` to a
-model configuration. In `abinitio` / `proteins` mode set `tiberius.run:
-true` as well (one gene finder runs there). The available configurations
+In evidence modes and in mode `proteins` Tiberius always runs; set
+`tiberius.model_cfg` to a model configuration. In `abinitio` mode set
+`tiberius.run: true` as well (one gene finder runs there). The available configurations
 are the YAML files in `tiberius/model_cfg/` of the Tiberius submodule (also
 listed in
 [Tiberius/model_cfg](https://github.com/Gaius-Augustus/Tiberius/tree/main/model_cfg)).
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. Required in evidence modes (unless `tiberius.result` is set). |
-| `tiberius.run` | `false` | Only consulted in `abinitio` / `proteins` modes: `true` selects Tiberius as the single gene finder (equivalent to `genefinder: tiberius`). Ignored in evidence modes, which always run both finders. |
+| `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. Required in evidence modes and in mode `proteins` (unless `tiberius.result` is set). |
+| `tiberius.run` | `false` | Only consulted in `abinitio` mode: `true` selects Tiberius as the single gene finder (equivalent to `genefinder: tiberius`). Ignored in evidence modes and in mode `proteins`, which always run both finders. |
 | `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` without `.tar.gz`, e.g. `vertebrates_weights`), instead of the download at the start of the run. Tiberius then runs with `--model` and never downloads. |
 | `tiberius.result` | none | Existing Tiberius prediction (GFF3 or GTF). Reused instead of running Tiberius. In evidence modes `tiberius.model_cfg` can then be omitted; the clade comes from `tiberius.model_cfg` (if given) via `target_species`. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
@@ -286,10 +288,10 @@ listed in
 
 ## Gene finder: Vipsania
 
-In evidence modes Vipsania always runs; set `vipsania.model` and (default)
-leave `vipsania.finetune: true`. In `abinitio` / `proteins` mode set
-`vipsania.run: true` to pick Vipsania as the single gene finder (or use
-`genefinder: vipsania`). All Vipsania-specific parameters are in
+In evidence modes and in mode `proteins` Vipsania always runs; set
+`vipsania.model` and (default) leave `vipsania.finetune: true`. In `abinitio`
+mode set `vipsania.run: true` to pick Vipsania as the single gene finder (or
+use `genefinder: vipsania`). All Vipsania-specific parameters are in
 [vipsania.md](vipsania.md).
 
 ## Drusilla
@@ -364,3 +366,7 @@ The pipeline infers its mode from the inputs, see the table in the
 `abinitio`, `proteins`, `rnaseq`, `isoseq`, `mixed`. `tiberius` is accepted as
 the historic name of `abinitio`; any other value is an error, as is a forced
 mode whose inputs are missing (for example `rnaseq` without reads or a StringTie assembly).
+Mode `proteins` (a genome and proteins, no reads) runs both gene finders,
+the protein evidence and `combine_genesets.py` without transcript inputs,
+selecting with `combine.classifier_proteins`; see
+[Protein-only runs](../README.md#protein-only-runs) in the README.
