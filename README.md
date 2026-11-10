@@ -10,9 +10,12 @@ Authors: Lars Gabriel & Katharina J. Hoff
 The paludamentum was the cloak worn by Roman emperors and commanders. This
 repository is the cloak around the emperors of the
 [Gaius-Augustus](https://github.com/Gaius-Augustus) gene finder family: a
-Nextflow pipeline that prepares extrinsic evidence (proteins, RNA-Seq,
-Iso-Seq), derives high-confidence genes from it, and integrates them with the
-*ab initio* predictions of the deep learning gene finder [Tiberius](https://github.com/Gaius-Augustus/Tiberius) or [Vipsania](https://github.com/Gaius-Augustus/Vipsania).
+Nextflow pipeline that annotates the protein-coding genes of a eukaryotic
+genome. It prepares extrinsic evidence (proteins, RNA-Seq, Iso-Seq), derives
+gene candidates from it, and integrates them with the *ab initio*
+predictions of the deep learning gene finders
+[Tiberius](https://github.com/Gaius-Augustus/Tiberius) and
+[Vipsania](https://github.com/Gaius-Augustus/Vipsania) into one gene set.
 
 ## Table of contents
 
@@ -20,13 +23,18 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick start](#quick-start)
-- [Inputs and modes](#inputs-and-modes)
+- [Inputs](#inputs)
   - [Existing StringTie assemblies](#existing-stringtie-assemblies)
 - [Outputs](#outputs)
 - [Gene finders](#gene-finders)
+  - [Matching models](#matching-models)
   - [Existing predictions](#existing-predictions)
-- [Combined HC flow](#combined-hc-flow)
-  - [Insects](#insects)
+- [Alternative modes](#alternative-modes)
+  - [Iso-Seq and mixed runs](#iso-seq-and-mixed-runs)
+  - [Protein-only runs](#protein-only-runs)
+  - [Ab initio runs](#ab-initio-runs)
+  - [Species without a Tiberius model](#species-without-a-tiberius-model)
+  - [Combinations that do not run](#combinations-that-do-not-run)
 - [Containers and HPC](#containers-and-hpc)
 - [Documentation](#documentation)
 - [License](#license)
@@ -37,87 +45,42 @@ Iso-Seq), derives high-confidence genes from it, and integrates them with the
 ## What the pipeline does
 
 <p align="center">
-  <img src="figures/overview.svg" alt="Paludamentum overview: the inputs genome, proteins, short reads and Iso-Seq reads; the five processing steps ab initio predictions with both gene finders, protein evidence, transcript evidence, combined high-confidence genes with combine_genesets, and post-processing and quality control; the output files" width="100%">
+  <img src="figures/overview_workflow.svg" alt="Paludamentum workflow. Input: proteins, genome, RNA-Seq reads and Iso-Seq reads. Evidence and gene prediction: miniprot aligns the proteins; Tiberius and Vipsania predict genes on the genome; the reads are aligned and assembled into transcripts with StringTie, on which TD2 and Drusilla find ORFs; DIAMOND compares the four gene sets with the protein database. Integration: the gene sets are merged, clustered into loci, scored by a boosted-tree model and selected per locus. Post-processing: filter, UTRs, final files; optional quality control. Output: annotation, sequences and a report" width="100%">
 </p>
 
-The numbers in the figure are the steps below. In evidence modes (`rnaseq`,
-`isoseq`, `mixed`) the same unified HC flow runs for every clade; the clade
-only decides a few per-clade switches in `conf/hc_genes.yaml` (insect flag,
-`classifier_clade` of the locus classifier).
+Paludamentum annotates the protein-coding genes of a genome from three
+sources: the genome itself, proteins of related species, and RNA-Seq reads
+of the species. It is designed for a run with all three; this is the default
+run of the [Quick start](#quick-start).
 
-1. ***Ab initio* predictions.** Both gene finders run in parallel: Tiberius
-   on genome chunks, and Vipsania with `--finetune` on the whole genome
-   (default on; one GPU task). If you already have a Tiberius or Vipsania
-   prediction, pass it with `--result` and that gene finder is skipped, see
-   [Existing predictions](#existing-predictions).
-2. **Protein evidence.** Proteins (your FASTA files and/or OrthoDB v12
-   partitions) are aligned with miniprot, scored with
-   miniprot-boundary-scorer, and converted to hints with miniprothint. For
-   very large protein databases the Tiberius *ab initio* proteins are used to
-   select the most relevant source species first (DIAMOND).
-3. **Transcript evidence.** Short reads are aligned with HISAT2, Iso-Seq reads
-   with minimap2. Libraries with a low alignment rate are dropped. The
-   library strandedness of every short-read BAM is recovered before the
-   assembly (`strand_fix`, on by default). One StringTie assembly of all reads is made (`stringtie`, `stringtie -L` or
-   `stringtie --mix`). If you already have a StringTie assembly, pass it with
-   `--stringtie` instead of the reads, see
-   [Existing StringTie assemblies](#existing-stringtie-assemblies).
-4. **Combined high-confidence genes.** Two ORF callers run on the StringTie
-   assembly: TD2 (with `TD2.LongOrfs`, `TD2.Predict`, then two auxiliary
-   DIAMOND passes and `revise_pep.py` for the partial-ORF rescue; the
-   revised ORFs are mapped back to the genome with
-   `cdna_alignment_orf_to_genome_orf.pl`) and Drusilla (StringTie pre-filter
-   and `drusilla annotate` with the Drusilla model of all clades; its transcript
-   handling options are available via `drusilla.*` params, see
-   [docs/drusilla_flow.md](docs/drusilla_flow.md)). DIAMOND
-   (`--outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend
-   sstart send evalue bitscore qlen slen`) runs on the proteins of all four
-   gene sets (Tiberius, Vipsania, revised TD2, Drusilla). `bedtools genomecov
-   -bg -split` writes a read-depth bedGraph, and `bam2hints --intronsonly`
-   plus `filterIntronsFindStrand.pl` writes intron hints.
-   `bin/combine_genesets.py` integrates the four gene sets, the four DIAMOND
-   tables, miniprot alignments and miniprothint hints, the bedGraph and the
-   introns into one GFF3 (`intermediate/combined.gff3`). By default a
-   learned classifier selects the structures (`combine.classifier`, see
-   [Combined HC flow](#combined-hc-flow)); `combine.classifier = false`
-   selects with the tier rules. For an insect clade
-   (Insecta, Lepidoptera) it also receives `--drop-lone-single-exon
-   tiberius`. In mixed mode the `stringtie -L` assembly of the Iso-Seq reads
-   alone also goes to `combine_genesets.py` (`--chains`) as evidence of
-   full-length transcripts; `chains` gives such files in any evidence mode,
-   see [docs/parameters.md](docs/parameters.md#long-read-transcripts-chains).
-5. **Post-processing and quality control.** Transcripts with an internal stop
-   codon or a broken CDS are removed, transcripts without UTRs get UTRs from
-   the StringTie assembly, and the annotation is written as GFF3 (checked
-   with GenomeTools), GTF, protein and CDS sequences. Optional: completeness
-   with compleasm and BUSCO (`--busco_lineage`), OMArk, a comparison with a
-   reference annotation (`--reference_annotation`), rRNA, tRNA, Rfam and
-   lncRNA genes (`--ncrna`) and GO terms with FANTASIA-Lite (`--fantasia`,
-   GPU). `report.html` sums it up. See
-   [docs/postprocessing.md](docs/postprocessing.md).
+1. **Gene prediction on the genome.** The two deep learning gene finders
+   Tiberius and Vipsania each predict a gene set from the genome sequence
+   alone. Vipsania is fine-tuned on the genome first.
+2. **Protein evidence.** The proteins are aligned to the genome. The
+   alignments give gene structures and hints on introns and coding regions.
+3. **Transcript evidence.** The reads are aligned to the genome and
+   assembled into transcripts. Two ORF callers, TD2 and Drusilla, find the
+   coding regions of the transcripts, which gives two more gene sets.
+4. **Integration.** The four gene sets are compared with the protein
+   database and merged into candidate genes per locus. A trained model
+   scores every candidate by its support from the gene finders, the proteins
+   and the reads, and the best candidates of each locus (the gene and its
+   isoforms) form the gene set.
+5. **Post-processing and quality control.** Gene models with a broken coding
+   sequence are removed, UTRs are added from the transcripts, and the gene
+   set is written as GFF3 and GTF with its protein and coding sequences.
+   Optional steps assess its completeness, compare it with a reference
+   annotation, and add non-coding RNA genes and GO terms. A report sums up
+   the run.
 
-Without transcripts the pipeline runs mode `abinitio` (no evidence: one gene
-finder, or both combined when both models are given, see
-[Ab initio combination](#ab-initio-combination)) or mode `proteins` (a genome
-and proteins): both gene finders, the protein evidence of step 2, and step 4
-without the ORF callers, the coverage track and the intron hints, with a
-classifier trained for protein-only runs, see
-[Protein-only runs](#protein-only-runs).
-`conf/hc_genes.yaml` lists the known clades (vertebrates, mammals, insects,
-angiosperms, fungi); a new clade is added there with its `classifier_clade`
-(and `recommended` for the clade-specific warning). The Drusilla model does
-not depend on the clade (`drusilla.model`, default `drusilla_model`). The
-`--drop-lone-single-exon` flag is passed when the gene-finder model's
-`target_species` is `Insecta` or `Lepidoptera`.
-
-A zoom into step 4:
-
-<p align="center">
-  <img src="figures/combined_flow.svg" alt="Combined HC-gene step: Tiberius and Vipsania predict genes on the genome; StringTie assembles one transcript set from the reads; TD2 (with shorten + classify + revise) and Drusilla predict ORFs on it; DIAMOND runs on all four protein sets; bedtools genomecov writes the coverage, bam2hints the introns; combine_genesets.py integrates everything into combined.gff3" width="100%">
-</p>
-
-Step 5 in detail (the color of a step says which data it needs, the label on
-it which option switches it on):
+The final gene set of every run is `paludamentum.gff3`. Runs with other
+inputs (Iso-Seq reads, proteins only, no evidence, a species without a
+Tiberius model) are described in [Alternative modes](#alternative-modes).
+The steps are described in technical detail in
+[docs/combined_flow.md](docs/combined_flow.md) (steps 1 to 4) and
+[docs/postprocessing.md](docs/postprocessing.md) (step 5, shown below; the
+color of a step says which data it needs, the label which option switches it
+on).
 
 <p align="center">
   <img src="figures/postprocess_flow.svg" alt="Post-processing and quality control: the annotation runs through the sanity filter, gets UTRs from the StringTie assembly in modes with transcripts, and is written as GFF3, GTF, proteins and CDS; gene set statistics always run, evidence support in every mode but abinitio, completeness, OMArk, gffcompare, ncRNA and GO terms with their options; report.html sums up all steps" width="100%">
@@ -160,48 +123,29 @@ use another directory.
 
 ## Quick start
 
+Paludamentum is designed for a genome with protein and RNA-Seq evidence.
+Such a run needs four things: the genome, proteins of related species,
+RNA-Seq reads, and the gene finder models of the clade.
+
 ```bash
-# Mode abinitio: Tiberius alone, parallelized over GPUs by Nextflow
-paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg eudicotyledons
-
-# Mode abinitio: Vipsania alone
-paludamentum --nf_config local --genome genome.fa --model Fungi
-
-# Mode abinitio: both gene finders, combined without evidence
-paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi
-
-# Mode proteins: genome and proteins, no transcripts
-paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi --proteins proteins.faa
-
-# Mode rnaseq (proteins and RNA-Seq), inputs from a params file; both model keys given
-paludamentum --params_yaml params.yaml --nf_config slurm_generic
-
-# Mode rnaseq with an existing StringTie assembly instead of reads
-paludamentum --nf_config local --genome genome.fa \
-    --model_cfg eudicotyledons --model Streptophyta --proteins proteins.faa --stringtie stringtie.gtf
-
-# Mode rnaseq for a species without a Tiberius model: Vipsania alone (here Nematoda)
-paludamentum --nf_config local --genome genome.fa --model Nematoda --proteins proteins.faa --rnaseq_bam rnaseq.bam
+paludamentum --nf_config slurm_generic --outdir results \
+    --genome genome.fa \
+    --proteins proteins.faa \
+    --rnaseq_paired "rnaseq/*_{1,2}.fastq.gz" \
+    --model_cfg fungi --model Fungi
 ```
 
-`--nf_config` takes a path or the name of a config in `conf/`
-(`local`, `slurm_generic`, ...); `local` sizes the tasks to the machine it
-runs on, `slurm_generic` needs your GPU partition (see
-[Containers and HPC](#containers-and-hpc)). Evidence can be given on the command line
-(`--proteins`, `--odb12Partitions`, `--rnaseq_paired`, `--rnaseq_single`,
-`--isoseq`, `--stringtie`, `--rnaseq_sra_paired`, `--rnaseq_sra_single`, `--isoseq_sra`) or
-in the params file; command line values override the file. Useful options:
-`--dry_run` writes the params file and validates inputs and executables
-without starting Nextflow, `--resume` continues a previous run, `--work_dir`
-sets the Nextflow work directory, `--cleanup` deletes the task directories of
-the run from the work directory once it has finished successfully (see
-[docs/hpc.md](docs/hpc.md#work-directory)). Arguments after `--` go to Nextflow.
-`paludamentum --help` lists everything.
+`--model_cfg` is the Tiberius model and `--model` the Vipsania model. If you
+give only one of them, the launcher adds the matching model of the other
+gene finder, see [Matching models](#matching-models). The final gene set is
+`results/paludamentum.gff3`, see [Outputs](#outputs).
 
-### Params file
+The same run from a params file, with command line values overriding the
+file:
 
-Start from [conf/parameters.yaml](conf/parameters.yaml). Minimal example of
-an evidence run (both gene finders run; both model keys are required):
+```bash
+paludamentum --params_yaml params.yaml --nf_config slurm_generic
+```
 
 ```yaml
 genome: /abs/path/genome.fa
@@ -209,28 +153,39 @@ proteins: /abs/path/proteins.faa
 rnaseq_paired: "/abs/path/rnaseq/*_{1,2}.fastq.gz"
 outdir: results
 tiberius:
-  model_cfg: eudicotyledons
+  model_cfg: fungi
 vipsania:
   model: Fungi
-  finetune: true     # default; set false to skip the finetune pass
 ```
 
-Minimal example of an ab-initio-only run (one gene finder):
-
-```yaml
-genome: /abs/path/genome.fa
-tiberius:
-  run: true
-  model_cfg: eudicotyledons
-```
-
-The launcher expands `~` and environment variables and resolves relative
-paths against the launch directory, not against the params file; it writes
-the merged parameters of a run with absolute paths to `<outdir>/params.yaml`.
+Start a params file from [conf/parameters.yaml](conf/parameters.yaml). The
+launcher expands `~` and environment variables and resolves relative paths
+against the launch directory, not against the params file; it writes the
+merged parameters of a run with absolute paths to `<outdir>/params.yaml`.
 Paths must not contain spaces. All parameters are documented in
 [docs/parameters.md](docs/parameters.md).
 
-## Inputs and modes
+Proteins can also come from OrthoDB (`--odb12Partitions`), and RNA-Seq reads
+as single-end files, BAM files, SRA accessions or an existing StringTie
+assembly, see [Inputs](#inputs).
+
+`--nf_config` takes a path or the name of a config in `conf/`
+(`local`, `slurm_generic`, ...); `local` sizes the tasks to the machine it
+runs on, `slurm_generic` needs your GPU partition (see
+[Containers and HPC](#containers-and-hpc)). Useful options:
+`--dry_run` writes the params file and validates inputs and executables
+without starting Nextflow, `--resume` continues a previous run, `--work_dir`
+sets the Nextflow work directory, `--cleanup` deletes the task directories of
+the run from the work directory once it has finished successfully (see
+[docs/hpc.md](docs/hpc.md#work-directory)). Arguments after `--` go to Nextflow.
+`paludamentum --help` lists everything.
+
+## Inputs
+
+The default run takes `genome`, `proteins` (or `odb12Partitions`) and short reads
+(`rnaseq_*`). The other inputs belong to the [alternative modes](#alternative-modes)
+or replace steps of the run. Every input can be given on the command line
+(`--proteins`, `--rnaseq_bam`, ...) or in the params file.
 
 | Parameter | Content |
 | --- | --- |
@@ -248,39 +203,11 @@ Paths must not contain spaces. All parameters are documented in
 | `keep_downloads` | copy the reads downloaded from SRA to `sra_downloads/` in `outdir`; default false, they stay in the work directory only |
 | `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80. If all RNA-Seq (or all Iso-Seq) libraries are dropped, the run stops with an error |
 
-### Modes
-
-The mode is inferred from the inputs and can be forced with `mode`
-(`--mode`). Every mode needs the genome and at least one gene finder model
-(`tiberius.model_cfg`, `vipsania.model`, or an existing prediction via
-`result`).
-
-| Mode | Inputs | Gene finders | Selection in the combined step |
-| --- | --- | --- | --- |
-| `abinitio` (historic name: `tiberius`) | genome only | one (`genefinder`, else the block with `run: true`), or **both** combined when `tiberius.model_cfg` and `vipsania.model` (or their `result`) are given, see [Ab initio combination](#ab-initio-combination) | none, or `combine.classifier_abinitio` for the combination |
-| `proteins` | proteins (`proteins` or `odb12Partitions`) | **both** Tiberius and Vipsania; `tiberius.model_cfg` is required, see [Protein-only runs](#protein-only-runs) | `combine.classifier_proteins` |
-| `rnaseq` | proteins, and short reads (`rnaseq_*`, a BAM, pyVARUS) or a StringTie assembly | **both**, or Vipsania alone without a Tiberius model, see [Species without a Tiberius model](#species-without-a-tiberius-model) | `combine.classifier`, or `combine.classifier_vipsania` without Tiberius |
-| `isoseq` | proteins, and Iso-Seq reads | as `rnaseq` | as `rnaseq` |
-| `mixed` | proteins, short reads and Iso-Seq reads | as `rnaseq` | as `rnaseq` |
-
-The evidence modes (`rnaseq`, `isoseq`, `mixed`) run the
-[Combined HC flow](#combined-hc-flow) and always need protein evidence:
-`combine_genesets.py` reads miniprot alignments, miniprothint hints and the
-DIAMOND tables. `vipsania.model` is required in every mode with evidence;
-`tiberius.model_cfg` is required in mode `proteins` and optional in the
-transcript modes.
-
-Not supported, and refused by the launcher (and by `main.nf`) before anything
-runs: reads or an assembly without proteins, mode `proteins` without a
-Tiberius model, a forced mode whose inputs are missing, and a run without a
-genome or without any gene finder model. `paludamentum --help` prints the
-same summary of the modes.
-
 ### Existing StringTie assemblies
 
 If the transcripts are already assembled, pass the StringTie GTF with
 `--stringtie` (`stringtie` in the params file). The pipeline then does not
-run StringTie; the assembly goes to the HC gene step as it is.
+run StringTie; the assembly is used as it is.
 
 ```bash
 paludamentum --nf_config local --genome genome.fa \
@@ -296,7 +223,7 @@ and it must be an assembly of this genome FASTA (same sequence names). It
 combines with `--result`: an existing prediction and an existing assembly
 need no GPU, no mapping and no assembly step. Notes:
 
-- The combined HC flow needs exactly one StringTie assembly of all reads;
+- The pipeline needs exactly one StringTie assembly of all reads;
   several files are an error. The GTF must come from `stringtie` on the
   reads (with `cov` and `TPM` attributes), not from `stringtie --merge`
   (which drops them). Drusilla's StringTie pre-filter reads these
@@ -315,24 +242,20 @@ need no GPU, no mapping and no assembly step. Notes:
   transcripts sharing an intron as multiplicity, and a bedGraph from the
   exon `cov` values (`intermediate/assembly_introns.gff`,
   `intermediate/assembly_cov.bg.gz`; the introns also enter `hintsfile.gff`).
-  Measured on the 31 benchmark species against the run with the BAM: -0.4
-  transcript and -0.2 gene F1, where no RNA evidence costs -4.3 / -3.7.
 
 ## Outputs
 
-All files are written to `outdir` (default `<genefinder>_results`). `<stem>`
-is `combined_evidence` in evidence modes and in mode `proteins`, and in mode
-`abinitio` `<tool>_ab_initio` (with `<tool>` = `tiberius` or `vipsania`) or
-`combined_ab_initio` when both gene finders ran.
+All files are written to `outdir` (default `<genefinder>_results`). The final
+gene set is `paludamentum.gff3`, in every mode.
 
 | File | Content |
 | --- | --- |
-| `<stem>.gff3` | final annotation: output of `combine_genesets.py`, sanity filtered, with UTRs in modes with transcripts |
-| `<stem>.gtf` | the final annotation as GTF |
-| `<stem>_proteins.fa` | protein sequences of all transcripts of the final annotation |
-| `<stem>_cds.fa` | coding sequences of the final annotation |
-| `<stem>_with_ncRNA.gff3` | final annotation plus rRNA, tRNA, Rfam and lncRNA genes (`ncrna.run`) |
-| `<stem>_go.gff3`, `<stem>_with_ncRNA_go.gff3` | the same with GO terms (`fantasia.run`) |
+| `paludamentum.gff3` | **the final gene set**: the integrated annotation, sanity filtered, with UTRs in modes with transcripts (in an ab initio run with one gene finder: its prediction, sanity filtered) |
+| `paludamentum.gtf` | the final annotation as GTF |
+| `paludamentum_proteins.fa` | protein sequences of all transcripts of the final annotation |
+| `paludamentum_cds.fa` | coding sequences of the final annotation |
+| `paludamentum_with_ncRNA.gff3` | final annotation plus rRNA, tRNA, Rfam and lncRNA genes (`ncrna.run`) |
+| `paludamentum_go.gff3`, `paludamentum_with_ncRNA_go.gff3` | the same with GO terms (`fantasia.run`) |
 | `report.html` | methods, gene set statistics, completeness, evidence support, sanity filter, UTRs, ncRNA, versions and references of the run |
 | `qc/` | sanity filter and UTR reports, gene set statistics and plots, hint support, completeness, OMArk, gffcompare, FANTASIA, software versions, see [docs/postprocessing.md](docs/postprocessing.md#outputs) |
 | `ncrna/` | rRNA, tRNA, Rfam and lncRNA annotations (`ncrna.run`) |
@@ -342,7 +265,7 @@ is `combined_evidence` in evidence modes and in mode `proteins`, and in mode
 | `intermediate/drusilla_orfs.gtf` | Drusilla ORFs on the StringTie assembly |
 | `intermediate/td2.gff3` | revised TD2 ORFs mapped to the genome |
 | `intermediate/rna_cov.bg.gz` | read-depth bedGraph of the merged BAM (`bedtools genomecov -bg -split`, gzipped) |
-| `intermediate/<stem>_sanity_filtered.gff3` | the annotation after the sanity filter, before the UTRs |
+| `intermediate/paludamentum_sanity_filtered.gff3` | the annotation after the sanity filter, before the UTRs |
 | `hintsfile.gff` | protein, RNA-Seq and Iso-Seq hints (concatenated, for gene support) |
 | `sra_downloads/` | reads downloaded from SRA, with `keep_downloads: true` only |
 | `params.yaml` | the merged parameters of this run, written by the launcher |
@@ -353,29 +276,44 @@ Nextflow's timeline, trace and report files are written as well.
 
 ## Gene finders
 
-In evidence modes (`rnaseq`, `isoseq`, `mixed`) and in mode `proteins`
-**both** Tiberius and Vipsania run; `vipsania.model` is always required (or
-an existing prediction via `result`). Without a Tiberius model (no
-`tiberius.model_cfg` and no `tiberius.result`, the case of a species outside
-the Tiberius clades) an evidence mode runs Vipsania as its only *ab initio*
-gene set, see [Species without a Tiberius model](#species-without-a-tiberius-model);
-mode `proteins` then stops. In `abinitio` mode both gene finders run and
-their predictions are combined when both have a model (or `result`), see
-[Ab initio combination](#ab-initio-combination); with one model that gene
-finder runs alone (`genefinder`, `--genefinder` or the `run` flags name it
-when the params file has blocks for both). On the command line `--model_cfg`
-and `--model` can be given together; the launcher keeps both models.
+The default run and every other run with evidence use **both** gene finders,
+Tiberius and Vipsania, each with the model of the clade of the genome.
 
 | Gene finder | Model | Parameters |
 | --- | --- | --- |
-| Tiberius | `tiberius.model_cfg` (`--model_cfg`), a name in `tiberius/model_cfg` of the submodule (for example `eudicotyledons`) or a path | [docs/parameters.md](docs/parameters.md#gene-finder-tiberius) |
+| Tiberius | `tiberius.model_cfg` (`--model_cfg`), a name in `tiberius/model_cfg` of the submodule (for example `fungi`) or a path | [docs/parameters.md](docs/parameters.md#gene-finder-tiberius) |
 | Vipsania | `vipsania.model` (`--model`), a clade name (for example `Fungi`) or a model id | [docs/vipsania.md](docs/vipsania.md) |
 
 Model weights are downloaded once on the submitting host, so the GPU nodes
 need no internet; `model_dir` takes weights that you downloaded yourself.
-Vipsania `--finetune` on the target genome is on by default in evidence
-modes (one GPU task on the whole genome; set `vipsania.finetune: false` to
-skip).
+Vipsania is fine-tuned on the target genome by default in runs with evidence
+(one GPU task on the whole genome; set `vipsania.finetune: false` to skip).
+
+### Matching models
+
+If a run with evidence gets the model of one gene finder only, the launcher
+adds the matching model of the other one and says so in its log, so that
+both gene finders run:
+
+| Vipsania model (`--model`) | Tiberius model (`--model_cfg`) |
+| --- | --- |
+| `Vertebrata` | `vertebrates` (from Tiberius `mammalia_*`: Vipsania `Vertebrata`) |
+| `Insecta` | `insecta` |
+| `Fungi` | `fungi` |
+| `Streptophyta` | `angiosperms` |
+| `Chlorophyta` | `chlorophyta` |
+| `Stramenopiles` | none added (from Tiberius `diatoms`: Vipsania `Stramenopiles`) |
+
+- A model that you give is never replaced. For a mammal, give
+  `--model_cfg mammalia_softmasking_v2`; Vipsania `Vertebrata` is added to it.
+- Vipsania `Stramenopiles` gets no Tiberius model, because the Tiberius
+  model of that clade is a diatom model. For a diatom, give
+  `--model_cfg diatoms`.
+- The other Vipsania clades have no Tiberius model, see
+  [Species without a Tiberius model](#species-without-a-tiberius-model).
+- Nothing is added in an ab initio run (one model is one gene finder there),
+  next to an existing prediction of the missing gene finder, or with
+  `--no_auto_model` (`auto_model: false` in the params file).
 
 ### Existing predictions
 
@@ -391,7 +329,7 @@ paludamentum --nf_config local --genome genome.fa \
     --model Fungi --proteins proteins.faa --rnaseq_paired "/abs/path/rnaseq/*_{1,2}.fastq.gz" \
     --tiberius_result tiberius.gff3
 
-# Ab initio only, Vipsania, reuse a previous prediction
+# Ab initio run with Vipsania, reuse a previous prediction
 paludamentum --genefinder vipsania --nf_config local --genome genome.fa --result vipsania.gff
 ```
 
@@ -407,218 +345,112 @@ vipsania:
 
 The pipeline renames the genes and transcripts of each file
 (`gene_000001`, `gene_000001.t1`, ...) and reads its `exon`, `CDS` and UTR
-features. Evidence modes still need the other gene finder's model (or its
-`result`), and the full HC flow runs on both predictions.
+features. A run with evidence still needs the other gene finder's model (or
+its `result`), and the integration runs on both predictions.
 
-## Combined HC flow
+## Alternative modes
 
-Evidence modes (`rnaseq`, `isoseq`, `mixed`) run the same combined HC flow
-for every clade (step 4 in the overview):
+The default run is mode `rnaseq`: a genome, proteins and RNA-Seq reads, with
+both gene finders. The pipeline also runs with other inputs. The mode is
+inferred from the inputs and can be forced with `mode` (`--mode`). Every mode
+needs the genome and at least one gene finder model (or an existing
+prediction via `result`).
 
-<p align="center">
-  <img src="figures/combined_flow.svg" alt="Combined HC-gene step: Tiberius and Vipsania predict genes on the genome; StringTie assembles one transcript set from the reads; TD2 (with shorten + classify + revise) and Drusilla predict ORFs on it; DIAMOND runs on all four protein sets; bedtools genomecov writes the coverage, bam2hints the introns; combine_genesets.py integrates everything into combined.gff3" width="100%">
-</p>
+| Mode | Inputs next to the genome | Gene finders |
+| --- | --- | --- |
+| `rnaseq` (**default run**) | proteins, and short reads (`rnaseq_*`, a BAM, pyVARUS) or a [StringTie assembly](#existing-stringtie-assemblies) | both |
+| `isoseq` | proteins and Iso-Seq reads | both |
+| `mixed` | proteins, short reads and Iso-Seq reads | both |
+| `proteins` | proteins (`proteins` or `odb12Partitions`), no reads | both |
+| `abinitio` | none | one, or both combined when both models are given |
+| `rnaseq`, `isoseq`, `mixed` for a [species without a Tiberius model](#species-without-a-tiberius-model) | proteins and reads | Vipsania |
 
-Steps of the combined HC flow:
+Each alternative has its own trained selection model for the integration
+step; their files and thresholds are listed in
+[docs/combined_flow.md](docs/combined_flow.md#selection-models-of-the-modes).
 
-1. One StringTie assembly of all reads (short, Iso-Seq with `-L`, or both
-   with `--mix`). A `--stringtie` assembly made outside the pipeline is
-   used as it is; it must carry the `cov` and `TPM` attributes. The one
-   assembly is not passed through `stringtie --merge` (only the GFF3 that
-   TD2 needs is written from it); several assemblies would be merged.
-2. **Drusilla** filters the StringTie assembly (length, coverage, TPM) and
-   predicts the ORFs of the kept transcripts with the one Drusilla model of
-   all clades (`drusilla_model`; set `drusilla.model` to use `vertebrates`
-   or `insects`). Isoforms whose CDS is a subsequence of another
-   one are collapsed.
-3. **TD2** predicts ORFs on the full StringTie assembly. ORFs are then
-   shortened to their first methionine where incomplete,
-   `CDS_CLASSIFY_AND_REVISE` runs two auxiliary DIAMOND passes to decide
-   whether to keep the original or the trimmed start, and the revised ORFs
-   are mapped back to the genome with
-   `cdna_alignment_orf_to_genome_orf.pl`.
-4. For each of the four gene sets (Tiberius, Vipsania, revised TD2,
-   Drusilla), `PROTEIN_FROM_GFF` extracts proteins with gffread (`-S`:
-   internal stops are written as `*`, which DIAMOND accepts).
-   `bin/check_internal_stops.py` writes a `WARN` line to the run log when
-   more than 5% of a gene set's proteins have an internal stop. The usual
-   cause is wrong CDS phases in a reused `<tool>.result`, which
-   `bin/fix_cds_phases.py` repairs; the run continues.
-   `DIAMOND_BLASTP_FULL` searches the proteins against the protein database with
-   the 14-column outfmt (`qseqid sseqid pident length mismatch gapopen
-   qstart qend sstart send evalue bitscore qlen slen`). It reads GFF3 and
-   GTF (the Drusilla ORFs) and keeps at most 10 isoforms per gene; an
-   isoform beyond the cap has no DIAMOND hit.
-5. `bedtools genomecov -ibam BAM -bg -split | gzip > rna_cov.bg.gz` writes
-   the read-depth bedGraph, and `bam2hints --intronsonly` plus
-   `filterIntronsFindStrand.pl` writes the intron hints. In mixed mode both
-   intron hint files (short reads and Iso-Seq) go to `combine_genesets.py`,
-   which sums them per intron. pyVARUS directories and a `--stringtie`
-   assembly without reads have no BAM: `combine_genesets.py` then runs
-   without `--coverage` (pyVARUS hints are still used). Transcripts of
-   full-length reads (`chains`, or in mixed mode the `stringtie -L` assembly
-   of the Iso-Seq reads alone) go to `combine_genesets.py --chains`; the ORF
-   callers do not see them.
-6. `combine_genesets.py` integrates all of the above. By default
-   (`combine.classifier = "${projectDir}/conf/combiner_classifier_v1.json"`)
-   it runs in classifier mode: the candidate pool is built as with
-   `--keep-all` (every unique CDS structure, all tier rules off), and a
-   gradient-boosted tree model (400 trees of depth 3, exported to JSON,
-   evaluated with numpy; scikit-learn is not needed at run time) gives each
-   candidate P(structure = reference CDS) from 47 features of the report
-   (tools, structure, locus context, RNA-Seq intron and coverage evidence,
-   DIAMOND and miniprot protein evidence; no clade input). Per locus the
-   best candidate is the primary if its P reaches the locus threshold
-   (0.25); further candidates are isoforms if P reaches 0.30. The `reason`
-   column of the report is `primary`, `isoform_classifier`,
-   `isoform_rejected`, `locus_below_min` or `dropped_lone_single_exon`, and
-   the last column is `p_classifier`. With `combine.classifier = false` the
-   tier rules apply (merging, clustering, tiering with the four tool sets,
-   RNA / protein / DIAMOND adjustments; `combine.min_locus` is the minimum
-   tier of a locus); see [docs/drusilla_flow.md](docs/drusilla_flow.md) and
-   `combine_genesets.py --help`. The full-length transcript evidence
-   (`--chains`, mixed and Iso-Seq runs) is not a model feature (no training
-   species has long reads); in classifier mode it raises the log-odds of a
-   structure whose CDS chain lies in one full-length transcript by 1.5
-   (`--chain-logit-full`, calibrated on H. sapiens: +1.2 to +1.7 transcript
-   F1 over the classifier without chains, level with or above the tier rules
-   with chains).
+### Iso-Seq and mixed runs
 
-The model (`conf/combiner_classifier_v1.json`) was trained on the keep-all
-pools of 15 species outside the benchmark set (4 insects, 7 fungi, 2
-vertebrates, 2 plants) with gffcompare labels. On the 31 benchmark species of
-the Tiberius paper (gffcompare `--strict-match -e 3 -T`, CDS level) it is
-better than the tier rules by +2.6 transcript F1 and +2.4 gene F1, in 29 of
-31 species (vertebrates +3.0 / +3.4, insects +3.1 / +2.3, plants +2.1 /
-+2.3, fungi +1.4 / +1.1). A model trained per clade was not better than the
-single model, and dropping the clade input cost 0.1 F1; the shipped model is
-clade-agnostic.
+Iso-Seq reads take the place of the short reads (mode `isoseq`) or come with
+them (mode `mixed`). The run is the default run with another read aligner
+(minimap2) and one StringTie assembly of all reads. In mode `mixed` the
+transcripts of the Iso-Seq reads alone are also used as evidence of
+full-length transcripts in the integration.
 
-Known clades (`conf/hc_genes.yaml`) hold the `classifier_clade` and the
-warning of a run that differs from the recommended flow. `Vertebrata` and
-`Mammalia` use `classifier_clade: vertebrates`; `Mesangiospermae` (the
-Tiberius angiosperms model) uses `classifier_clade: embryophyta` and `Fungi`
-uses `classifier_clade: fungi`; `Insecta` and
-`Lepidoptera` use `classifier_clade: insects`
-**and** cause the pipeline to pass `--drop-lone-single-exon tiberius` to
-`combine_genesets.py`. In rules mode lone single-exon Tiberius-only models are
-demoted; in classifier mode such lone single-exon Tiberius structures
-without a miniprot match are never selected (`dropped_lone_single_exon`).
-This is the mechanism for clade-specific known weaknesses: the clade entry
-decides the flag, the classifier handles everything else.
+```bash
+# Iso-Seq reads
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi \
+    --proteins proteins.faa --isoseq isoseq.fastq.gz
 
-The four clades of the training set are embryophyta (Populus trichocarpa,
-Typha latifolia), fungi, insects and vertebrates; plant and fungal runs
-(`Mesangiospermae`, `Fungi`) use the model's locus threshold 0.25. A clade
-without `classifier_clade`, or one not in the table, is new to the model and
-the pipeline passes `--unknown-clade`, which raises the locus threshold to
-0.30. The Tiberius chlorophyta and diatoms models (Chlorophyta,
-Bacillariophyta) are not listed for this reason. For clades the model never saw (clade-out
-cross-validation on 46 species) this gave +1.4 transcript / +1.3 gene F1
-over the rules with that threshold, 27 of 31 species better; insect-like
-genomes are the weak case (gene F1 about -0.3 to -1 when insects were
-unseen).
-
-### Ab initio combination
-
-Mode `abinitio` with both `tiberius.model_cfg` and `vipsania.model` (or an
-existing `result` for either) runs both gene finders and integrates the two
-predictions with `combine_genesets.py` without any evidence: no protein
-database, no DIAMOND, no miniprot, no transcripts. The selection is
-`combine.classifier_abinitio` (`conf/combiner_classifier_abinitio_v1.json`),
-the same recipe trained on the keep-all pools of the same 15 species with
-the features of the tools, the structure and the locus context only (18
-features; thresholds 0.30 / 0.25, also for clades outside the HC table). The
-published stem is `combined_ab_initio`.
-
-Measured on the 31 benchmark species (gffcompare `--strict-match -e 3 -T`,
-CDS level), against Tiberius alone: +1.5 transcript and +4.8 gene F1 (22 and
-27 of 31 species), from precision (transcript 68 against 56, gene 73 against
-56) at a cost of 3 to 6 points of sensitivity; the tier rules reach +1.5 /
-+3.5. The gain depends on the clade: insects +4.9 transcript F1, fungi +2.3,
-plants +1.5, vertebrates -3.4 (Vipsania is weak there and the combination
-drops correct Tiberius-only models). With evidence the gains are far larger
-(protein-only +5.4 / +8.9, with RNA-Seq +12.2 / +15.4), so this combination is
-the fallback for a genome without any evidence.
+# short reads and Iso-Seq reads
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi \
+    --proteins proteins.faa --rnaseq_paired "rnaseq/*_{1,2}.fastq.gz" --isoseq isoseq.fastq.gz
+```
 
 ### Protein-only runs
 
-Mode `proteins` (a genome and proteins, no reads) runs the same step with
-the two *ab initio* gene sets alone: no StringTie assembly, no ORF callers,
-no coverage track and no intron hints. `combine_genesets.py` receives the
-Tiberius and Vipsania gene sets, their two DIAMOND tables and the miniprot
-and miniprothint evidence, and selects with `combine.classifier_proteins`
-(`conf/combiner_classifier_protonly_v1.json`): the same recipe, trained on
-the keep-all pools of the same 15 species without transcript evidence (41
-features, no RNA-Seq features). Its thresholds are the sensitive end of the
-F1 plateau of the species-out cross-validation: locus 0.20 (0.30 for a clade
-without `classifier_clade`), isoforms 0.30; the plateau is flat from 0.20 to
-0.30, and the lower end trades 4 points of precision for 2 points of
-sensitivity at equal F1 (`combine.t_locus: 0.15` buys another point of
-sensitivity for up to one point of gene-level F1). `combine.classifier_proteins
-= false` selects with the tier rules, whose RNA rules stay off.
+Mode `proteins`: a genome and proteins, no reads. Both gene finders run, and
+the integration selects among their two gene sets with the protein evidence.
+There is no transcript assembly, so no ORF callers, no read coverage and no
+UTRs. This mode needs a Tiberius and a Vipsania model.
 
-Measured on the 31 benchmark species with OrthoDB protein sets (gffcompare
-`--strict-match -e 3 -T`, CDS level), against Tiberius alone: +5.4
-transcript F1 and +8.9 gene F1, better in 29 of 31 species (the tier rules:
-+2.7 / +5.4, 27 and 30 of 31). The RNA-Seq modes reach +12.2 / +15.4 on the
-same species. The gap is the candidate pool, not the selection: without
-transcripts the pool holds the exact structure of 48 % of the reference
-transcripts, with the ORF callers 60 %, and the selection recovers about 90 %
-of either pool. Protein-only runs are therefore the choice for genomes
-without RNA-Seq, not a substitute for it.
+```bash
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi --proteins proteins.faa
+```
+
+### Ab initio runs
+
+Mode `abinitio`: a genome and no evidence. With one model that gene finder
+runs alone and its prediction is the gene set. With both models both gene
+finders run, and the integration selects among the two predictions without
+any evidence.
+
+```bash
+# Tiberius alone, parallelized over GPUs by Nextflow
+paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg angiosperms
+
+# Vipsania alone
+paludamentum --nf_config local --genome genome.fa --model Fungi
+
+# both gene finders, combined without evidence
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi
+```
+
+In a params file with blocks for both gene finders, `genefinder` or
+`run: true` in one block names the gene finder of a run with one model:
+
+```yaml
+genome: /abs/path/genome.fa
+tiberius:
+  run: true
+  model_cfg: angiosperms
+```
 
 ### Species without a Tiberius model
 
-Vipsania has models for many clades that Tiberius has none for (Nematoda,
+Vipsania has models for clades that Tiberius has none for (Nematoda,
 Arthropoda beyond insects, Spiralia, Cnidaria, Echinodermata, Porifera,
 Tunicata, Alveolata, Amoebozoa, Discoba, Rhodophyta, and a fallback model).
-For such a species leave `tiberius.model_cfg` and `tiberius.result` unset and
-give `vipsania.model`: the evidence modes then run Vipsania (fine-tuned on
-the genome by default) as the only *ab initio* gene set, Vipsania's proteins
-select the species of a large protein database, and `combine_genesets.py`
-integrates the three gene sets (Vipsania, revised TD2, Drusilla) with the
-protein and RNA-Seq evidence, selecting with `combine.classifier_vipsania`
-(`conf/combiner_classifier_vipsania_v1.json`): the same recipe trained on
-the keep-all pools of the same 15 species without the Tiberius gene set,
-thresholds 0.225 / 0.30 (its species-out optimum, also for clades outside
-the HC table, which the clades of this flow are by definition). The RNA-Seq
-multiplicity is normalised by the median over the structures that all tools
-of the run predicted (three here, four with Tiberius).
-
-Measured on the 31 benchmark species with the Tiberius gene set removed
-(gffcompare `--strict-match -e 3 -T`, CDS level): 57.4 transcript / 71.2
-gene F1, against 44.2 / 54.8 for Vipsania alone (better in 31 of 31 species)
-and 60.1 / 74.6 for the same inputs with Tiberius. The ORF callers on the
-StringTie assembly supply most candidate structures, so this flow needs
-transcript evidence: Vipsania with protein evidence alone ended 12 F1 points
-below Vipsania alone, which is why mode `proteins` requires a Tiberius model.
-Vipsania's own accuracy sets the ceiling and differs by clade (its README
-reports locus F1 0.54 for Nematoda, 0.21 for Arthropoda beyond insects).
-
-### Insects
-
-For insect runs the recommended flow is: Vipsania with the model `Insecta`,
-fine-tuned on the genome (`vipsania.finetune: true`, default), RNA-Seq or
-Iso-Seq, and protein evidence. The target_species of the gene-finder model
-decides whether `--drop-lone-single-exon tiberius` is passed; both the
-Tiberius `insecta` / `lepidoptera` models and the Vipsania `Insecta` model
-trigger it. Tiberius overpredicts single-exon genes in insects; in
-classifier mode (default) the lone single-exon Tiberius structures without a
-miniprot match are never selected, in rules mode they are demoted.
-
+For such a species give `vipsania.model` only. A run with proteins and reads
+then uses Vipsania as its only *ab initio* gene finder, next to the two ORF
+callers on the transcripts.
 
 ```bash
-paludamentum --nf_config local --genome genome.fa \
-    --model_cfg insecta --model Insecta --proteins proteins.faa --rnaseq_bam rnaseq.bam
+paludamentum --nf_config local --genome genome.fa --model Nematoda --proteins proteins.faa --rnaseq_bam rnaseq.bam
 ```
 
-A run that differs from the recommended flow of the clade (gene finder,
-Vipsania fine-tune, transcripts, proteins) still runs; the Nextflow log
-names each difference. The recommendation is `recommended` of the clade in
-[conf/hc_genes.yaml](conf/hc_genes.yaml). Historical benchmarks and the
-F1 numbers of the pre-combine insect flow (mean gene F1 75.2 on 11 insect
-genomes) are kept in [docs/drusilla_flow.md](docs/drusilla_flow.md#insects).
+This flow needs transcript evidence: mode `proteins` does not run without a
+Tiberius model.
+
+### Combinations that do not run
+
+The launcher (and `main.nf`) stops these before anything runs, with a
+message that names the supported modes:
+
+- reads or a StringTie assembly without proteins,
+- mode `proteins` without a Tiberius model,
+- a forced mode whose inputs are missing,
+- a run without a genome or without any gene finder model.
 
 ## Containers and HPC
 
@@ -643,7 +475,8 @@ Running without containers, and other setups for experts, are described in
 | --- | --- |
 | [docs/parameters.md](docs/parameters.md) | all parameters: inputs, gene finder blocks, Drusilla block, combine_genesets, mode |
 | [docs/vipsania.md](docs/vipsania.md) | Vipsania as gene finder: models, finetuning, offline nodes |
-| [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla as the ORF caller of step 4, StringTie pre-filter, insect benchmark |
+| [docs/combined_flow.md](docs/combined_flow.md) | the evidence and integration steps in technical detail: tools, options, `combine_genesets.py`, selection models, clade table |
+| [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla as one of the two ORF callers: StringTie pre-filter, parameters |
 | [docs/postprocessing.md](docs/postprocessing.md) | post-processing and quality control: sanity filter, UTRs, GFF3 contract, completeness, ncRNA, GO terms, report |
 | [docs/containers.md](docs/containers.md) | container images and how they are pinned |
 | [docs/hpc.md](docs/hpc.md) | Nextflow config for your cluster, process labels |

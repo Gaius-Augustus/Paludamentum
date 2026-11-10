@@ -1,21 +1,20 @@
 # Clade of the gene finder model (Tiberius target_species of
 # params.tiberius.model_cfg, or the Vipsania model). Case is ignored. In
 # evidence modes, Paludamentum runs the same unified HC flow regardless of
-# clade (combine_genesets.py); this table has three jobs:
+# clade (combine_genesets.py); this table has two jobs:
 #   1. decide whether `--drop-lone-single-exon tiberius` is passed to
 #      combine_genesets.py (set for Insecta / Lepidoptera clades: Tiberius
-#      overpredicts single-exon genes in insects),
+#      overpredicts single-exon genes in insects), and
 #   2. name the training clade of the selection classifier that covers the
 #      clade (`classifier_clade`: embryophyta, fungi, insects or vertebrates).
 #      A clade without it, or not listed here, is new to the classifier and
 #      gets its conservative locus threshold (combine_genesets.py
-#      --unknown-clade), and
-#   3. hold the `recommended` flow for a warning when a run differs from it.
+#      --unknown-clade), unless its entry sets `standard_thresholds: true`:
+#      then the thresholds of the training clades apply although the
+#      classifier has not seen the clade (Chlorophyta, Bacillariophyta).
 #
 # Drusilla runs the one model of all clades (params.drusilla.model, default
 # drusilla_model); this table does not choose it.
-# Chlorophyta and Bacillariophyta (the Tiberius chlorophyta / diatoms models)
-# are not listed: the classifier has not seen them.
 # params.hc_table points at another table.
 
 clades:
@@ -27,15 +26,6 @@ clades:
   Insecta: &insecta
     vipsania_models: [58hsuobw]
     classifier_clade: insects
-    recommended:
-      finetune: true
-      transcripts: true
-      proteins: true
-      note: >-
-        Vipsania with the model Insecta, fine-tuned on the genome
-        (vipsania.finetune: true), RNA-Seq or Iso-Seq evidence, and
-        protein evidence (odb12Partitions: [Arthropoda]). Insect runs
-        also get --drop-lone-single-exon tiberius in combine_genesets.
   # the Lepidoptera model of Tiberius (target_species Lepidoptera)
   Lepidoptera: *insecta
   # the angiosperms model of Tiberius
@@ -44,3 +34,14 @@ clades:
   # the fungi model of Tiberius
   Fungi:
     classifier_clade: fungi
+  # the chlorophyta and diatoms models of Tiberius: not training clades of the
+  # classifier, but its standard thresholds instead of the conservative one
+  # (benchmark Nov 2026, two chlorophytes and two diatoms: transcript F1 -0.1
+  # to +0.9 against the conservative threshold)
+  Chlorophyta:
+    vipsania_models: [faeijtmk]
+    standard_thresholds: true
+  # Vipsania alone runs diatoms with Stramenopiles (r6p9z9jw), which covers more
+  # than diatoms and stays unknown
+  Bacillariophyta:
+    standard_thresholds: true

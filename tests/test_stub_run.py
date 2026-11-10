@@ -103,7 +103,7 @@ def assert_ok(proc: subprocess.CompletedProcess) -> None:
 def test_abinitio_mode(tool: str, tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, GENEFINDER[tool])
     assert_ok(proc)
-    stem = f"{tool}_ab_initio"
+    stem = "paludamentum"       # the final files have the same names in every mode
     assert final_files(stem) <= published, f"missing {final_files(stem) - published}"
     # the other gene finder must not be published
     other = "vipsania" if tool == "tiberius" else "tiberius"
@@ -112,7 +112,7 @@ def test_abinitio_mode(tool: str, tmp_path: Path) -> None:
 
 def test_abinitio_with_both_models_combines_without_evidence(tmp_path: Path) -> None:
     """Mode abinitio with both models: both gene finders run and combine_genesets.py integrates them without any
-    evidence (no protein database, no DIAMOND, no miniprot); the published stem is combined_ab_initio."""
+    evidence (no protein database, no DIAMOND, no miniprot); the final files are paludamentum.* as in every mode."""
     params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
@@ -123,7 +123,7 @@ def test_abinitio_with_both_models_combines_without_evidence(tmp_path: Path) -> 
     for p in ("MINIPROT", "DIAMOND", "PROT_VIP", "PROTEIN_FROM_GFF", "PREPROCESS_PROTEINDB", "TD_ALL",
               "DRUSILLA_ANNOTATE", "STRINGTIE", "BAM2COV", "GENE_SUPPORT", "ADD_UTRS"):
         assert p not in proc.stdout, f"{p} ran in the ab initio combination: {proc.stdout[-2000:]}"
-    assert final_files("combined_ab_initio") <= published, f"missing {final_files('combined_ab_initio') - published}"
+    assert final_files("paludamentum") <= published, f"missing {final_files('paludamentum') - published}"
     assert {"intermediate/combined.gff3", "intermediate/tiberius_ab_initio.gff3",
             "intermediate/vipsania_ab_initio.gff3"} <= published, sorted(published)
     assert "hintsfile.gff" not in published and "qc/gene_support.tsv" not in published
@@ -131,7 +131,7 @@ def test_abinitio_with_both_models_combines_without_evidence(tmp_path: Path) -> 
 
 def test_proteins_mode_combines_both_finders_without_transcripts(tmp_path: Path) -> None:
     """Protein-only mode: both gene finders, protein evidence and combine_genesets.py; no assembly,
-    no ORF callers, no coverage, no intron hints. The published stem is combined_evidence."""
+    no ORF callers, no coverage, no intron hints. The final files are paludamentum.* as in every mode."""
     proc, published = run_pipeline(tmp_path, COMBINED_PROTEINS)
     assert_ok(proc)
     assert "Running mode: proteins" in proc.stdout
@@ -142,11 +142,11 @@ def test_proteins_mode_combines_both_finders_without_transcripts(tmp_path: Path)
     for p in ("STRINGTIE", "TD_ALL", "DRUSILLA_ANNOTATE", "DIAMOND_TD2", "DIAMOND_DRU", "DIAMOND_NORM",
               "BAM2COV", "BAM2HINTS", "HISAT2", "ADD_UTRS"):
         assert p not in proc.stdout, f"{p} ran in mode proteins: {proc.stdout[-2000:]}"
-    assert final_files("combined_evidence") <= published, f"missing {final_files('combined_evidence') - published}"
+    assert final_files("paludamentum") <= published, f"missing {final_files('paludamentum') - published}"
     assert {"intermediate/combined.gff3", "intermediate/combined.report.tsv", "intermediate/tiberius_ab_initio.gff3",
             "intermediate/vipsania_ab_initio.gff3", "hintsfile.gff"} <= published, sorted(published)
-    # no per-tool annotation of the old proteins mode (<tool>_evidence.*)
-    assert not [f for f in published if Path(f).name.startswith(("tiberius_evidence", "vipsania_evidence"))], sorted(published)
+    # one final gene set, under the same name in every mode: no <tool>_evidence.* or combined_evidence.* files
+    assert not [f for f in published if "_evidence" in Path(f).name], sorted(published)
 
 
 def test_rnaseq_without_tiberius_model_runs_vipsania_alone(tmp_path: Path) -> None:
@@ -161,7 +161,7 @@ def test_rnaseq_without_tiberius_model_runs_vipsania_alone(tmp_path: Path) -> No
         assert p in proc.stdout, f"{p} not in: {proc.stdout[-2000:]}"
     for p in ("RUN_TIBERIUS", "DIAMOND_TIB", "HC_COMBINED:GENEFINDER_VIPSANIA"):
         assert p not in proc.stdout, f"{p} ran: {proc.stdout[-2000:]}"
-    assert final_files("combined_evidence") <= published, f"missing {final_files('combined_evidence') - published}"
+    assert final_files("paludamentum") <= published, f"missing {final_files('paludamentum') - published}"
     assert "intermediate/vipsania_ab_initio.gff3" in published
     assert not [f for f in published if "tiberius" in Path(f).name], sorted(published)
     # the HC table does not know Nematoda: the classifier's threshold for clades outside its training clades applies
@@ -212,8 +212,8 @@ def test_combined_flow(mode: str, tmp_path: Path) -> None:
     # the strand fix runs on every short-read BAM (default strand_fix: true), not on Iso-Seq
     assert ("STRAND_FIX_BAM" in proc.stdout) == (mode in ("rnaseq", "mixed")), proc.stdout[-2000:]
     assert "intermediate/combined.gff3" in published
-    assert final_files("combined_evidence") <= published, \
-        f"missing: {final_files('combined_evidence') - published}"
+    assert final_files("paludamentum") <= published, \
+        f"missing: {final_files('paludamentum') - published}"
 
 
 def test_combined_flow_published_set(tmp_path: Path) -> None:
@@ -222,10 +222,10 @@ def test_combined_flow_published_set(tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
     assert {
-        "combined_evidence.gff3", "combined_evidence.gtf",
-        "combined_evidence_proteins.fa", "combined_evidence_cds.fa",
+        "paludamentum.gff3", "paludamentum.gtf",
+        "paludamentum_proteins.fa", "paludamentum_cds.fa",
         "intermediate/combined.gff3", "intermediate/combined.report.tsv",
-        "intermediate/combined_evidence_sanity_filtered.gff3",
+        "intermediate/paludamentum_sanity_filtered.gff3",
         "intermediate/drusilla_orfs.gtf",
         "intermediate/rna_cov.bg.gz",
         "intermediate/td2.gff3",
@@ -254,8 +254,7 @@ def test_insect_combined_flow_adds_drop_lone_single_exon(tmp_path: Path) -> None
     }
     proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    # the stub does not render the final command, but the message of
-    # cladeAdvice / hcClade must at least name the Insecta clade
+    # the stub does not render the final command; hcClade names the Insecta clade
     assert "Insecta" in proc.stdout + proc.stderr or True  # just a smoke test
 
 
@@ -304,7 +303,7 @@ def test_legacy_mode_name_tiberius(tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, {**GENEFINDER["tiberius"], "mode": "tiberius"})
     assert_ok(proc)
     assert "Running mode: abinitio" in proc.stdout
-    assert "tiberius_ab_initio.gff3" in published
+    assert {"paludamentum.gff3", "intermediate/tiberius_ab_initio.gff3"} <= published
 
 
 def test_vipsania_is_chunked_without_finetuning(tmp_path: Path) -> None:
@@ -326,7 +325,7 @@ def test_existing_result_is_reused_abinitio(tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
     assert "RUN_VIPSANIA" not in proc.stdout and "SPLIT_GENOME" not in proc.stdout
-    assert "vipsania_ab_initio.gff3" in published
+    assert {"paludamentum.gff3", "intermediate/vipsania_ab_initio.gff3"} <= published
 
 
 def software_versions_lines(tmp_path: Path) -> list[str]:
@@ -388,7 +387,7 @@ def test_input_forms(form: str, tmp_path: Path) -> None:
               **PROTEINS, **INPUT_FORMS[form]}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    assert {"combined_evidence.gff3", "intermediate/combined.gff3",
+    assert {"paludamentum.gff3", "intermediate/combined.gff3",
             "hintsfile.gff"} <= published, sorted(published)
 
 
@@ -436,7 +435,7 @@ def test_stringtie_only_derives_hints_and_coverage_from_the_assembly(tmp_path: P
     assert "COMBINE_GENESETS" in proc.stdout and "ASSEMBLY_HINTS" in proc.stdout
     assert "BAM2COV" not in proc.stdout and "BAM2HINTS" not in proc.stdout
     assert "STRINGTIE_ASSEMBLE" not in proc.stdout
-    assert {"combined_evidence.gff3", "intermediate/combined.gff3", "intermediate/assembly_introns.gff",
+    assert {"paludamentum.gff3", "intermediate/combined.gff3", "intermediate/assembly_introns.gff",
             "intermediate/assembly_cov.bg.gz", "hintsfile.gff", "qc/gene_support.tsv"} <= published, sorted(published)
 
 

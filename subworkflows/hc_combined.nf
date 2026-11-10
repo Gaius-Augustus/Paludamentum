@@ -25,8 +25,9 @@ nextflow.enable.dsl=2
 //     the files of params.chains) go in as --chains when there are any.
 //     Selection is learned (params.combine.classifier, the shipped
 //     conf/combiner_classifier_v1.json): a clade-agnostic model trained on
-//     15 species outside the benchmark; clades without a classifier_clade in
-//     the HC table get its conservative locus threshold (--unknown-clade).
+//     15 species outside the benchmark; clades without a classifier_clade or
+//     standard_thresholds in the HC table get its conservative locus
+//     threshold (--unknown-clade).
 //     params.combine.classifier = false switches back to the tier rules.
 //     For Insecta / Lepidoptera clades, --drop-lone-single-exon tiberius
 //     is added in both modes.
@@ -76,7 +77,7 @@ include { DIAMOND_MAKEDB;
 include { BAM2COV } from '../modules/rnacov.nf'
 include { COMBINE_GENESETS } from '../modules/combine.nf'
 include { EMPTY_FILE as NO_CLASSIFIER; EMPTY_FILE as NO_EVIDENCE } from '../modules/util.nf'
-include { hcClade; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
+include { hcClade; classifierUnknownClade; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
 
 workflow HC_COMBINED {
 
@@ -213,15 +214,19 @@ workflow HC_COMBINED {
     // model), classifier_proteins (mode proteins) or classifier_abinitio (the
     // ab initio combination); false / null: tier rules, the empty placeholder
     // goes in. The clade is known to the model when its HC-table entry names a
-    // classifier_clade; otherwise the model's threshold for other clades
-    // applies (--unknown-clade).
+    // classifier_clade; an entry with standard_thresholds gets the thresholds
+    // of the training clades as well; otherwise the model's threshold for
+    // other clades applies (--unknown-clade).
     def clfParam = !transcripts ? (proteins ? params_map.combine?.classifier_proteins : params_map.combine?.classifier_abinitio) :
                    tiberius ? params_map.combine?.classifier : params_map.combine?.classifier_vipsania
     def classifier = clfParam ? channel.value(file(clfParam.toString(), checkIfExists: true)) : NO_CLASSIFIER()
-    def unknown_clade = !(clade.entry?.classifier_clade)
+    def unknown_clade = classifierUnknownClade(clade)
     if( clfParam && unknown_clade )
         log.info "combine_genesets: clade ${clade.name ?: 'unknown'} has no classifier_clade in the HC table; " +
                  "the classifier uses its locus threshold for clades outside its training clades (--unknown-clade)."
+    else if( clfParam && !(clade.entry?.classifier_clade) )
+        log.info "combine_genesets: clade ${clade.name} is not a training clade of the classifier; the HC table " +
+                 "sets the thresholds of its training clades (standard_thresholds)."
     // the thresholds of params.combine.t_locus / t_iso override the model's;
     // with -resume a change here reruns only the combine step and what follows
     def clf_opts = [unknown_clade ? '--unknown-clade' : '',

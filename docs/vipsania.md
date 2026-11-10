@@ -9,11 +9,13 @@ transcripts.
 ## Selecting Vipsania
 
 In the evidence modes and in mode `proteins` Vipsania always runs next to
-Tiberius (`vipsania.model` is required); without a Tiberius model it is the
-only *ab initio* gene set, see
+Tiberius. `vipsania.model` is needed; when only a Tiberius model is given,
+the launcher adds the matching Vipsania model, and the reverse (see
+[Matching models](../README.md#matching-models)). For a clade without a
+Tiberius model Vipsania is the only *ab initio* gene set, see
 [Species without a Tiberius model](#species-without-a-tiberius-model). In
-mode `abinitio` exactly one gene finder runs: set `vipsania.run: true` in the
-params file, or `genefinder: vipsania`.
+mode `abinitio` with one model that gene finder runs alone: set
+`vipsania.run: true` in the params file, or `genefinder: vipsania`.
 
 ```yaml
 genome: /abs/path/genome.fa
@@ -47,7 +49,7 @@ paludamentum --genefinder vipsania --nf_config slurm_generic --genome genome.fa 
 | `vipsania.run` | `false` | Run Vipsania and merge its predictions with the HC genes. |
 | `vipsania.model` | none (required, unless `vipsania.result` is set) | Clade name (`Fungi`, `Insecta`, `Vertebrata`, ...) or model id. See the model table in the Vipsania README. |
 | `vipsania.model_dir` | none | Directory with models from `vipsania download <model> -d DIR`. No download is attempted then. |
-| `vipsania.result` | none | Existing Vipsania prediction (`--result`): the GFF3 or GTF of `vipsania annotate`, or the `intermediate/vipsania_ab_initio.gff3` of an earlier run (not `vipsania_ab_initio.gff3` in the output directory of mode `abinitio`, which is the sanity-filtered final annotation). It is used instead of running Vipsania, in every mode. `vipsania.model` is then optional; `Vertebrata` or `Insecta` selects the [Drusilla flow](drusilla_flow.md). |
+| `vipsania.result` | none | Existing Vipsania prediction (`--result`): the GFF3 or GTF of `vipsania annotate`, or the `intermediate/vipsania_ab_initio.gff3` of an earlier run (not `paludamentum.gff3`, which is the sanity-filtered final annotation). It is used instead of running Vipsania, in every mode. `vipsania.model` is then optional; `Vertebrata` or `Insecta` selects the [Drusilla flow](drusilla_flow.md). |
 | `vipsania.finetune` | `false` | Finetune the model on the target genome before annotating. |
 | `vipsania.finetune_epochs`, `finetune_B`, `finetune_lr` | Vipsania defaults | Forwarded to `vipsania annotate`. |
 | `vipsania.batch_size` | automatic | `-B`. Automatic sizing needs `nvidia-smi`; set it on CPU-only nodes. |
@@ -67,11 +69,8 @@ the model table in the Vipsania README). In an evidence mode, leave
 Vipsania (fine-tuned by default) is then the only *ab initio* gene set, and
 the combined HC step selects among Vipsania, TD2 and Drusilla with the
 classifier trained for runs without Tiberius (`combine.classifier_vipsania`,
-thresholds 0.225 / 0.30). On the 31 benchmark species this reached 57.4
-transcript / 71.2 gene F1 against 44.2 / 54.8 for Vipsania alone and
-60.1 / 74.6 with Tiberius. Transcript evidence is required: with proteins
-alone the selection ends below Vipsania alone, so mode `proteins` without a
-Tiberius model stops with an error. See the
+thresholds 0.225 / 0.30). Transcript evidence is required: mode `proteins`
+without a Tiberius model stops with an error. See the
 [README](../README.md#species-without-a-tiberius-model).
 
 ## Finetuning
@@ -86,10 +85,7 @@ the whole genome instead of one task per chunk. The checkpoint
 Without finetuning the genome is split into chunks that are annotated in
 parallel, as for Tiberius.
 
-For insects, Vipsania `Insecta` fine-tuned on the genome is part of the
-recommended flow (with RNA-Seq or Iso-Seq and the Drusilla flow, without
-proteins; see [drusilla_flow.md](drusilla_flow.md#without-proteins)). On 11
-insect genomes fine-tuning took about 4 h on one A100 GPU, with 256 GB of
+On 11 insect genomes fine-tuning took about 4 h on one A100 GPU, with 256 GB of
 memory requested.
 
 ## Models and offline nodes
@@ -127,7 +123,6 @@ GPUs.
 - Vipsania drops sequences shorter than 1000 bp.
 - Soft masking is read as repeat information. See the Vipsania documentation
   on masking and finetuning.
-- Output files are named `vipsania_evidence.gff3`,
-  `vipsania_evidence_proteins.fa` and so on (mode `abinitio`:
-  `vipsania_ab_initio.gff3`); the unfiltered predictions are
+- The final gene set is `paludamentum.gff3` (with `paludamentum_proteins.fa`
+  and so on) in every mode; the unfiltered Vipsania predictions are
   `intermediate/vipsania_ab_initio.gff3`.

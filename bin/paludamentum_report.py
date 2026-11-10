@@ -35,7 +35,7 @@ list it as qc/completeness.png, where the pipeline publishes it. Needs
 matplotlib; without it the chart is skipped (the ncRNA counts are then a
 table).
 
-The stem (file prefix, e.g. tiberius_evidence) is the 'stem' of run_info.json,
+The stem (file prefix, paludamentum in a pipeline run) is the 'stem' of run_info.json,
 else the prefix of the one '<stem>_proteins.fa' or '<stem>.gff3' in STAGED_DIR.
 
 run_info.json (optional, every key optional): {"version", "mode",

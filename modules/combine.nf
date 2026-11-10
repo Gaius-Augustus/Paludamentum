@@ -8,7 +8,7 @@ nextflow.enable.dsl=2
 // Insecta/Lepidoptera gene finder models) adds --drop-lone-single-exon
 // tiberius. Selection: the learned classifier (params.combine.classifier,
 // a JSON model, with the options of clf_opts: --unknown-clade when the clade
-// has no classifier_clade in the HC table, --t-locus / --t-iso from
+// has neither classifier_clade nor standard_thresholds in the HC table, --t-locus / --t-iso from
 // params.combine.t_locus / t_iso) or, with the empty placeholder instead of
 // a model, the tier rules with --min-locus. All other combine_genesets.py
 // thresholds use the script defaults.

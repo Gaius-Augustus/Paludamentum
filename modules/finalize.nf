@@ -5,7 +5,7 @@ include { truthy } from '../lib_nf/functions.nf'
 // Final protein-coding annotation (docs/postprocessing.md): the sanity filter,
 // UTRs from the StringTie assemblies, the published GFF3, GTF and sequences,
 // and the longest isoform per gene for the completeness assessment.
-// `stem` names the published files: <tool>_evidence or <tool>_ab_initio.
+// `stem` names the published files: paludamentum (the same in every mode).
 
 process SANITY_FILTER {
   label 'container'

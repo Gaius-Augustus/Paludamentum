@@ -26,23 +26,24 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  abinitio, Tiberius alone, parallelized over GPUs:\n"
-            "    paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg eudicotyledons\n"
-            "  abinitio, Vipsania alone:\n"
-            "    paludamentum --nf_config local --genome genome.fa --model Fungi\n"
-            "  abinitio, both gene finders combined (both models given, no evidence):\n"
-            "    paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi\n"
-            "  proteins (genome and proteins, no transcripts):\n"
-            "    paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi "
-            "--proteins proteins.faa\n"
-            "  rnaseq (proteins and RNA-Seq), inputs from a params file:\n"
+            "  Default run: proteins and RNA-Seq (the Tiberius model 'fungi' is added to match --model Fungi):\n"
+            "    paludamentum --nf_config local --genome genome.fa --model Fungi --proteins proteins.faa "
+            '--rnaseq_paired "rnaseq/*_{1,2}.fastq.gz"\n'
+            "  The same from a params file:\n"
             "    paludamentum --params_yaml params.yaml --nf_config slurm_generic\n"
+            "Alternative modes:\n"
             "  rnaseq with a StringTie assembly instead of reads:\n"
-            "    paludamentum --nf_config local --genome genome.fa --model_cfg eudicotyledons --model Streptophyta "
+            "    paludamentum --nf_config local --genome genome.fa --model_cfg angiosperms --model Streptophyta "
             "--proteins proteins.faa --stringtie stringtie.gtf\n"
             "  rnaseq for a species without a Tiberius model (Vipsania only; here Nematoda):\n"
             "    paludamentum --nf_config local --genome genome.fa --model Nematoda --proteins proteins.faa "
             "--rnaseq_bam rnaseq.bam\n"
+            "  proteins (genome and proteins, no transcripts):\n"
+            "    paludamentum --nf_config local --genome genome.fa --model Fungi --proteins proteins.faa\n"
+            "  abinitio, one gene finder (Tiberius, or Vipsania with --model):\n"
+            "    paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg angiosperms\n"
+            "  abinitio, both gene finders combined (both models given, no evidence):\n"
+            "    paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi\n"
             'Arguments after "--" are forwarded verbatim to Nextflow.'
         ),
     )
@@ -58,7 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Gene finder of an ab initio run with one model, and the one whose model option is "
                               "checked. Default: 'genefinder' or the block with run=true in the params file, else "
                               "vipsania if --model is given, else tiberius. Modes with evidence run Vipsania and, when "
-                              "a Tiberius model is given, Tiberius as well, whatever this option says.")
+                              "a Tiberius model is given or matches the Vipsania model, Tiberius as well, whatever "
+                              "this option says.")
+    general.add_argument("--no_auto_model", action="store_true",
+                         help="In a run with evidence and the model of one gene finder only, do not add the matching "
+                              "model of the other gene finder (auto_model: false in the params file).")
 
     nextflow = parser.add_argument_group("Nextflow")
     nextflow.add_argument("--profile", help="Nextflow profile(s) to activate (comma-separated).")
@@ -79,7 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     inputs = parser.add_argument_group("Inputs and settings (override the params file)")
     inputs.add_argument("--genome", help="Genome FASTA (required unless set in the params file).")
-    inputs.add_argument("--outdir", help="Output directory. Default: <genefinder>_results.")
+    inputs.add_argument("--outdir", help="Output directory. Default: <genefinder>_results. The final gene set "
+                                         "is paludamentum.gff3 in it.")
     inputs.add_argument("--threads", type=int, help="Thread count for pipeline processes.")
     inputs.add_argument("--proteins", nargs="*", default=[], help="Protein FASTA file(s).")
     inputs.add_argument("--odb12Partitions", nargs="*", default=[],
@@ -124,15 +130,17 @@ def build_parser() -> argparse.ArgumentParser:
     tiberius.add_argument("--model_cfg",
                           help="Model configuration: a path, or a name in model_cfg/ of the Tiberius "
                                "submodule (e.g. diatoms). Together with --model both gene finders run "
-                               "(modes proteins, rnaseq, isoseq, mixed, and the ab initio combination).")
+                               "(modes proteins, rnaseq, isoseq, mixed, and the ab initio combination). In a run "
+                               "with evidence it is derived from --model when it is not given.")
     tiberius.add_argument("--seq_len", type=int, help="Forwarded to tiberius.py --seq_len.")
     finder.add_argument("--model_dir",
                         help="Directory with downloaded models, instead of the download at the start of the run: the "
                              "extracted weights of the Tiberius model configuration, or 'vipsania download -d DIR'.")
 
     vipsania = parser.add_argument_group("Vipsania")
-    vipsania.add_argument("--model", help="Clade name (e.g. Fungi) or model id. Required in every mode with "
-                                          "evidence; together with --model_cfg both gene finders run.")
+    vipsania.add_argument("--model", help="Clade name (e.g. Fungi) or model id. Needed in every mode with "
+                                          "evidence (derived from --model_cfg when it is not given); together with "
+                                          "--model_cfg both gene finders run.")
     vipsania.add_argument("--finetune", action="store_true",
                           help="Finetune on the genome before annotating (one task, no chunks).")
     vipsania.add_argument("--finetune_epochs", type=int, help="Forwarded to vipsania annotate --finetune_epochs.")
@@ -145,10 +153,10 @@ def build_parser() -> argparse.ArgumentParser:
     post.add_argument("--reference_annotation",
                       help="Reference annotation (GFF3 or GTF, gzipped or not): the final annotation is compared with it (gffcompare).")
     post.add_argument("--ncrna", action="store_true",
-                      help="Annotate rRNA, tRNA, Rfam families and lncRNA: <stem>_with_ncRNA.gff3.")
+                      help="Annotate rRNA, tRNA, Rfam families and lncRNA: paludamentum_with_ncRNA.gff3.")
     post.add_argument("--fantasia", action="store_true",
                       help="GO terms with FANTASIA-Lite (GPU; needs fantasia.hf_cache_dir and fantasia.lookup_dir "
-                           "in the params file): <stem>_go.gff3.")
+                           "in the params file): paludamentum_go.gff3.")
 
     parser.add_argument("nextflow_args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     return parser

@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { PROTEIN_FROM_GFF } from './modules/genefinder.nf'
 include { MERGE_BAMS as MERGE_BAMS_ALL } from './modules/rnaseq.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; varusInputs; hcClade; cladeAdvice; truthy } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; varusInputs; hcClade; classifierUnknownClade; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { methodsText } from './lib_nf/methods.nf'
 
@@ -116,11 +116,8 @@ workflow {
 
     // Clade of the gene finder model (Tiberius target_species or Vipsania
     // model). Insecta / Lepidoptera triggers --drop-lone-single-exon in
-    // combine_genesets. cladeAdvice warns when the run differs from the
-    // recommended flow of the clade.
+    // combine_genesets; the flow itself is the same for every clade.
     def clade = hcClade(params)
-    def advice = cladeAdvice(params, MODE, hasProteins, [clade: clade.name])
-    if( advice ) log.warn advice
 
     // The combine_genesets flow needs ONE StringTie assembly of all reads
     // (with the cov and TPM attributes of StringTie). A given assembly
@@ -220,13 +217,13 @@ workflow {
         fantasiaMinScore: params.fantasia?.min_score,
         minLocus: (params.combine?.min_locus != null) ? params.combine.min_locus : 4,
         // learned selection of combine_genesets.py: the thresholds the run applies (the model file's,
-        // the conservative locus threshold for a clade without classifier_clade, or params.combine.*)
+        // the conservative locus threshold for a clade new to the classifier, or params.combine.*)
         classifier: clfModel != null,
         clfTLocus: params.combine?.t_locus != null ? params.combine.t_locus :
-                   (clfModel == null ? null : (clade.entry?.classifier_clade ? clfModel.t_locus :
+                   (clfModel == null ? null : (!classifierUnknownClade(clade) ? clfModel.t_locus :
                                                (clfModel.t_locus_unknown_clade ?: clfModel.t_locus))),
         clfTIso: params.combine?.t_iso != null ? params.combine.t_iso : clfModel?.t_iso,
-        clfUnknownClade: clfModel != null && params.combine?.t_locus == null && !(clade.entry?.classifier_clade),
+        clfUnknownClade: clfModel != null && params.combine?.t_locus == null && classifierUnknownClade(clade),
     ]
     def version = workflow.manifest.version ?: 'unknown'
     file("${outdir}/citations.md").text = citationsText(run, version)
@@ -264,7 +261,7 @@ workflow {
     def hints     = nextflow.Channel.empty()   // hintsfile.gff (gene support)
     def genome_chunks = nextflow.Channel.empty()   // genome chunks of the gene finder (cmscan)
     def genefinder_versions = nextflow.Channel.empty()   // version line of the gene finder
-    def post_prefix = null                     // stem of the published files
+    def post_prefix = null                     // gene finder of the run for the report: tiberius, vipsania or combined
 
     if( abBoth ) {
       // Ab initio combination: both gene finders given and no evidence. Both

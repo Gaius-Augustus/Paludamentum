@@ -100,7 +100,7 @@ def test_one_library_per_read_type_in_mixed_mode(tmp_path: Path) -> None:
     assert tasks(tmp_path, "SAMTOOLS_SORT") == 0, proc.stdout
     assert tasks(tmp_path, "BAM2HINTS_RNA") == 1 and tasks(tmp_path, "BAM2HINTS_ISO") == 1, proc.stdout
     assert tasks(tmp_path, "STRINGTIE_ASSEMBLE_MIX") == 1, proc.stdout
-    assert "combined_evidence.gff3" in published
+    assert "paludamentum.gff3" in published
 
 
 def test_strand_fix_runs_once_per_short_read_bam(tmp_path: Path) -> None:

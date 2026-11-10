@@ -863,7 +863,7 @@ def test_supported_input_combinations(params, mode):
 def test_unsupported_input_combinations_are_refused(params, message):
     with pytest.raises(SystemExit, match=message) as info:
         launcher.check_mode({"genome": GENOME, **params})
-    assert "Supported modes" in str(info.value)
+    assert "Alternative modes" in str(info.value)
 
 
 def test_abinitio_warns_about_unused_evidence(capsys):
@@ -910,7 +910,8 @@ def test_both_models_from_the_command_line_are_kept(tmp_path: Path, monkeypatch)
 @pytest.mark.parametrize("argv,message", [
     (["--model", "Fungi", "--rnaseq_bam", "r.bam"], "without proteins"),
     (["--model", "Fungi", "--stringtie", "a.gtf"], "without proteins"),
-    (["--model", "Fungi", "--proteins", PROTEINS], "needs a Tiberius model"),
+    (["--model", "Fungi", "--proteins", PROTEINS, "--no_auto_model"], "needs a Tiberius model"),
+    (["--model", "Nematoda", "--proteins", PROTEINS], "needs a Tiberius model"),
     (["--model", "Fungi", "--proteins", PROTEINS, "--mode", "isoseq"], "needs Iso-Seq reads"),
     (["--model", "Fungi", "--proteins", PROTEINS, "--rnaseq_bam", "r.bam", "--mode", "abinitio", "--model_dir", "x"],
      "Input validation failed"),          # a forced abinitio run passes the mode check, then the data check
@@ -929,6 +930,9 @@ def test_help_documents_the_modes(capsys):
     out = capsys.readouterr().out
     assert all(mode in out for mode in launcher.MODES)
     assert "Not supported" in out and "Examples:" in out and "--model_cfg" in out
+    # the default run comes first, the other modes are named as alternatives
+    assert out.index("Default run") < out.index("Alternative modes") < out.index("Not supported")
+    assert "paludamentum.gff3" in out and "--no_auto_model" in out
 
 
 # ---------------------------------------------------------------- version
@@ -956,3 +960,104 @@ def test_readme_lists_the_references_of_the_citation_file():
     section = readme.split("## References", 1)[1].split("\n## ", 1)[0]
     assert set(re.findall(r"https://doi\.org/([^)\s]+)", section)) == {t for _r, kind, t in refs if kind == "doi"}
 
+
+
+# ---------------------------------------------------------------- model of the other gene finder
+
+def fake_tiberius(root: Path, **models: str) -> Path:
+    """A checkout root whose Tiberius submodule has these model configurations (name=target_species)."""
+    cfg_dir = root / "tiberius" / "model_cfg"
+    cfg_dir.mkdir(parents=True)
+    for name, species in models.items():
+        (cfg_dir / f"{name}.yaml").write_text(f'target_species: "{species}"\n')
+    return root
+
+
+def run_params(**extra) -> dict:
+    return {"genome": GENOME, "tiberius": {}, "vipsania": {}, **extra}
+
+
+RNASEQ = {"proteins": [PROTEINS], "rnaseq_bam": ["r.bam"]}
+
+
+@pytest.mark.parametrize("model,name", [
+    ("Fungi", "fungi"), ("fungi", "fungi"), ("fh1kg88z", "fungi"), ("Vertebrata", "vertebrates"),
+    ("etb1go6q", "vertebrates"), ("Insecta", "insecta"), ("Streptophyta", "angiosperms"),
+    ("Chlorophyta", "chlorophyta"),
+])
+def test_tiberius_model_is_added_for_a_vipsania_model(model, name, tmp_path: Path):
+    root = fake_tiberius(tmp_path, **{name: "x"})
+    params = run_params(**RNASEQ, vipsania={"model": model})
+    notes = launcher.complete_models(params, root)
+    assert params["tiberius"] == {"model_cfg": name}
+    assert len(notes) == 1 and notes[0].startswith("[INFO]") and f"Tiberius model '{name}'" in notes[0]
+    assert launcher.describe_run(params).endswith("gene finders: tiberius + vipsania")
+
+
+@pytest.mark.parametrize("name,species,clade", [
+    ("fungi", "Fungi", "Fungi"), ("diatoms", "Bacillariophyta", "Stramenopiles"),
+    ("mammalia_softmasking_v2", "Mammalia", "Vertebrata"), ("vertebrates", "Vertebrata", "Vertebrata"),
+    ("angiosperms", "Mesangiospermae", "Streptophyta"), ("lepidoptera", "Lepidoptera", "Insecta"),
+    ("chlorophyta", "Chlorophyta", "Chlorophyta"),
+])
+def test_vipsania_model_is_added_for_a_tiberius_model(name, species, clade, tmp_path: Path):
+    root = fake_tiberius(tmp_path, **{name: species})
+    for evidence in (RNASEQ, {"proteins": [PROTEINS]}):      # the default run and mode proteins
+        params = run_params(**evidence, tiberius={"model_cfg": name})
+        notes = launcher.complete_models(params, root)
+        assert params["vipsania"] == {"model": clade}
+        assert len(notes) == 1 and f"Vipsania model '{clade}'" in notes[0]
+        assert params["tiberius"] == {"model_cfg": name}        # resolved to its file later, as before
+
+
+@pytest.mark.parametrize("extra", [
+    {"vipsania": {"model": "Fungi"}},                                      # mode abinitio: one model, one gene finder
+    {"tiberius": {"model_cfg": "fungi"}},
+    {**RNASEQ, "vipsania": {"model": "Fungi"}, "auto_model": False},       # switched off
+    {**RNASEQ, "vipsania": {"model": "Nematoda"}},                         # clades without a Tiberius model
+    {**RNASEQ, "vipsania": {"model": "Stramenopiles"}},
+    {**RNASEQ, "vipsania": {"model": "Fungi"}, "tiberius": {"result": "t.gff3"}},      # the gene finder is given
+    {**RNASEQ, "tiberius": {"model_cfg": "fungi"}, "vipsania": {"result": "v.gff3"}},
+    {**RNASEQ, "tiberius": {"model_cfg": "fungi"}, "vipsania": {"model": "Insecta"}},  # both given: the user's choice
+    {**RNASEQ, "tiberius": {"model_cfg": "odd"}},                          # target_species without a Vipsania clade
+    {**RNASEQ, "tiberius": {"result": "t.gff3"}},                          # no model to derive the clade from
+])
+def test_no_model_is_added(extra, tmp_path: Path):
+    import copy
+    root = fake_tiberius(tmp_path, fungi="Fungi", odd="Tardigrada")
+    params = run_params(**copy.deepcopy(extra))
+    before = copy.deepcopy(params)
+    assert launcher.complete_models(params, root) == []
+    assert params == before
+
+
+def test_missing_tiberius_submodule_gives_a_warning_not_a_failure(tmp_path: Path):
+    params = run_params(**RNASEQ, vipsania={"model": "Fungi"})
+    notes = launcher.complete_models(params, tmp_path)           # no tiberius/model_cfg here
+    assert params["tiberius"] == {}
+    assert len(notes) == 1 and notes[0].startswith("[WARN]") and "git submodule update --init tiberius" in notes[0]
+
+
+@needs_tiberius
+def test_default_run_with_one_model_runs_both_gene_finders(tmp_path: Path, monkeypatch, capsys):
+    """The safeguard end to end: --model Fungi alone, with evidence, also runs Tiberius fungi; and the reverse."""
+    monkeypatch.chdir(tmp_path)
+    _finder, params = launcher.merge_run_params(cli_args(
+        "--genome", GENOME, "--model", "Fungi", "--proteins", PROTEINS, "--rnaseq_bam", "r.bam"))
+    assert params["tiberius"]["model_cfg"] == str(TIBERIUS / "model_cfg" / "fungi.yaml")
+    assert params["vipsania"]["model"] == "Fungi"
+    assert "using the Tiberius model 'fungi'" in capsys.readouterr().out
+    _finder, params = launcher.merge_run_params(cli_args(
+        "--genome", GENOME, "--model_cfg", "vertebrates", "--proteins", PROTEINS, "--rnaseq_bam", "r.bam"))
+    assert params["vipsania"]["model"] == "Vertebrata"
+    assert "using the Vipsania model 'Vertebrata'" in capsys.readouterr().out
+    # mode proteins no longer stops for a clade that has a Tiberius model
+    _finder, params = launcher.merge_run_params(cli_args("--genome", GENOME, "--model", "Fungi", "--proteins", PROTEINS))
+    assert launcher.describe_run(params) == "Mode: proteins (protein evidence); gene finders: tiberius + vipsania"
+    # switched off: Vipsania alone, as given
+    _finder, params = launcher.merge_run_params(cli_args(
+        "--genome", GENOME, "--model", "Fungi", "--proteins", PROTEINS, "--rnaseq_bam", "r.bam", "--no_auto_model"))
+    assert not params["tiberius"].get("model_cfg") and params["auto_model"] is False
+    # an ab initio run with one model stays a run of one gene finder
+    _finder, params = launcher.merge_run_params(cli_args("--genome", GENOME, "--model", "Fungi"))
+    assert not params["tiberius"].get("model_cfg")

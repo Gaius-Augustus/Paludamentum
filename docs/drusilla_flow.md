@@ -6,7 +6,7 @@ evidence run (`rnaseq`, `isoseq`, `mixed`), Drusilla predicts the ORFs on
 the StringTie assembly, and `combine_genesets.py` integrates its ORFs with
 the Tiberius, Vipsania and TD2 gene sets (by default selecting the
 structures with a learned classifier, with the tier rules as fallback, see
-the [README](../README.md#combined-hc-flow)). The dedicated "Drusilla flow"
+[combined_flow.md](combined_flow.md)). The dedicated "Drusilla flow"
 with its LightGBM filter and hint rescue has been retired; `combine_genesets.py`
 replaces the per-model filtering it used to do.
 
@@ -147,52 +147,29 @@ on *Bos taurus* 24 shards used 26 of 48 cores and 40 GB.
 | Lepidoptera | `insects` | combine_genesets.py also gets `--drop-lone-single-exon tiberius` |
 | Mesangiospermae | `embryophyta` | Tiberius angiosperms model |
 | Fungi | `fungi` | Tiberius fungi model |
+| Chlorophyta | none | `standard_thresholds: true`; Tiberius chlorophyta model |
+| Bacillariophyta | none | `standard_thresholds: true`; Tiberius diatoms model |
 
 The table does not choose the Drusilla model; all clades use
 `drusilla.model` (default `drusilla_model`). To add a clade, add it to
-`conf/hc_genes.yaml` with its `classifier_clade` (and `recommended` for the
-warning that fires on runs that differ from it). A clade without
-`classifier_clade`, or not in the table, is new to the combine classifier
-(`combine.classifier`, default on): the pipeline passes `--unknown-clade`
-and the locus threshold rises from 0.25 to 0.30. This holds for the
-Tiberius chlorophyta and diatoms models (Chlorophyta, Bacillariophyta),
-which are not listed because the classifier never saw them.
+`conf/hc_genes.yaml` with its `classifier_clade`. A clade with neither
+`classifier_clade` nor `standard_thresholds: true`, or not in the table, is
+new to the combine classifier (`combine.classifier`, default on): the
+pipeline passes `--unknown-clade` and the locus threshold rises from 0.25 to
+0.30. Chlorophyta and Bacillariophyta (the Tiberius chlorophyta and diatoms
+models) are not covered by the classifier's training clades, but
+`standard_thresholds: true` gives them the thresholds of the training
+clades. A Vipsania-only diatom run (Vipsania model Stramenopiles, no
+Tiberius model) still counts as an unknown clade.
 
 ## Insects
 
-For insect runs the recommended flow is Vipsania with the model `Insecta`,
-fine-tuned on the genome (`vipsania.finetune: true`, default), RNA-Seq or
-Iso-Seq, and protein evidence. The `target_species` of the gene-finder
-model decides whether `combine_genesets.py` receives
-`--drop-lone-single-exon tiberius`: both the Tiberius `insecta` /
-`lepidoptera` models and the Vipsania `Insecta` model trigger it.
-
-```yaml
-genome: /abs/path/genome.fa
-rnaseq_bam: [/abs/path/VARUS.bam]
-proteins: /abs/path/proteins.faa
-tiberius:
-  model_cfg: insecta
-vipsania:
-  model: Insecta
-  finetune: true
-```
-
-```bash
-paludamentum --nf_config local --genome genome.fa \
-    --model_cfg insecta --model Insecta --proteins proteins.faa --rnaseq_bam VARUS.bam
-```
-
-The Drusilla model `insects` (epoch 51 of the training run
-`cnn_lstm_run006_insects`, Lars Gabriel) is downloaded once, like the
-vertebrate model. Vipsania fine-tune runs as one GPU task on the whole
-genome; on the 11 insect genomes below it took 3.8 to 4.5 h on one A100,
-with 256 GB of memory requested.
-
-A run of an insect model that differs from the clade's `recommended` entry
-in `conf/hc_genes.yaml` gets a warning in the Nextflow log that names each
-difference (Vipsania not fine-tuned, no RNA-Seq or Iso-Seq, no protein
-evidence); the run itself goes on.
+Insect runs use the same flow as every other clade; there is no special
+insect workflow. The one difference is a flag: when the `target_species` of
+the gene finder model is `Insecta` or `Lepidoptera` (the Tiberius `insecta`
+/ `lepidoptera` models, the Vipsania `Insecta` model), `combine_genesets.py`
+receives `--drop-lone-single-exon tiberius`, see
+[combined_flow.md](combined_flow.md#clade-table).
 
 ### Historical insect benchmark (pre-combine flow)
 

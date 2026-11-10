@@ -125,7 +125,7 @@ process SPLIT_GENOME {
 }
 
 // Ab initio predictions of the ab initio mode, before the sanity filter; the
-// final <prefix>_ab_initio.gff3 in outdir is written by FINALIZE_ANNOTATION.
+// final paludamentum.gff3 in outdir is written by FINALIZE_ANNOTATION.
 process MERGE_GENEFINDER {
     label 'container'
     publishDir "${params.outdir}/intermediate/", mode:'copy', overwrite: true

@@ -27,8 +27,14 @@ def test_classifier_clade(clades: dict, clade: str, classifier_clade: str) -> No
 
 
 @pytest.mark.parametrize("clade", ["Chlorophyta", "Bacillariophyta"])
-def test_clades_unseen_by_the_classifier_are_absent(clades: dict, clade: str) -> None:
-    assert clade.lower() not in {k.lower() for k in clades}
+def test_clades_unseen_by_the_classifier_use_standard_thresholds(clades: dict, clade: str) -> None:
+    """Not training clades of the classifier, but listed: standard_thresholds instead of classifier_clade."""
+    assert clades[clade]["standard_thresholds"] is True
+    assert "classifier_clade" not in clades[clade]
+
+
+def test_chlorophyta_vipsania_model(clades: dict) -> None:
+    assert clades["Chlorophyta"]["vipsania_models"] == ["faeijtmk"]
 
 
 def test_no_drusilla_model_key(clades: dict) -> None:

@@ -46,6 +46,9 @@ def references() {
         augustus: [tool: 'AUGUSTUS (bam2hints)', use: 'intron hints from read alignments',
             ref: 'Stanke M, Diekhans M, Baertsch R, Haussler D. Using native and syntenically mapped cDNA alignments to improve *de novo* gene finding. Bioinformatics. 2008;24(5):637-644.',
             doi: '10.1093/bioinformatics/btn013'],
+        bedtools: [tool: 'bedtools', use: 'RNA-Seq read-depth bedGraph for combine_genesets',
+            ref: 'Quinlan AR, Hall IM. BEDTools: a flexible suite of utilities for comparing genomic features. Bioinformatics. 2010;26(6):841-842.',
+            doi: '10.1093/bioinformatics/btq033'],
         varus: [tool: 'VARUS', use: 'sampled and aligned reads of the pyVARUS input',
             ref: 'Stanke M, Bruhn W, Becker F, Hoff KJ. VARUS: sampling complementary RNA reads from the sequence read archive. BMC Bioinformatics. 2019;20(1):558.',
             doi: '10.1186/s12859-019-3182-x'],
@@ -177,6 +180,8 @@ def evidenceCitationKeys(Map run) {
     if( longReads && run.isoFastq ) keys << 'minimap2'
     def aligned = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && run.isoFastq)
     if( aligned ) keys << 'samtools' << 'augustus'
+    // bedtools genomecov writes the coverage track of the merged BAM (transcript modes with alignments)
+    if( aligned && transcripts ) keys << 'bedtools'
     if( (shortReads && run.shortVarus) || (longReads && run.isoVarus) ) keys << 'varus'
     if( transcripts ) keys << 'stringtie'
     keys << 'gffread'

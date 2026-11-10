@@ -128,6 +128,5 @@
 <text x="56" y="519" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">hints: proteins and/or transcripts</text>
 <rect x="24" y="530" width="22" height="16" rx="4" fill="#ebe1f2" stroke="#8a63a8" stroke-width="1.4"/>
 <text x="56" y="543" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">the option on the step and the data it names</text>
-<text x="24" y="698" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">&lt;stem&gt; is combined_evidence in evidence modes, else &lt;tool&gt;_ab_initio / &lt;tool&gt;_evidence;</text>
-<text x="24" y="719" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">&lt;tool&gt; is tiberius or vipsania. Evidence runs without a gene finder skip post-processing.</text>
+<text x="24" y="698" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#52606d" text-anchor="start">&lt;stem&gt; is paludamentum in every mode: paludamentum.gff3 is the final gene set.</text>
 </svg>

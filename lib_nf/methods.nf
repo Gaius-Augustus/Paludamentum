@@ -318,7 +318,7 @@ def methodsHighConfidence(Map ctx, Map run) {
     def varusHints = (run.mode in ['rnaseq', 'mixed'] && run.shortVarus) || (run.mode in ['isoseq', 'mixed'] && run.isoVarus)
     def rna = !transcripts ? ' (without transcript evidence no ORF caller ran, and no coverage track and no intron ' +
                              'hints entered the integration)' :
-              bams ? ', bedtools genomecov produced a per-base read-depth bedGraph of the merged read alignments, and ' +
+              bams ? ", bedtools genomecov ${cite(ctx, ['bedtools'])} produced a per-base read-depth bedGraph of the merged read alignments, and " +
                      'bam2hints produced intron hints' :
               varusHints ? ', and the intron hints of the pyVARUS runs were used (without alignments there was no coverage track)' :
               run.asmHints ? ', and the intron hints and the coverage track derived from the assembly were used' :

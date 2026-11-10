@@ -133,8 +133,8 @@ def overview():
            "Optional: BUSCO, compleasm,", "OMArk, gffcompare, ncRNA,", "GO terms (FANTASIA-Lite)", "",
            "report.html sums it up"], 5)
 
-    f.doc(D, r[0], wD, h, "grey", "Final annotation", "combined_evidence.gff3", mono=True)
-    f.doc(D, r[1], wD, h, "grey", "Sequences, GTF", "combined_evidence_*.fa", mono=True)
+    f.doc(D, r[0], wD, h, "grey", "Final annotation", "paludamentum.gff3", mono=True)
+    f.doc(D, r[1], wD, h, "grey", "Sequences, GTF", "paludamentum_*.fa", mono=True)
     y0 = r[2]
     f.add(f'<rect x="{D}" y="{y0}" width="{wD}" height="{r[3] + h - y0}" rx="10" fill="#fafbfc" '
           f'stroke="#b6bec8" stroke-width="1.4" stroke-dasharray="5 4"/>')
@@ -305,7 +305,7 @@ def insect():
            "introns + rna_cov.bg.gz;", "",
            "Insecta clade adds", "--drop-lone-single-exon", "tiberius"], 4)
 
-    f.doc(M, yc + h + 20, wM, h, "grey", "Final annotation", "combined_evidence.gff3", mono=True)
+    f.doc(M, yc + h + 20, wM, h, "grey", "Final annotation", "paludamentum.gff3", mono=True)
 
     # arrows: reads -> alignment -> stringtie -> TD2/Drusilla -> combine
     for i, c in enumerate(("red", "orange", "orange", "purple")):
@@ -322,7 +322,6 @@ def insect():
     f.arrow([(M + wM / 2, yc + h), (M + wM / 2, yc + h + 20)], "grey")
 
     f.text(A, yc + h + 50 + h, "The unified HC flow is the same for every clade; insect clades add --drop-lone-single-exon tiberius to combine_genesets.")
-    f.text(A, yc + h + 70 + h, "A run that differs from the clade's recommended flow in conf/hc_genes.yaml gets a warning (gene finder, fine-tune, transcripts, proteins).")
     return f
 
 
@@ -427,8 +426,7 @@ def postprocess():
         f.add(f'<rect x="{A}" y="{yy - 12}" width="22" height="16" rx="4" fill="{fill}" stroke="{stroke}" stroke-width="1.4"/>')
         f.text(A + 32, yy + 1, s)
 
-    f.text(A, yr + 50, "<stem> is combined_evidence in evidence modes, else <tool>_ab_initio / <tool>_evidence;", fill=SUB)
-    f.text(A, yr + 71, "<tool> is tiberius or vipsania. Evidence runs without a gene finder skip post-processing.")
+    f.text(A, yr + 50, "<stem> is paludamentum in every mode: paludamentum.gff3 is the final gene set.", fill=SUB)
     return f
 
 

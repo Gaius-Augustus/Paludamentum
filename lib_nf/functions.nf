@@ -80,7 +80,7 @@ def tiberiusTargetSpecies(cfg) {
 }
 
 // Clade table (params.hc_table, conf/hc_genes.yaml). Only used to look up
-// the clade of the gene finder model (insect flag + recommended warning).
+// the clade of the gene finder model (insect flag, classifier_clade).
 def hcTable(p) {
     def path = p.hc_table?.toString()?.trim() ?: "${projectDir}/conf/hc_genes.yaml"
     def f = file(path)
@@ -119,36 +119,19 @@ def hcClade(p) {
     return [name: candidates ? candidates[0] : null, entry: null]
 }
 
+// Whether the selection classifier treats the clade (hcClade) as new to it, with
+// its conservative locus threshold (combine_genesets.py --unknown-clade): no
+// classifier_clade in the HC table, and no standard_thresholds either.
+def classifierUnknownClade(clade) {
+    return !(clade.entry?.classifier_clade) && !truthy(clade.entry?.standard_thresholds)
+}
+
 // Drusilla model (key 'model'): params.drusilla.model, else drusilla_model,
 // the one model of all clades since Drusilla 0.3. The clade does not choose it.
 def drusillaSetting(p, String key) {
     if( key != 'model' )
         error "drusillaSetting: only 'model' is supported, got '${key}'."
     return p.drusilla?.model ?: 'drusilla_model'
-}
-
-// The most accurate flow measured for the clade of the gene finder model, as
-// the key 'recommended' of its entry in the HC table (conf/hc_genes.yaml):
-// genefinder, finetune (Vipsania), transcripts, proteins (true: given, false:
-// not given), and note (the measured accuracy). Returns null if the clade
-// has no recommendation or the run follows it, else the warning.
-def cladeAdvice(p, String mode, boolean hasProteins, Map hc) {
-    def clade = hcClade(p)
-    def rec = clade.entry?.recommended
-    if( !(rec instanceof Map) ) return null
-    def transcripts = mode in ['rnaseq', 'isoseq', 'mixed']
-    def diff = []
-    if( rec.finetune != null && !p.vipsania?.result &&
-        truthy(rec.finetune) != truthy(p.vipsania?.finetune) )
-        diff << (truthy(rec.finetune) ? 'Vipsania is not fine-tuned on the genome (vipsania.finetune: true)' :
-                                        'Vipsania is fine-tuned on the genome')
-    if( rec.transcripts != null && truthy(rec.transcripts) != transcripts )
-        diff << (transcripts ? 'there is RNA-Seq or Iso-Seq evidence' : 'there is no RNA-Seq or Iso-Seq evidence')
-    if( rec.proteins != null && truthy(rec.proteins) != hasProteins )
-        diff << (hasProteins ? 'protein evidence is given (proteins or odb12Partitions)' : 'there is no protein evidence')
-    if( !diff ) return null
-    def note = rec.note ? " ${rec.note.toString().trim()}" : ''
-    return "This run of clade ${clade.name} differs from the flow recommended for it: ${diff.join('; ')}.${note}"
 }
 
 // Header keys (#key=value lines) of a pyVARUS manifest; '# ' lines are comments.

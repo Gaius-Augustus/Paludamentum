@@ -496,20 +496,48 @@ SHORT_READ_KEYS = ("rnaseq_paired", "rnaseq_single", "rnaseq_bam", "rnaseq_sra_p
 ISOSEQ_KEYS = ("isoseq", "isoseq_sra", "isoseq_varus")
 MODES = ("abinitio", "proteins", "rnaseq", "isoseq", "mixed")
 MODE_HELP = (
-    "Supported modes (inferred from the inputs, or forced with 'mode'):\n"
-    "  abinitio  genome + a gene finder model (tiberius.model_cfg and/or vipsania.model, or a result):\n"
-    "            one gene finder, or both combined when both models are given; no evidence\n"
-    "  proteins  genome + proteins (proteins or odb12Partitions): Tiberius and Vipsania with the protein\n"
-    "            evidence; needs tiberius.model_cfg (or tiberius.result) and vipsania.model (or vipsania.result)\n"
-    "  rnaseq    genome + proteins + short reads (rnaseq_paired / rnaseq_single / rnaseq_bam / rnaseq_sra_* /\n"
-    "            rnaseq_varus) or a StringTie assembly (stringtie)\n"
+    "Default run, the one the pipeline is designed for: genome + proteins + RNA-Seq (mode rnaseq).\n"
+    "  Tiberius and Vipsania predict genes, TD2 and Drusilla find ORFs on the StringTie assembly of the\n"
+    "  reads, and the combined step selects the final gene set, paludamentum.gff3. Give the model of one\n"
+    "  gene finder (--model_cfg or --model): the matching model of the other one is added where one exists.\n"
+    "Alternative modes (inferred from the inputs, or forced with 'mode'):\n"
+    "  rnaseq    also with a StringTie assembly (stringtie) instead of the reads\n"
     "  isoseq    genome + proteins + Iso-Seq reads (isoseq / isoseq_sra / isoseq_varus)\n"
     "  mixed     genome + proteins + short reads and Iso-Seq reads\n"
-    "            rnaseq / isoseq / mixed need vipsania.model (or vipsania.result); without a Tiberius model\n"
-    "            Vipsania is the only ab initio gene finder (species outside the Tiberius clades).\n"
+    "            rnaseq / isoseq / mixed for a species without a Tiberius model: Vipsania is the only\n"
+    "            ab initio gene finder (vipsania.model alone)\n"
+    "  proteins  genome + proteins (proteins or odb12Partitions), no transcripts: Tiberius and Vipsania with\n"
+    "            the protein evidence; needs a Tiberius and a Vipsania model\n"
+    "  abinitio  genome + a gene finder model (tiberius.model_cfg and/or vipsania.model, or a result):\n"
+    "            one gene finder, or both combined when both models are given; no evidence\n"
     "Not supported: reads without proteins (the combined step needs the protein evidence), proteins\n"
     "without a Tiberius model, a run without a genome or without any gene finder model."
 )
+
+# The model of the other gene finder for a run with evidence in which only one
+# model was given (complete_models). Tiberius: target_species of the model
+# configuration (lower case) -> Vipsania clade.
+TIBERIUS_TO_VIPSANIA: Dict[str, str] = {
+    "mesangiospermae": "Streptophyta", "eudicotyledons": "Streptophyta", "monocotyledonae": "Streptophyta",
+    "chlorophyta": "Chlorophyta", "bacillariophyta": "Stramenopiles",
+    "fungi": "Fungi", "basidiomycota": "Fungi", "mucoromycota": "Fungi", "saccharomycota": "Fungi",
+    "sordariomycota": "Fungi", "fungi incertae sedis": "Fungi",
+    "insecta": "Insecta", "lepidoptera": "Insecta",
+    "mammalia": "Vertebrata", "vertebrata": "Vertebrata",
+}
+# Vipsania clade (lower case) -> name of the Tiberius model configuration. Clades
+# without an entry have no Tiberius model (Nematoda, Arthropoda, ...): Vipsania
+# then runs alone. Stramenopiles is left out on purpose: the Tiberius model of
+# that clade is a diatom model, which does not fit every stramenopile.
+VIPSANIA_TO_TIBERIUS: Dict[str, str] = {
+    "streptophyta": "angiosperms", "chlorophyta": "chlorophyta", "fungi": "fungi", "insecta": "insecta",
+    "vertebrata": "vertebrates",
+}
+# Vipsania model ids of these clades (the model table of the Vipsania README)
+VIPSANIA_MODEL_IDS: Dict[str, str] = {
+    "j9m0cdmk": "streptophyta", "faeijtmk": "chlorophyta", "fh1kg88z": "fungi", "58hsuobw": "insecta",
+    "etb1go6q": "vertebrata",
+}
 
 
 def has_any(params: Dict, keys) -> bool:
@@ -564,12 +592,14 @@ def check_mode(params: Dict) -> str:
                             "assembly (stringtie).")
         if not vip:
             problems.append(f"mode '{mode}' needs vipsania.model (or vipsania.result): Vipsania runs in every evidence "
-                            "mode; tiberius.model_cfg is optional (without it Vipsania is the only ab initio gene finder).")
+                            "mode, and no Vipsania model could be derived from the Tiberius model. tiberius.model_cfg "
+                            "is optional (without it Vipsania is the only ab initio gene finder).")
     elif mode == "proteins":
         if not proteins:
             problems.append("mode 'proteins' needs protein evidence (proteins or odb12Partitions).")
         if not tib:
-            problems.append("mode 'proteins' needs a Tiberius model (tiberius.model_cfg or tiberius.result): with "
+            problems.append("mode 'proteins' needs a Tiberius model (tiberius.model_cfg or tiberius.result; none "
+                            "matches this Vipsania model, or auto_model is off): with "
                             "Vipsania alone and no transcript evidence the combined selection falls below Vipsania "
                             "alone. Give a Tiberius model, or add RNA-Seq / Iso-Seq reads, a BAM, pyVARUS directories "
                             "or a StringTie assembly.")
@@ -586,6 +616,60 @@ def check_mode(params: Dict) -> str:
     if problems:
         raise SystemExit("The inputs do not form a supported run:\n  - " + "\n  - ".join(problems) + "\n" + MODE_HELP)
     return mode
+
+
+def tiberius_target_species(model_cfg: str | Path) -> str | None:
+    """target_species of a Tiberius model configuration file, or None."""
+    try:
+        data = yaml.safe_load(Path(model_cfg).read_text())
+    except (OSError, yaml.YAMLError):
+        return None
+    value = data.get("target_species") if isinstance(data, dict) else None
+    return str(value).strip() if value else None
+
+
+def complete_models(params: Dict, root: str | Path | None = None) -> List[str]:
+    """
+    Safeguard for runs with evidence in which the model of only one gene finder
+    was given: the matching model of the other one is added to ``params``
+    (Vipsania ``Fungi`` -> Tiberius ``fungi``; Tiberius ``vertebrates`` ->
+    Vipsania ``Vertebrata``), so that both gene finders run as the pipeline is
+    designed. Nothing is added in mode ``abinitio`` (one model is one gene
+    finder there), with ``auto_model: false`` (``--no_auto_model``), for a
+    Vipsania clade without a Tiberius model, or next to an existing prediction
+    (``result``) of the missing gene finder. Returns the messages for the log.
+    """
+    if params.get("auto_model") is False or infer_mode(params) == "abinitio":
+        return []
+    tib, vip = params["tiberius"], params["vipsania"]
+    tib_given = bool(tib.get("model_cfg") or tib.get("result"))
+    vip_given = bool(vip.get("model") or vip.get("result"))
+    notes: List[str] = []
+    if vip.get("model") and not tib_given:
+        model = str(vip["model"]).strip()
+        clade = VIPSANIA_MODEL_IDS.get(model.lower(), model.lower())
+        name = VIPSANIA_TO_TIBERIUS.get(clade)
+        if not name:
+            return notes
+        cfg = submodule_root("tiberius", root) / "model_cfg" / f"{name}.yaml"
+        if not cfg.is_file():
+            return [f"[WARN] No Tiberius model was given. The Tiberius model '{name}' matches the Vipsania model "
+                    f"'{model}', but {cfg} is missing (git submodule update --init tiberius): Vipsania runs as the "
+                    "only ab initio gene finder."]
+        tib["model_cfg"] = name
+        notes.append(f"[INFO] No Tiberius model was given: using the Tiberius model '{name}', which matches the "
+                     f"Vipsania model '{model}', so that both gene finders run. Give --model_cfg for another model "
+                     "(for example a mammalia model for a mammal), or --no_auto_model to run Vipsania alone.")
+    elif tib.get("model_cfg") and not vip_given:
+        cfg = resolve_model_cfg(tib["model_cfg"], root)
+        species = tiberius_target_species(cfg)
+        clade = TIBERIUS_TO_VIPSANIA.get((species or "").lower())
+        if clade:
+            vip["model"] = clade
+            notes.append(f"[INFO] No Vipsania model was given: using the Vipsania model '{clade}', which matches the "
+                         f"Tiberius model '{cfg.stem}' (target_species {species}), so that both gene finders run. "
+                         "Give --model for another one.")
+    return notes
 
 
 def describe_run(params: Dict) -> str:
@@ -638,6 +722,12 @@ def merge_run_params(args, genefinder: str | None = None, root: str | Path | Non
 
     if not params.get("genome"):
         raise SystemExit("A genome is required: --genome, or 'genome' in the params file.")
+
+    # one model given in a run with evidence: add the matching model of the other gene finder
+    if getattr(args, "no_auto_model", False):
+        params["auto_model"] = False
+    for note in complete_models(params, root):
+        print(note)
 
     for key in PATH_KEYS:
         if params.get(key):

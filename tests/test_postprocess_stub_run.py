@@ -17,7 +17,7 @@ pytestmark = [
     pytest.mark.skipif(NEXTFLOW is None, reason="nextflow executable not found"),
 ]
 
-# evidence modes and mode proteins run both gene finders; the published stem is combined_evidence
+# evidence modes and mode proteins run both gene finders; the published stem is paludamentum in every mode
 COMBINED_RNASEQ = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
 COMBINED_PROTEINS = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["proteins"]}
 
@@ -36,11 +36,11 @@ def busco_cache(tmp_path: Path, lineage: str = "eukaryota_odb12", ready: bool = 
 
 
 def test_postprocess_abinitio_publishes_proteins(tmp_path: Path) -> None:
-    """The ab initio mode gets the same final files as the evidence modes, with its own stem."""
+    """The ab initio mode gets the same final files as the evidence modes, under the same names."""
     proc, published = run_pipeline(tmp_path, GENEFINDER["tiberius"])
     assert_ok(proc)
-    assert {"tiberius_ab_initio.gff3", "tiberius_ab_initio_proteins.fa", "tiberius_ab_initio.gtf",
-            "tiberius_ab_initio_cds.fa", "intermediate/tiberius_ab_initio.gff3"} <= published
+    assert {"paludamentum.gff3", "paludamentum_proteins.fa", "paludamentum.gtf",
+            "paludamentum_cds.fa", "intermediate/tiberius_ab_initio.gff3"} <= published
     # no hints, no transcripts: neither gene support nor UTRs
     assert "GENE_SUPPORT" not in proc.stdout and "ADD_UTRS" not in proc.stdout
     # without fantasia.run there is no GPU probe
@@ -61,7 +61,7 @@ def test_utrs_can_be_switched_off(tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, {**COMBINED_RNASEQ, "postprocess": {"utr": False}})
     assert_ok(proc)
     assert "ADD_UTRS" not in proc.stdout
-    assert final_files("combined_evidence") <= published
+    assert final_files("paludamentum") <= published
     assert "qc/utr_report.tsv" not in published
 
 
@@ -74,7 +74,7 @@ def test_completeness_with_a_lineage(ready: bool, tmp_path: Path) -> None:
     assert {
         "qc/compleasm_genome/summary.txt", "qc/compleasm_proteins/summary.txt",
         "qc/busco_genome_short_summary.txt", "qc/busco_proteins_short_summary.txt", "qc/completeness.tsv",
-        "qc/combined_evidence_longest_isoform.gff3", "qc/combined_evidence_longest_isoform_proteins.fa",
+        "qc/paludamentum_longest_isoform.gff3", "qc/paludamentum_longest_isoform_proteins.fa",
     } <= published
     text = citations_text(tmp_path)
     assert "**BUSCO**" in text and "**compleasm**" in text
@@ -108,7 +108,7 @@ def test_ncrna(mode: str, tmp_path: Path) -> None:
     params = {**base, **EVIDENCE[mode], "ncrna": {"run": True, "rfam_dir": rfam_dir(tmp_path)}}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    stem = "tiberius_ab_initio" if mode == "abinitio" else "combined_evidence"
+    stem = "paludamentum"
     assert NCRNA_FILES | {f"{stem}_with_ncRNA.gff3"} <= published
     assert "DOWNLOAD_RFAM" not in proc.stdout
     # one cmscan task per genome chunk (the stub of SPLIT_GENOME makes two),
@@ -138,7 +138,7 @@ def test_ncrna_with_an_existing_result_splits_the_genome(tmp_path: Path) -> None
     assert "RUN_TIBERIUS" not in proc.stdout
     assert proc.stdout.count("SPLIT_GENOME") == 1, proc.stdout
     assert proc.stdout.count("CMSCAN") >= 2
-    assert NCRNA_FILES | {"tiberius_ab_initio_with_ncRNA.gff3"} <= published
+    assert NCRNA_FILES | {"paludamentum_with_ncRNA.gff3"} <= published
 
 
 def test_ncrna_rfam_dir_without_rfam_files(tmp_path: Path) -> None:
@@ -162,9 +162,9 @@ def test_fantasia(ncrna: bool, tmp_path: Path) -> None:
         params["ncrna"] = {"run": True, "rfam_dir": rfam_dir(tmp_path)}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    assert {"combined_evidence_go.gff3", "qc/fantasia/results.csv", "qc/fantasia/fantasia_summary.txt",
+    assert {"paludamentum_go.gff3", "qc/fantasia/results.csv", "qc/fantasia/fantasia_summary.txt",
             "qc/fantasia/fantasia_go_terms.tsv", "qc/fantasia/fantasia_go_categories.png"} <= published
-    assert ("combined_evidence_with_ncRNA_go.gff3" in published) == ncrna
+    assert ("paludamentum_with_ncRNA_go.gff3" in published) == ncrna
     # the GPU probe that fails a run without a usable GPU at the start
     assert "FANTASIA_GPU_CHECK" in proc.stdout
     assert "**FANTASIA" in citations_text(tmp_path)
@@ -175,7 +175,7 @@ def test_fantasia_on_cpu_needs_no_gpu_probe(tmp_path: Path) -> None:
     params = {**COMBINED_RNASEQ, "fantasia": {**fantasia_dirs(tmp_path), "device": "cpu"}}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    assert {"combined_evidence_go.gff3", "qc/fantasia/results.csv"} <= published
+    assert {"paludamentum_go.gff3", "qc/fantasia/results.csv"} <= published
     assert "FANTASIA_GPU_CHECK" not in proc.stdout
 
 
@@ -191,7 +191,7 @@ def test_fantasia_proteins_per_task(device: str, per_task, tasks: int, tmp_path:
     assert_ok(proc)
     assert proc.stdout.count("FANTASIA_ANNOTATE (chunk") == tasks
     assert "FANTASIA_MERGE" in proc.stdout
-    assert {"combined_evidence_go.gff3", "qc/fantasia/results.csv"} <= published
+    assert {"paludamentum_go.gff3", "qc/fantasia/results.csv"} <= published
 
 
 def test_fantasia_proteins_per_task_is_a_whole_number(tmp_path: Path) -> None:
@@ -247,4 +247,4 @@ def test_report_and_statistics_can_be_switched_off(tmp_path: Path) -> None:
     assert "report.html" not in published
     assert not [f for f in published if f.endswith(".png")]
     assert "qc/gene_support.tsv" not in published
-    assert {"combined_evidence.gff3", "combined_evidence.gtf"} <= published
+    assert {"paludamentum.gff3", "paludamentum.gtf"} <= published

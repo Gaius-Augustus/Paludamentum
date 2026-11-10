@@ -9,7 +9,7 @@ nextflow.enable.dsl=2
 //   6. ncRNA genes (ncrna.run): <stem>_with_ncRNA.gff3,
 //   7. GO terms (fantasia.run): <stem>_go.gff3,
 //   8. software versions and report.html.
-// stem: <tool>_evidence, or <tool>_ab_initio in mode abinitio.
+// stem: paludamentum in every mode (paludamentum.gff3 is the final gene set).
 
 include { truthy } from '../lib_nf/functions.nf'
 include { EMPTY_FILE as EMPTY_PLACEHOLDER } from '../modules/util.nf'
@@ -59,7 +59,8 @@ workflow POSTPROCESS {
     run_info    // value: map for the report (version, mode, evidence, genefinder, model, hc)
 
     main:
-    def stem = mode == 'abinitio' ? "${prefix}_ab_initio" : "${prefix}_evidence"
+    // the final files have the same names in every mode: paludamentum.gff3, paludamentum.gtf, ...
+    def stem = 'paludamentum'
     def transcripts = mode in ['rnaseq', 'isoseq', 'mixed']
     def empty = EMPTY_PLACEHOLDER()
     def versions = genefinder_versions

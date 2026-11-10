@@ -106,8 +106,8 @@ def test_stub_run_combined_rnaseq(tmp_path: Path) -> None:
 
 
 def test_stub_run_combined_clade_outside_the_classifier(tmp_path: Path) -> None:
-    """A clade not in the HC table (Chlorophyta) gets the conservative locus threshold 0.3 and says so."""
-    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": {"model": "Chlorophyta"}, **EVIDENCE["rnaseq"]}
+    """A clade not in the HC table (Stramenopiles) gets the conservative locus threshold 0.3 and says so."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": {"model": "Stramenopiles"}, **EVIDENCE["rnaseq"]}
     proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
     methods = check_stub_run(tmp_path)
@@ -117,10 +117,35 @@ def test_stub_run_combined_clade_outside_the_classifier(tmp_path: Path) -> None:
 
 def test_stub_run_combined_tiberius_mesangiospermae(tmp_path: Path) -> None:
     """Tiberius target_species Mesangiospermae (classifier_clade embryophyta) is a known clade; it wins
-    over the Vipsania model (Chlorophyta, not in the table)."""
+    over the Vipsania model (Stramenopiles, not in the table)."""
     cfg = tmp_path / "angiosperms.yaml"
     cfg.write_text('target_species: "Mesangiospermae"\n')
-    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": {"model": "Chlorophyta"}, **EVIDENCE["rnaseq"]}
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": {"model": "Stramenopiles"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "if its probability reached 0.25," in methods
+    assert "outside the training clades" not in methods
+
+
+def test_stub_run_combined_standard_thresholds_clade(tmp_path: Path) -> None:
+    """Chlorophyta is in the HC table with standard_thresholds (no classifier_clade): not a new clade, so the
+    t_locus of the classifier model (0.25) applies and the log names standard_thresholds."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": {"model": "Chlorophyta"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "if its probability reached 0.25," in methods
+    assert "outside the training clades" not in methods
+    assert "standard_thresholds" in proc.stdout
+
+
+def test_stub_run_combined_tiberius_bacillariophyta(tmp_path: Path) -> None:
+    """Tiberius target_species Bacillariophyta (standard_thresholds) wins over the Vipsania model
+    (Stramenopiles, not in the table): standard thresholds, no unknown-clade note."""
+    cfg = tmp_path / "diatoms.yaml"
+    cfg.write_text('target_species: "Bacillariophyta"\n')
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": {"model": "Stramenopiles"}, **EVIDENCE["rnaseq"]}
     proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
     methods = check_stub_run(tmp_path)
