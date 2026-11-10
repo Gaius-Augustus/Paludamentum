@@ -314,7 +314,8 @@ def test_validate_varus_directories(tmp_path: Path):
 def test_stringtie_assembly_from_the_command_line(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _, path = launcher.build_params(cli_args(
-        "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--stringtie", "assembly.gtf",
+        "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--proteins", str(DATA / "tiny_proteins.faa"),
+        "--stringtie", "assembly.gtf",
     ))
     params = yaml.safe_load(path.read_text())
     assert params["stringtie"] == [str(tmp_path / "assembly.gtf")]
@@ -340,8 +341,8 @@ def test_chains_from_the_command_line(tmp_path: Path, monkeypatch):
 def test_varus_directories_from_the_command_line(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _, path = launcher.build_params(cli_args(
-        "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--rnaseq_varus", "a", "b",
-        "--isoseq_varus", "c", "--mixed_varus", "m",
+        "--genome", str(DATA / "tiny.fa"), "--model", "Fungi", "--proteins", str(DATA / "tiny_proteins.faa"),
+        "--rnaseq_varus", "a", "b", "--isoseq_varus", "c", "--mixed_varus", "m",
     ))
     params = yaml.safe_load(path.read_text())
     assert params["rnaseq_varus"] == [str(tmp_path / "a"), str(tmp_path / "b")]
@@ -556,7 +557,7 @@ def test_build_params_tiberius_from_the_command_line(tmp_path: Path, monkeypatch
     finder, path = launcher.build_params(cli_args(
         "--genome", str(DATA / "tiny.fa"), "--model_cfg", "diatoms",
         "--proteins", str(DATA / "tiny_proteins.faa"), "--rnaseq_paired", "r_{1,2}.fq",
-        "--max_parallel", "1",
+        "--max_parallel", "1", "--model", "Fungi",
     ))
     assert finder == "tiberius"
     assert path == tmp_path / "tiberius_results" / "params.yaml"
@@ -565,7 +566,9 @@ def test_build_params_tiberius_from_the_command_line(tmp_path: Path, monkeypatch
     assert params["tiberius"] == {
         "run": True, "model_cfg": str(TIBERIUS / "model_cfg" / "diatoms.yaml"), "max_parallel": 1,
     }
-    assert params["vipsania"] == {"run": False}
+    # the Vipsania model of the command line is kept (mode rnaseq runs both gene
+    # finders; run is only consulted in abinitio mode with one model)
+    assert params["vipsania"] == {"run": False, "model": "Fungi"}
     assert params["proteins"] == [str(DATA / "tiny_proteins.faa")]
     # one value is a glob, not a list; relative paths are written absolute
     assert params["rnaseq_paired"] == str(tmp_path / "r_{1,2}.fq")
@@ -668,7 +671,8 @@ def test_build_params_result_with_model_name(tmp_path: Path, monkeypatch):
 
 
 def test_genefinder_option_overrides_the_params_file(tmp_path: Path, monkeypatch):
-    """--genefinder vipsania with a Tiberius params file runs Vipsania, and only Vipsania."""
+    """--genefinder vipsania with a Tiberius params file makes Vipsania the chosen gene finder; the Tiberius
+    block stays (with both models given, main.nf combines both in abinitio mode)."""
     monkeypatch.chdir(tmp_path)
     params_file = tmp_path / "params.yaml"
     params_file.write_text(yaml.safe_dump({
@@ -712,7 +716,7 @@ def test_tilde_and_variables_are_expanded_in_the_written_params(tmp_path: Path, 
     params_file = tmp_path / "params.yaml"
     params_file.write_text(yaml.safe_dump({
         "genome": "$MYDATA/tiny.fa", "proteins": ["~/p.faa"], "tiberius": {"run": True, "result": "~/old.gtf"},
-        "rnaseq_paired": [["~/a_1.fq", "~/a_2.fq"]],
+        "rnaseq_paired": [["~/a_1.fq", "~/a_2.fq"]], "vipsania": {"model": "Fungi"},
     }))
     _, path = launcher.build_params(cli_args("-p", str(params_file)))
     params = yaml.safe_load(path.read_text())
@@ -743,14 +747,14 @@ def test_mode_has_choices():
         cli_args("--genome", "g.fa", "--mode", "rnaseqq")
 
 
-def test_build_params_evidence_only(tmp_path: Path, monkeypatch):
-    """A params file can switch the gene finder off; then no model is required."""
+def test_run_without_any_gene_finder_model_is_refused(tmp_path: Path, monkeypatch):
+    """A params file that switches the gene finder off and names no model is no run (main.nf would stop too)."""
     monkeypatch.chdir(tmp_path)
     params_file = tmp_path / "params.yaml"
     params_file.write_text(yaml.safe_dump({"genome": str(DATA / "tiny.fa"), "tiberius": {"run": False}}))
-    finder, path = launcher.build_params(cli_args("-p", str(params_file)))
-    assert finder == "tiberius"
-    assert yaml.safe_load(path.read_text())["tiberius"] == {"run": False}
+    with pytest.raises(SystemExit, match="needs a gene finder model"):
+        launcher.build_params(cli_args("-p", str(params_file)))
+    assert not (tmp_path / "tiberius_results").exists()
 
 
 @pytest.mark.parametrize("argv,message", [
@@ -773,7 +777,7 @@ def test_cli_dry_run_writes_params_and_validates(tmp_path: Path, fake_path: Path
         "--dry_run", "--skip_singularity_check",
     ])
     out = capsys.readouterr().out
-    assert "Gene finder: tiberius" in out and "Dry run requested" in out
+    assert "Mode: abinitio (no evidence); gene finders: tiberius" in out and "Dry run requested" in out
     assert (tmp_path / "tiberius_results" / "params.yaml").is_file()
 
 
@@ -781,7 +785,7 @@ def test_cli_failed_validation_writes_no_params(tmp_path: Path, fake_path: Path,
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit, match="Input validation failed"):
         cli.main(["--genefinder", "vipsania", "--genome", str(DATA / "tiny.fa"), "--model", "Fungi",
-                  "--proteins", "missing.faa", "--dry_run", "--skip_singularity_check"])
+                  "--proteins", "missing.faa", "--rnaseq_bam", "missing.bam", "--dry_run", "--skip_singularity_check"])
     assert not (tmp_path / "vipsania_results").exists()
 
 
@@ -803,6 +807,128 @@ def test_cli_forwards_nextflow_args(tmp_path: Path, fake_path: Path, monkeypatch
     assert cmd[-1] == "-stub-run"
     assert cmd[cmd.index("-params-file") + 1] == str(tmp_path / "vipsania_results" / "params.yaml")
     assert env is not None and "PATH" in env
+
+
+
+# ---------------------------------------------------------------- modes
+
+GENOME = str(DATA / "tiny.fa")
+PROTEINS = str(DATA / "tiny_proteins.faa")
+VIP = {"vipsania": {"model": "Fungi"}}
+TIB = {"tiberius": {"model_cfg": "x.yaml"}}
+
+
+@pytest.mark.parametrize("params,mode", [
+    (VIP, "abinitio"),
+    (TIB, "abinitio"),
+    ({"tiberius": {"result": "t.gff"}, **VIP}, "abinitio"),
+    ({"proteins": [PROTEINS], **TIB, **VIP}, "proteins"),
+    ({"odb12Partitions": ["Fungi"], **TIB, **VIP}, "proteins"),
+    ({"proteins": [PROTEINS], "rnaseq_bam": ["r.bam"], **TIB, **VIP}, "rnaseq"),
+    ({"proteins": [PROTEINS], "rnaseq_bam": ["r.bam"], **VIP}, "rnaseq"),           # no Tiberius model
+    ({"proteins": [PROTEINS], "stringtie": ["a.gtf"], **VIP}, "rnaseq"),
+    ({"proteins": [PROTEINS], "rnaseq_varus": ["d"], **VIP}, "rnaseq"),
+    ({"proteins": [PROTEINS], "rnaseq_sra_paired": ["SRR1"], **VIP}, "rnaseq"),
+    ({"proteins": [PROTEINS], "isoseq": ["i.fq"], **VIP}, "isoseq"),
+    ({"proteins": [PROTEINS], "rnaseq_paired": "r_{1,2}.fq", "isoseq_sra": ["SRR1"], **VIP}, "mixed"),
+    ({"mode": "tiberius", **TIB}, "abinitio"),                                      # historic name
+    ({"mode": "rnaseq", "proteins": [PROTEINS], "stringtie": ["a.gtf"], **VIP}, "rnaseq"),
+])
+def test_supported_input_combinations(params, mode):
+    assert launcher.infer_mode(params) == mode
+    assert launcher.check_mode({"genome": GENOME, **params}) == mode
+
+
+@pytest.mark.parametrize("params,message", [
+    # reads, an assembly or pyVARUS directories without proteins
+    ({"rnaseq_bam": ["r.bam"], **VIP}, "without proteins is not a supported mode"),
+    ({"rnaseq_paired": "r_{1,2}.fq", **TIB, **VIP}, "without proteins"),
+    ({"stringtie": ["a.gtf"], **TIB, **VIP}, "without proteins"),
+    ({"isoseq": ["i.fq"], **VIP}, "without proteins"),
+    ({"rnaseq_varus": ["d"], "isoseq_varus": ["e"], **VIP}, "without proteins"),
+    # proteins without a Tiberius model; evidence without a Vipsania model
+    ({"proteins": [PROTEINS], **VIP}, "needs a Tiberius model"),
+    ({"proteins": [PROTEINS], **TIB}, "needs vipsania.model"),
+    ({"proteins": [PROTEINS], "rnaseq_bam": ["r.bam"], **TIB}, "needs vipsania.model"),
+    # a forced mode without its inputs
+    ({"mode": "rnaseq", "proteins": [PROTEINS], **TIB, **VIP}, "needs short reads"),
+    ({"mode": "isoseq", "proteins": [PROTEINS], "rnaseq_bam": ["r.bam"], **VIP}, "needs Iso-Seq reads"),
+    ({"mode": "mixed", "proteins": [PROTEINS], "isoseq": ["i.fq"], **VIP}, "needs short reads"),
+    ({"mode": "proteins", **TIB, **VIP}, "needs protein evidence"),
+    ({"mode": "fancy", **VIP}, "Unknown mode"),
+    # no gene finder at all
+    ({"tiberius": {"run": False}}, "needs a gene finder model"),
+    ({"proteins": [PROTEINS]}, "needs a Tiberius model"),
+])
+def test_unsupported_input_combinations_are_refused(params, message):
+    with pytest.raises(SystemExit, match=message) as info:
+        launcher.check_mode({"genome": GENOME, **params})
+    assert "Supported modes" in str(info.value)
+
+
+def test_abinitio_warns_about_unused_evidence(capsys):
+    params = {"genome": GENOME, "mode": "abinitio", "proteins": [PROTEINS], "rnaseq_bam": ["r.bam"],
+              "chains": ["c.gtf"], **VIP}
+    assert launcher.check_mode(params) == "abinitio"
+    assert "proteins, chains, rnaseq_bam are not used" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("params,text", [
+    (TIB, "Mode: abinitio (no evidence); gene finders: tiberius"),
+    (VIP, "Mode: abinitio (no evidence); gene finders: vipsania"),
+    ({**TIB, **VIP}, "Mode: abinitio (no evidence); gene finders: tiberius + vipsania (combined)"),
+    ({"proteins": [PROTEINS], **TIB, **VIP}, "Mode: proteins (protein evidence); gene finders: tiberius + vipsania"),
+    ({"proteins": [PROTEINS], "rnaseq_bam": ["r.bam"], **VIP},
+     "Mode: rnaseq (protein and RNA-Seq evidence); gene finders: vipsania (no Tiberius model)"),
+    ({"proteins": [PROTEINS], "rnaseq_bam": ["r.bam"], "isoseq": ["i.fq"], **TIB, **VIP},
+     "Mode: mixed (protein, RNA-Seq and Iso-Seq evidence); gene finders: tiberius + vipsania"),
+])
+def test_describe_run(params, text):
+    assert launcher.describe_run(params) == text
+
+
+def test_both_models_from_the_command_line_are_kept(tmp_path: Path, monkeypatch):
+    """--model_cfg and --model together: each gene finder gets its model, whichever one is the chosen one."""
+    monkeypatch.chdir(tmp_path)
+    model_cfg = str(DATA / "tiny.fa")      # an existing file passes as a model configuration path
+    finder, params = launcher.merge_run_params(cli_args(
+        "--genome", GENOME, "--model_cfg", model_cfg, "--model", "Fungi", "--proteins", PROTEINS,
+        "--max_parallel", "2",
+    ))
+    assert finder == "tiberius"
+    assert params["tiberius"] == {"run": True, "model_cfg": model_cfg, "max_parallel": 2}
+    assert params["vipsania"] == {"run": False, "model": "Fungi"}
+    finder, params = launcher.merge_run_params(cli_args(
+        "--genefinder", "vipsania", "--genome", GENOME, "--model_cfg", model_cfg, "--model", "Fungi",
+        "--finetune", "--max_parallel", "2",
+    ))
+    assert finder == "vipsania"
+    assert params["tiberius"] == {"run": False, "model_cfg": model_cfg}
+    assert params["vipsania"] == {"run": True, "model": "Fungi", "finetune": True, "max_parallel": 2}
+
+
+@pytest.mark.parametrize("argv,message", [
+    (["--model", "Fungi", "--rnaseq_bam", "r.bam"], "without proteins"),
+    (["--model", "Fungi", "--stringtie", "a.gtf"], "without proteins"),
+    (["--model", "Fungi", "--proteins", PROTEINS], "needs a Tiberius model"),
+    (["--model", "Fungi", "--proteins", PROTEINS, "--mode", "isoseq"], "needs Iso-Seq reads"),
+    (["--model", "Fungi", "--proteins", PROTEINS, "--rnaseq_bam", "r.bam", "--mode", "abinitio", "--model_dir", "x"],
+     "Input validation failed"),          # a forced abinitio run passes the mode check, then the data check
+])
+def test_cli_refuses_unsupported_runs_before_writing_params(argv, message, tmp_path: Path, fake_path: Path,
+                                                            monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match=message):
+        cli.main(["--genome", GENOME, *argv, "--dry_run", "--skip_singularity_check"])
+    assert not (tmp_path / "vipsania_results").exists()
+
+
+def test_help_documents_the_modes(capsys):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["--help"])
+    out = capsys.readouterr().out
+    assert all(mode in out for mode in launcher.MODES)
+    assert "Not supported" in out and "Examples:" in out and "--model_cfg" in out
 
 
 # ---------------------------------------------------------------- version

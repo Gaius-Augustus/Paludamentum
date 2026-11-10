@@ -107,6 +107,13 @@ GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
     "vipsania": ("model", "model_dir", "result", "min_split_size", "max_files", "max_parallel", "batch_size",
                  "context", "finetune", "finetune_epochs"),
 }
+# Options that belong to one gene finder only. They are kept for that finder
+# also when the other one is the chosen (--genefinder) one: --model_cfg and
+# --model together give both models, and both gene finders run.
+GENEFINDER_OWN_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
+    "tiberius": ("model_cfg", "seq_len"),
+    "vipsania": ("model", "context", "finetune", "finetune_epochs"),
+}
 
 # Params values that are paths: they are written as absolute paths, because
 # Nextflow expands neither '~' nor environment variables.
@@ -469,18 +476,129 @@ def cli_overrides(args, genefinder: str) -> Dict:
             "into the params file (rnaseq_paired)."
         )
 
-    block: Dict = {}
-    for key in GENEFINDER_CLI_KEYS.get(genefinder, ()):
-        value = value_of(key)
-        if value is not None:
-            block[key] = value
-    if block:
-        overrides[genefinder] = block
+    # The model options of both gene finders are kept (--model_cfg and --model
+    # together: both gene finders run); the shared options (--result,
+    # --model_dir, --max_parallel, ...) go to the chosen gene finder.
+    for name in GENEFINDER_CLI:
+        keys = GENEFINDER_CLI_KEYS[name] if name == genefinder else GENEFINDER_OWN_CLI_KEYS[name]
+        block = {key: value_of(key) for key in keys if value_of(key) is not None}
+        if block:
+            overrides[name] = block
     for key, (name, sub) in BLOCK_CLI_KEYS.items():
         value = value_of(key)
         if value is not None:
             overrides.setdefault(name, {})[sub] = value
     return overrides
+
+
+SHORT_READ_KEYS = ("rnaseq_paired", "rnaseq_single", "rnaseq_bam", "rnaseq_sra_paired", "rnaseq_sra_single",
+                   "rnaseq_varus", "stringtie")
+ISOSEQ_KEYS = ("isoseq", "isoseq_sra", "isoseq_varus")
+MODES = ("abinitio", "proteins", "rnaseq", "isoseq", "mixed")
+MODE_HELP = (
+    "Supported modes (inferred from the inputs, or forced with 'mode'):\n"
+    "  abinitio  genome + a gene finder model (tiberius.model_cfg and/or vipsania.model, or a result):\n"
+    "            one gene finder, or both combined when both models are given; no evidence\n"
+    "  proteins  genome + proteins (proteins or odb12Partitions): Tiberius and Vipsania with the protein\n"
+    "            evidence; needs tiberius.model_cfg (or tiberius.result) and vipsania.model (or vipsania.result)\n"
+    "  rnaseq    genome + proteins + short reads (rnaseq_paired / rnaseq_single / rnaseq_bam / rnaseq_sra_* /\n"
+    "            rnaseq_varus) or a StringTie assembly (stringtie)\n"
+    "  isoseq    genome + proteins + Iso-Seq reads (isoseq / isoseq_sra / isoseq_varus)\n"
+    "  mixed     genome + proteins + short reads and Iso-Seq reads\n"
+    "            rnaseq / isoseq / mixed need vipsania.model (or vipsania.result); without a Tiberius model\n"
+    "            Vipsania is the only ab initio gene finder (species outside the Tiberius clades).\n"
+    "Not supported: reads without proteins (the combined step needs the protein evidence), proteins\n"
+    "without a Tiberius model, a run without a genome or without any gene finder model."
+)
+
+
+def has_any(params: Dict, keys) -> bool:
+    return any(params.get(k) for k in keys)
+
+
+def gene_finder_models(params: Dict) -> Tuple[bool, bool]:
+    """(Tiberius model or result given, Vipsania model or result given)."""
+    tib = params.get("tiberius") if isinstance(params.get("tiberius"), dict) else {}
+    vip = params.get("vipsania") if isinstance(params.get("vipsania"), dict) else {}
+    return bool(tib.get("model_cfg") or tib.get("result")), bool(vip.get("model") or vip.get("result"))
+
+
+def infer_mode(params: Dict) -> str:
+    """The mode of a run as main.nf infers it: forced 'mode', else from the inputs."""
+    forced = params.get("mode")
+    if forced:
+        mode = str(forced).strip().lower()
+        if mode in ("tiberius", "vipsania"):      # historic names of abinitio
+            mode = "abinitio"
+        if mode not in MODES:
+            raise SystemExit(f"Unknown mode '{forced}'. Supported: {', '.join(MODES)}.\n{MODE_HELP}")
+        return mode
+    short, iso = has_any(params, SHORT_READ_KEYS), has_any(params, ISOSEQ_KEYS)
+    if short and iso:
+        return "mixed"
+    if iso:
+        return "isoseq"
+    if short:
+        return "rnaseq"
+    return "proteins" if has_any(params, ("proteins", "odb12Partitions")) else "abinitio"
+
+
+def check_mode(params: Dict) -> str:
+    """The mode of the run, or SystemExit with the reason why this combination of inputs is not supported.
+    The same rules stop main.nf before any task; here they stop the launcher before Nextflow starts."""
+    mode = infer_mode(params)
+    proteins = has_any(params, ("proteins", "odb12Partitions"))
+    short, iso = has_any(params, SHORT_READ_KEYS), has_any(params, ISOSEQ_KEYS)
+    tib, vip = gene_finder_models(params)
+    problems: List[str] = []
+    if mode in ("rnaseq", "isoseq", "mixed"):
+        if not proteins:
+            problems.append("RNA-Seq or Iso-Seq evidence without proteins is not a supported mode: the combined "
+                            "step needs protein evidence (proteins or odb12Partitions). Add proteins, or leave the "
+                            "reads out for an ab initio run.")
+        if mode in ("rnaseq", "mixed") and not short:
+            problems.append(f"mode '{mode}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_sra_*, "
+                            "rnaseq_varus) or a StringTie assembly (stringtie).")
+        if mode in ("isoseq", "mixed") and not (iso or params.get("stringtie")):
+            problems.append(f"mode '{mode}' needs Iso-Seq reads (isoseq, isoseq_sra, isoseq_varus) or a StringTie "
+                            "assembly (stringtie).")
+        if not vip:
+            problems.append(f"mode '{mode}' needs vipsania.model (or vipsania.result): Vipsania runs in every evidence "
+                            "mode; tiberius.model_cfg is optional (without it Vipsania is the only ab initio gene finder).")
+    elif mode == "proteins":
+        if not proteins:
+            problems.append("mode 'proteins' needs protein evidence (proteins or odb12Partitions).")
+        if not tib:
+            problems.append("mode 'proteins' needs a Tiberius model (tiberius.model_cfg or tiberius.result): with "
+                            "Vipsania alone and no transcript evidence the combined selection falls below Vipsania "
+                            "alone. Give a Tiberius model, or add RNA-Seq / Iso-Seq reads, a BAM, pyVARUS directories "
+                            "or a StringTie assembly.")
+        if not vip:
+            problems.append("mode 'proteins' needs vipsania.model (or vipsania.result).")
+    else:
+        if not (tib or vip):
+            problems.append("mode 'abinitio' needs a gene finder model: tiberius.model_cfg (--model_cfg) and/or "
+                            "vipsania.model (--model), or an existing prediction (--result).")
+        unused = [k for k in ("proteins", "odb12Partitions", "chains") + SHORT_READ_KEYS + ISOSEQ_KEYS
+                  if params.get(k)]
+        if unused:
+            print(f"[WARN] mode 'abinitio' has no evidence step: {', '.join(unused)} are not used.")
+    if problems:
+        raise SystemExit("The inputs do not form a supported run:\n  - " + "\n  - ".join(problems) + "\n" + MODE_HELP)
+    return mode
+
+
+def describe_run(params: Dict) -> str:
+    """One line for the launcher's log: the mode and the gene finders of the run."""
+    mode = infer_mode(params)
+    tib, vip = gene_finder_models(params)
+    if mode == "abinitio":
+        finders = "tiberius + vipsania (combined)" if tib and vip else ("tiberius" if tib else "vipsania")
+    else:
+        finders = "tiberius + vipsania" if tib else "vipsania (no Tiberius model)"
+    evidence = {"abinitio": "no evidence", "proteins": "protein evidence", "rnaseq": "protein and RNA-Seq evidence",
+                "isoseq": "protein and Iso-Seq evidence", "mixed": "protein, RNA-Seq and Iso-Seq evidence"}[mode]
+    return f"Mode: {mode} ({evidence}); gene finders: {finders}"
 
 
 def merge_run_params(args, genefinder: str | None = None, root: str | Path | None = None) -> Tuple[str, Dict]:
@@ -525,13 +643,15 @@ def merge_run_params(args, genefinder: str | None = None, root: str | Path | Non
         if params.get(key):
             params[key] = absolute_paths(params[key], key)
     # A Tiberius model name (e.g. vertebrates) is resolved to its file before
-    # the paths are made absolute. Also next to a result: the model of an
-    # existing prediction selects the Drusilla flow and its hint rescue model.
-    if genefinder == "tiberius" and cfg.get("run") and cfg.get("model_cfg"):
-        cfg["model_cfg"] = str(resolve_model_cfg(cfg["model_cfg"], root))
-    for key in GENEFINDER_PATH_KEYS:
-        if cfg.get(key):
-            cfg[key] = absolute_paths(cfg[key], f"{genefinder}.{key}")
+    # the paths are made absolute, whichever gene finder is the chosen one
+    # (both run in the modes with evidence). Also next to a result: the model
+    # of an existing prediction selects the Drusilla flow and its hint rescue model.
+    if params["tiberius"].get("model_cfg"):
+        params["tiberius"]["model_cfg"] = str(resolve_model_cfg(params["tiberius"]["model_cfg"], root))
+    for name in GENEFINDER_CLI:
+        for key in GENEFINDER_PATH_KEYS:
+            if params[name].get(key):
+                params[name][key] = absolute_paths(params[name][key], f"{name}.{key}")
     for name, key in BLOCK_PATH_KEYS:
         block = params.get(name)
         if isinstance(block, dict) and block.get(key):
@@ -540,11 +660,13 @@ def merge_run_params(args, genefinder: str | None = None, root: str | Path | Non
     if cfg.get("run") and not cfg.get("result"):
         if genefinder == "tiberius" and not cfg.get("model_cfg"):
             raise SystemExit("Tiberius needs a model configuration: --model_cfg, or tiberius.model_cfg in the params file, "
-                             "or an existing prediction: --result.")
+                             f"or an existing prediction: --result.\n{MODE_HELP}")
         elif genefinder == "vipsania" and not cfg.get("model"):
             raise SystemExit("Vipsania needs a model: --model, or vipsania.model in the params file, "
-                             "or an existing prediction: --result.")
+                             f"or an existing prediction: --result.\n{MODE_HELP}")
 
+    # the mode and its requirements (the same rules as main.nf), before anything is written or started
+    check_mode(params)
     return genefinder, params
 
 

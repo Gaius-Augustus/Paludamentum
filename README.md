@@ -161,19 +161,27 @@ use another directory.
 ## Quick start
 
 ```bash
-# Tiberius, ab initio only, parallelized over GPUs by Nextflow
+# Mode abinitio: Tiberius alone, parallelized over GPUs by Nextflow
 paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg eudicotyledons
 
-# Evidence run (unified combined flow), inputs from a params file:
-#   both Tiberius and Vipsania run; both model keys are required.
+# Mode abinitio: Vipsania alone
+paludamentum --nf_config local --genome genome.fa --model Fungi
+
+# Mode abinitio: both gene finders, combined without evidence
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi
+
+# Mode proteins: genome and proteins, no transcripts
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi --proteins proteins.faa
+
+# Mode rnaseq (proteins and RNA-Seq), inputs from a params file; both model keys given
 paludamentum --params_yaml params.yaml --nf_config slurm_generic
 
-# Vipsania-only ab initio
-paludamentum --genefinder vipsania --nf_config local --genome genome.fa --model Fungi
-
-# Evidence run with proteins and an existing StringTie assembly instead of reads
+# Mode rnaseq with an existing StringTie assembly instead of reads
 paludamentum --nf_config local --genome genome.fa \
-    --model_cfg eudicotyledons --model Fungi --proteins proteins.faa --stringtie stringtie.gtf
+    --model_cfg eudicotyledons --model Streptophyta --proteins proteins.faa --stringtie stringtie.gtf
+
+# Mode rnaseq for a species without a Tiberius model: Vipsania alone (here Nematoda)
+paludamentum --nf_config local --genome genome.fa --model Nematoda --proteins proteins.faa --rnaseq_bam rnaseq.bam
 ```
 
 `--nf_config` takes a path or the name of a config in `conf/`
@@ -240,22 +248,33 @@ Paths must not contain spaces. All parameters are documented in
 | `keep_downloads` | copy the reads downloaded from SRA to `sra_downloads/` in `outdir`; default false, they stay in the work directory only |
 | `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80. If all RNA-Seq (or all Iso-Seq) libraries are dropped, the run stops with an error |
 
+### Modes
+
 The mode is inferred from the inputs and can be forced with `mode`
-(`--mode`). A forced mode without its inputs is an error.
+(`--mode`). Every mode needs the genome and at least one gene finder model
+(`tiberius.model_cfg`, `vipsania.model`, or an existing prediction via
+`result`).
 
-| Mode | Inputs | Gene finders |
-| --- | --- | --- |
-| `abinitio` (historic name: `tiberius`) | genome only | one (`genefinder`, else the block with `run: true`), or **both** combined when `tiberius.model_cfg` and `vipsania.model` (or their `result`) are given, see [Ab initio combination](#ab-initio-combination) |
-| `proteins` | proteins | **both** Tiberius and Vipsania; the combined HC flow without transcript evidence, see [Protein-only runs](#protein-only-runs) |
-| `rnaseq` | short reads or a StringTie assembly, and proteins | **both** Tiberius and Vipsania |
-| `isoseq` | Iso-Seq, and proteins | **both** Tiberius and Vipsania |
-| `mixed` | short reads and Iso-Seq, and proteins | **both** Tiberius and Vipsania |
+| Mode | Inputs | Gene finders | Selection in the combined step |
+| --- | --- | --- | --- |
+| `abinitio` (historic name: `tiberius`) | genome only | one (`genefinder`, else the block with `run: true`), or **both** combined when `tiberius.model_cfg` and `vipsania.model` (or their `result`) are given, see [Ab initio combination](#ab-initio-combination) | none, or `combine.classifier_abinitio` for the combination |
+| `proteins` | proteins (`proteins` or `odb12Partitions`) | **both** Tiberius and Vipsania; `tiberius.model_cfg` is required, see [Protein-only runs](#protein-only-runs) | `combine.classifier_proteins` |
+| `rnaseq` | proteins, and short reads (`rnaseq_*`, a BAM, pyVARUS) or a StringTie assembly | **both**, or Vipsania alone without a Tiberius model, see [Species without a Tiberius model](#species-without-a-tiberius-model) | `combine.classifier`, or `combine.classifier_vipsania` without Tiberius |
+| `isoseq` | proteins, and Iso-Seq reads | as `rnaseq` | as `rnaseq` |
+| `mixed` | proteins, short reads and Iso-Seq reads | as `rnaseq` | as `rnaseq` |
 
-Evidence modes always run the [Combined HC flow](#combined-hc-flow) and
-always need protein evidence: `combine_genesets.py` reads miniprot
-alignments, miniprothint hints and four DIAMOND tables. Both
-`tiberius.model_cfg` and `vipsania.model` are required in evidence modes
-(each can be replaced by its `result` for an existing prediction).
+The evidence modes (`rnaseq`, `isoseq`, `mixed`) run the
+[Combined HC flow](#combined-hc-flow) and always need protein evidence:
+`combine_genesets.py` reads miniprot alignments, miniprothint hints and the
+DIAMOND tables. `vipsania.model` is required in every mode with evidence;
+`tiberius.model_cfg` is required in mode `proteins` and optional in the
+transcript modes.
+
+Not supported, and refused by the launcher (and by `main.nf`) before anything
+runs: reads or an assembly without proteins, mode `proteins` without a
+Tiberius model, a forced mode whose inputs are missing, and a run without a
+genome or without any gene finder model. `paludamentum --help` prints the
+same summary of the modes.
 
 ### Existing StringTie assemblies
 
@@ -343,8 +362,9 @@ gene set, see [Species without a Tiberius model](#species-without-a-tiberius-mod
 mode `proteins` then stops. In `abinitio` mode both gene finders run and
 their predictions are combined when both have a model (or `result`), see
 [Ab initio combination](#ab-initio-combination); with one model that gene
-finder runs alone, and the `run` flags or `--genefinder` pick it when the
-params file names both.
+finder runs alone (`genefinder`, `--genefinder` or the `run` flags name it
+when the params file has blocks for both). On the command line `--model_cfg`
+and `--model` can be given together; the launcher keeps both models.
 
 | Gene finder | Model | Parameters |
 | --- | --- | --- |

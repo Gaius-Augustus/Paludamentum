@@ -126,8 +126,9 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `combine.classifier`       | `"conf/combiner_classifier_v1.json"`   | Selection model of `combine_genesets.py --classifier`: gradient-boosted trees (JSON, no extra dependency) that give every candidate structure P(model = reference CDS) from the tools, structure, locus context and RNA / protein evidence; a locus is kept when its best candidate reaches the model's locus threshold (0.25; 0.30 for clades the model was not trained on), further isoforms need 0.30. Full-length transcripts (`--chains`, mixed and Iso-Seq runs) raise the log-odds of a structure whose CDS chain lies in one of them by 1.5 (`combine_genesets.py --chain-logit-full`, calibrated on H. sapiens: +1.2 to +1.7 transcript F1). Trained on 15 species outside the benchmark set; measured +2.6 transcript / +2.4 gene F1 over the tier rules on the 31 benchmark species. `false` selects by the tier rules. |
 | `combine.classifier_proteins` | `"conf/combiner_classifier_protonly_v1.json"` | Selection model of mode `proteins` (genome and proteins, no transcript evidence): the same recipe trained on the keep-all pools of the two gene finders of the 15 training species with protein evidence alone (41 features, no RNA-Seq features); a locus is kept when its best candidate reaches 0.20 (0.30 for clades without `classifier_clade`), further isoforms need 0.30 (the sensitive end of the flat F1 plateau 0.20 to 0.30 of the species-out cross-validation; `combine.t_locus: 0.15` adds about one point of sensitivity for up to one point of gene-level F1). Measured on the 31 benchmark species with OrthoDB protein sets: +5.4 transcript / +8.9 gene F1 over Tiberius alone (29 of 31 species better), +2.7 / +3.5 over the tier rules (30 of 31). `false` selects by the tier rules. |
 | `combine.classifier_vipsania` | `"conf/combiner_classifier_vipsania_v1.json"` | Selection model of the evidence modes without a Tiberius model (Vipsania, revised TD2 and Drusilla as gene sets): the same recipe trained on the keep-all pools of the 15 training species without the Tiberius gene set (47 features); locus threshold 0.225, isoforms 0.30, the same for clades outside the HC table (which the clades of this flow are). Measured on the 31 benchmark species with the Tiberius gene set removed: 57.4 transcript / 71.2 gene F1, Vipsania alone 44.2 / 54.8, with Tiberius 60.1 / 74.6. `false` selects by the tier rules, which keep almost nothing without Tiberius. |
-| `combine.t_locus`          | none                                   | Classifier mode: locus threshold on P, overriding the model's (0.25, in mode `proteins` 0.20, without a Tiberius model 0.225; 0.30 for a clade without `classifier_clade` in the HC table with the first two models). With `-resume` a change reruns only the combine step and the post-processing. |
-| `combine.t_iso`            | none                                   | Classifier mode: isoform threshold on P, overriding the model's 0.30. |
+| `combine.classifier_abinitio` | `"conf/combiner_classifier_abinitio_v1.json"` | Selection model of mode `abinitio` when both gene finders are given (their two predictions, no evidence): the same recipe trained on the keep-all pools of the 15 training species without any evidence, from the tools, the structure and the locus context (18 features); locus threshold 0.30, isoforms 0.25, the same for clades outside the HC table. Measured on the 31 benchmark species: 49.4 transcript / 63.9 gene F1, Tiberius alone 47.9 / 59.2, Vipsania alone 44.2 / 54.8 (precision-driven; vertebrates lose 3.4 transcript F1). `false` selects by the tier rules. |
+| `combine.t_locus`          | none                                   | Classifier mode: locus threshold on P, overriding the model's (0.25, in mode `proteins` 0.20, without a Tiberius model 0.225, in the ab initio combination 0.30; 0.30 for a clade without `classifier_clade` in the HC table with the first two models). With `-resume` a change reruns only the combine step and the post-processing. |
+| `combine.t_iso`            | none                                   | Classifier mode: isoform threshold on P, overriding the model's (0.30; 0.25 in the ab initio combination). |
 | `combine.min_locus`        | `4`                                    | Tier rules only (`combine.classifier = false`): minimum tier of the best model of a locus for `combine_genesets.py` to keep the locus. Everything else uses the script defaults; see `combine_genesets.py --help`. |
 
 The location of the required executables is set by default so that they are available in your path, unless you are using the Singularity container:
@@ -286,7 +287,7 @@ listed in
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. Required in mode `proteins` (unless `tiberius.result` is set). In the evidence modes a run without it and without `tiberius.result` has Vipsania as its only *ab initio* gene set (a species outside the Tiberius clades) and selects with `combine.classifier_vipsania`, see [Species without a Tiberius model](../README.md#species-without-a-tiberius-model). |
-| `tiberius.run` | `false` | Only consulted in `abinitio` mode: `true` selects Tiberius as the single gene finder (equivalent to `genefinder: tiberius`). Ignored in evidence modes and in mode `proteins`, which always run both finders. |
+| `tiberius.run` | `false` | Only consulted in `abinitio` mode with one model: `true` selects Tiberius as the single gene finder (equivalent to `genefinder: tiberius`). Ignored in evidence modes, in mode `proteins` and in `abinitio` mode with both models, which run both finders. |
 | `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` without `.tar.gz`, e.g. `vertebrates_weights`), instead of the download at the start of the run. Tiberius then runs with `--model` and never downloads. |
 | `tiberius.result` | none | Existing Tiberius prediction (GFF3 or GTF). Reused instead of running Tiberius. In evidence modes `tiberius.model_cfg` can then be omitted; the clade comes from `tiberius.model_cfg` (if given) via `target_species`. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
@@ -371,10 +372,15 @@ Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
 ## Mode
 
 The pipeline infers its mode from the inputs, see the table in the
-[README](../README.md#inputs-and-modes). Set `mode` to force one of
+[README](../README.md#modes). Set `mode` to force one of
 `abinitio`, `proteins`, `rnaseq`, `isoseq`, `mixed`. `tiberius` is accepted as
 the historic name of `abinitio`; any other value is an error, as is a forced
 mode whose inputs are missing (for example `rnaseq` without reads or a StringTie assembly).
+The launcher checks the combination of inputs before it writes the params
+file or starts Nextflow, and `main.nf` checks it again before any task:
+reads or an assembly without proteins, mode `proteins` without a Tiberius
+model, and a run without a genome or without any gene finder model stop with
+a message that lists the supported modes (`paludamentum --help` prints it too).
 Mode `proteins` (a genome and proteins, no reads) runs both gene finders,
 the protein evidence and `combine_genesets.py` without transcript inputs,
 selecting with `combine.classifier_proteins`; see
@@ -382,4 +388,7 @@ selecting with `combine.classifier_proteins`; see
 evidence mode without a Tiberius model runs Vipsania alone with
 `combine.classifier_vipsania`, see
 [Species without a Tiberius model](../README.md#species-without-a-tiberius-model);
-mode `proteins` without a Tiberius model is an error.
+mode `proteins` without a Tiberius model is an error. Mode `abinitio` with
+both gene finders given combines their predictions without evidence with
+`combine.classifier_abinitio`, see
+[Ab initio combination](../README.md#ab-initio-combination).

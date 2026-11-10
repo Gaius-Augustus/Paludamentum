@@ -11,27 +11,37 @@ import argparse
 from typing import Sequence
 
 from . import __version__
-from .launcher import GENEFINDER_CLI, merge_run_params, run_nextflow_pipeline
-
-MODES = ("abinitio", "proteins", "rnaseq", "isoseq", "mixed")
+from .launcher import GENEFINDER_CLI, MODE_HELP, MODES, describe_run, merge_run_params, run_nextflow_pipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="paludamentum",
-        description="Run the Paludamentum evidence integration pipeline with Nextflow.",
+        description=(
+            "Run the Paludamentum evidence integration pipeline with Nextflow.\n\n" + MODE_HELP + "\n\n"
+            "Inputs come from a params YAML file (conf/parameters.yaml), from the command line, or both; command\n"
+            "line values override the file. A run whose inputs do not form a supported mode stops here with a\n"
+            "message, before Nextflow starts."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  Tiberius, ab initio, parallelized over GPUs:\n"
-            "    paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg diatoms\n"
-            "  Tiberius with evidence from a params file:\n"
-            "    paludamentum --params_yaml params.yaml --nf_config slurm_generic\n"
-            "  Vipsania with evidence:\n"
-            "    paludamentum --genefinder vipsania --nf_config local --genome genome.fa --model Fungi "
+            "  abinitio, Tiberius alone, parallelized over GPUs:\n"
+            "    paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg eudicotyledons\n"
+            "  abinitio, Vipsania alone:\n"
+            "    paludamentum --nf_config local --genome genome.fa --model Fungi\n"
+            "  abinitio, both gene finders combined (both models given, no evidence):\n"
+            "    paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi\n"
+            "  proteins (genome and proteins, no transcripts):\n"
+            "    paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi "
             "--proteins proteins.faa\n"
-            "  Insects (recommended): Vipsania fine-tuned, RNA-Seq, Drusilla flow, no proteins:\n"
-            "    paludamentum --nf_config local --genome genome.fa --model Insecta --finetune "
+            "  rnaseq (proteins and RNA-Seq), inputs from a params file:\n"
+            "    paludamentum --params_yaml params.yaml --nf_config slurm_generic\n"
+            "  rnaseq with a StringTie assembly instead of reads:\n"
+            "    paludamentum --nf_config local --genome genome.fa --model_cfg eudicotyledons --model Streptophyta "
+            "--proteins proteins.faa --stringtie stringtie.gtf\n"
+            "  rnaseq for a species without a Tiberius model (Vipsania only; here Nematoda):\n"
+            "    paludamentum --nf_config local --genome genome.fa --model Nematoda --proteins proteins.faa "
             "--rnaseq_bam rnaseq.bam\n"
             'Arguments after "--" are forwarded verbatim to Nextflow.'
         ),
@@ -45,8 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Nextflow config: a path, or the name of a config in conf/ "
                               "(e.g. local, slurm_generic). Default: base.config.")
     general.add_argument("--genefinder", choices=sorted(GENEFINDER_CLI),
-                         help="Gene finder to run. Default: 'genefinder' or the block with run=true in the "
-                              "params file, else vipsania if --model is given, else tiberius.")
+                         help="Gene finder of an ab initio run with one model, and the one whose model option is "
+                              "checked. Default: 'genefinder' or the block with run=true in the params file, else "
+                              "vipsania if --model is given, else tiberius. Modes with evidence run Vipsania and, when "
+                              "a Tiberius model is given, Tiberius as well, whatever this option says.")
 
     nextflow = parser.add_argument_group("Nextflow")
     nextflow.add_argument("--profile", help="Nextflow profile(s) to activate (comma-separated).")
@@ -95,7 +107,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Transcripts of full-length reads (GTF/GFF3 with exon lines, e.g. a StringTie -L "
                              "assembly of long reads) as chain evidence for the gene set integration. In mixed "
                              "mode the pipeline makes them from the Iso-Seq reads itself.")
-    inputs.add_argument("--mode", choices=MODES, help="Force the pipeline mode instead of inferring it from the inputs.")
+    inputs.add_argument("--mode", choices=MODES,
+                        help="Force the pipeline mode instead of inferring it from the inputs (see the modes above); "
+                             "a forced mode whose inputs are missing stops the run.")
     inputs.add_argument("--scoring_matrix", help="Scoring matrix CSV for miniprot-boundary-scorer.")
 
     finder = parser.add_argument_group("Gene finder (both)")
@@ -109,14 +123,16 @@ def build_parser() -> argparse.ArgumentParser:
     tiberius = parser.add_argument_group("Tiberius")
     tiberius.add_argument("--model_cfg",
                           help="Model configuration: a path, or a name in model_cfg/ of the Tiberius "
-                               "submodule (e.g. diatoms).")
+                               "submodule (e.g. diatoms). Together with --model both gene finders run "
+                               "(modes proteins, rnaseq, isoseq, mixed, and the ab initio combination).")
     tiberius.add_argument("--seq_len", type=int, help="Forwarded to tiberius.py --seq_len.")
     finder.add_argument("--model_dir",
                         help="Directory with downloaded models, instead of the download at the start of the run: the "
                              "extracted weights of the Tiberius model configuration, or 'vipsania download -d DIR'.")
 
     vipsania = parser.add_argument_group("Vipsania")
-    vipsania.add_argument("--model", help="Clade name (e.g. Fungi) or model id.")
+    vipsania.add_argument("--model", help="Clade name (e.g. Fungi) or model id. Required in every mode with "
+                                          "evidence; together with --model_cfg both gene finders run.")
     vipsania.add_argument("--finetune", action="store_true",
                           help="Finetune on the genome before annotating (one task, no chunks).")
     vipsania.add_argument("--finetune_epochs", type=int, help="Forwarded to vipsania annotate --finetune_epochs.")
@@ -140,12 +156,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    # params.yaml is written only after the validation passed
+    # params.yaml is written only after the validation passed; an unsupported
+    # combination of inputs stops in merge_run_params (check_mode) with a message
     genefinder, params = merge_run_params(args)
-    note = "" if params[genefinder].get("run") else " (run: false, evidence only)"
-    print(f"[INFO] Gene finder: {genefinder}{note}")
+    print(f"[INFO] {describe_run(params)}")
     qc = params.get("qc") if isinstance(params.get("qc"), dict) else {}
-    if params[genefinder].get("run") and not qc.get("busco_lineage"):
+    if not qc.get("busco_lineage"):
         print("[INFO] Completeness assessment off (no busco_lineage)")
     run_nextflow_pipeline(args, genefinder=genefinder, params=params)
 
