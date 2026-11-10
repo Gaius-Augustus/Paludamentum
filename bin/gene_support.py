@@ -30,6 +30,9 @@ RNA-Seq intron hints and the Iso-Seq intron hints:
                 the merged Iso-Seq BAM (minimap2); pyVARUS
                 hints.gff (made the same way); several sources
                 summed by merge_intron_hints.py (src=E kept)
+  E    RNA-Seq  assembly_hints.py (ASSEMBLY_HINTS, modules/assembly.nf) intron
+                on a given StringTie assembly without reads: the
+                introns of its transcripts, mult = summed cov
   P    protein  aln2hints.pl --prg=miniprot --priority=4          CDSpart, intron
                 (ALN2HINTS, modules/proteins.nf) on miniprot.gtf
                 of miniprothint (scorer2gtf.py of all scored

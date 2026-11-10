@@ -1,0 +1,249 @@
+nextflow.enable.dsl=2
+
+// Unified HC-gene step for evidence modes (rnaseq / isoseq / mixed), for the
+// protein-only mode (proteins) and for the ab initio combination (mode
+// abinitio with both gene finders).
+//
+// Replaces the three HC flows of the previous pipeline (TransDecoder,
+// Drusilla with proteins, Drusilla without proteins). Runs the same chain
+// for every clade:
+//
+//  1. Run both gene finders on the genome: Tiberius (passed in from main.nf,
+//     already executed to feed PROTEIN_EVIDENCE), and Vipsania --finetune.
+//  2. On the one StringTie assembly (STRINGTIE_MERGE passes it through and
+//     writes the GFF3 for TD2), run both ORF callers:
+//     - Drusilla (filter + annotate + collapse isoforms),
+//     - TD2 with the partial-ORF rescue: SHORTEN_INCOMPLETE_ORFS + two
+//       auxiliary 12-column DIAMOND runs + CDS_CLASSIFY_AND_REVISE, then
+//       TD_REVISED_TO_GENOME maps the revised peptides to the genome.
+//  3. Extract proteins for all four gene sets (gffread via PROTEIN_FROM_GFF)
+//     and run DIAMOND_BLASTP_FULL (14-column) on each against the protein DB.
+//  4. BAM2COV turns the merged RNA-Seq / Iso-Seq BAM into a bedGraph.
+//  5. combine_genesets.py integrates the four gene sets with intron hints,
+//     coverage, DIAMOND, miniprot and miniprothint into combined.gff3.
+//     Full-length transcripts (the StringTie -L assembly of long reads, or
+//     the files of params.chains) go in as --chains when there are any.
+//     Selection is learned (params.combine.classifier, the shipped
+//     conf/combiner_classifier_v1.json): a clade-agnostic model trained on
+//     15 species outside the benchmark; clades without a classifier_clade or
+//     standard_thresholds in the HC table get its conservative locus
+//     threshold (--unknown-clade).
+//     params.combine.classifier = false switches back to the tier rules.
+//     For Insecta / Lepidoptera clades, --drop-lone-single-exon tiberius
+//     is added in both modes.
+//
+// Without transcript evidence (transcripts = false, mode proteins) steps 2
+// and 4 are skipped: the candidates are the Tiberius and Vipsania gene sets
+// alone, with their two DIAMOND tables and the miniprot / miniprothint
+// evidence, and the empty placeholder stands for the ORF-caller gene sets,
+// their DIAMOND tables, the intron hints, the coverage track and the chains.
+// Selection then uses the protein-only classifier
+// (params.combine.classifier_proteins, the shipped
+// conf/combiner_classifier_protonly_v1.json, trained on the same 15 species
+// on candidate pools without transcript evidence); false: the tier rules.
+//
+// Without a Tiberius model (tiberius = false: no tiberius.model_cfg and no
+// tiberius.result, a species outside the Tiberius clades) Vipsania is the only
+// ab initio gene set. main.nf then runs Vipsania first (its proteins select
+// the species of a large protein database) and passes it in (vip_given), the
+// empty placeholder stands for the Tiberius gene set and its DIAMOND table,
+// and the selection uses the classifier trained on candidate pools without
+// Tiberius (params.combine.classifier_vipsania, the shipped
+// conf/combiner_classifier_vipsania_v1.json; thresholds 0.225 / 0.30).
+// Measured on 31 benchmark species: 57.4 transcript / 71.2 gene F1 against
+// 44.2 / 54.8 for Vipsania alone and 60.1 / 74.6 with Tiberius.
+//
+// Without any evidence (proteins = false, and so transcripts = false: mode
+// abinitio with both gene finders) step 3 is skipped as well: the two gene
+// sets go to combine_genesets.py with the placeholder for every evidence
+// input, and the selection uses the classifier trained on evidence-free pools
+// (params.combine.classifier_abinitio, the shipped
+// conf/combiner_classifier_abinitio_v1.json: tool agreement, structure and
+// locus context; thresholds 0.30 / 0.25). Measured on 31 benchmark species:
+// 49.4 transcript / 63.9 gene F1 against 47.9 / 59.2 for Tiberius alone.
+
+include { GENEFINDER as GENEFINDER_VIPSANIA } from './genefinder.nf'
+include { STRINGTIE_MERGE } from '../modules/assembly.nf'
+include { TD_ALL; SHORTEN_INCOMPLETE_ORFS; CDS_CLASSIFY_AND_REVISE;
+          TD_REVISED_TO_GENOME } from '../modules/transdecoder.nf'
+include { FILTER_STRINGTIE; DOWNLOAD_DRUSILLA_MODEL; DRUSILLA_ANNOTATE;
+          COLLAPSE_ORFS } from '../modules/drusilla.nf'
+include { PROTEIN_FROM_GFF as PROT_TIB; PROTEIN_FROM_GFF as PROT_VIP;
+          PROTEIN_FROM_GFF as PROT_TD2; PROTEIN_FROM_GFF as PROT_DRU } from '../modules/genefinder.nf'
+include { DIAMOND_MAKEDB;
+          DIAMOND_BLASTP as DIAMOND_NORM; DIAMOND_BLASTP as DIAMOND_SHORT;
+          DIAMOND_BLASTP_FULL as DIAMOND_TIB; DIAMOND_BLASTP_FULL as DIAMOND_VIP;
+          DIAMOND_BLASTP_FULL as DIAMOND_TD2; DIAMOND_BLASTP_FULL as DIAMOND_DRU } from '../modules/diamond.nf'
+include { BAM2COV } from '../modules/rnacov.nf'
+include { COMBINE_GENESETS } from '../modules/combine.nf'
+include { EMPTY_FILE as NO_CLASSIFIER; EMPTY_FILE as NO_EVIDENCE } from '../modules/util.nf'
+include { hcClade; classifierUnknownClade; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
+
+workflow HC_COMBINED {
+
+    take:
+    CH_GENOME
+    asm_gtf                // channel: one or more StringTie assembly GTFs (empty without transcripts)
+    merged_bam             // channel: one coordinate-sorted BAM of all RNA / Iso-Seq reads (have_bam), else the coverage
+                           //   track to use as it is: the bedGraph of a given assembly (ASSEMBLY_HINTS) or an empty placeholder
+    have_bam               // value: false without a BAM (a given assembly without reads, pyVARUS directories, mode proteins)
+    intron_hints           // channel: the intron hints of BAM2HINTS (two files in mixed mode), or an empty placeholder
+    chains                 // channel: full-length transcripts for --chains (with the empty placeholder), or the placeholder alone
+    proteindb             // path: preprocessed protein DB (one FASTA), or a placeholder without protein evidence
+    miniprot_scored        // path: scored miniprot alignments (miniprot_parsed.gff), or the placeholder
+    prot_train_gff         // path: miniprot_trainingGenes.gff, or the placeholder
+    prot_hc_hints          // path: miniprothint hc.gff, or the placeholder
+    tib_gff                // channel: Tiberius ab initio GFF (produced in main.nf for PROTEIN_EVIDENCE), or the empty placeholder
+    tib_proteins           // channel: Tiberius protein FASTA (same, reused as the gffread output), or the empty placeholder
+    params_map
+    transcripts            // value: true in the evidence modes (StringTie assembly, ORF callers), false in mode proteins
+    tiberius               // value: false without a Tiberius model: tib_gff and tib_proteins are the placeholder
+    vip_given              // value: true when main.nf ran Vipsania already (no Tiberius model) and passes it in
+    vip_gff                // channel: Vipsania ab initio GFF when vip_given, else empty
+    vip_proteins           // channel: Vipsania protein FASTA when vip_given, else empty
+    proteins               // value: false without protein evidence (ab initio combination): no DIAMOND, placeholders for miniprot
+
+    main:
+    // ---- gene finders: Vipsania runs here unless main.nf ran it first
+    def vip_gff_ch
+    def pep_vip
+    def vip_chunks
+    def vip_versions
+    if( vip_given ) {
+        vip_gff_ch   = vip_gff
+        pep_vip      = vip_proteins
+        vip_chunks   = channel.empty()
+        vip_versions = channel.empty()
+    } else {
+        def vip = GENEFINDER_VIPSANIA(CH_GENOME, params_map, 'vipsania', false)
+        vip_gff_ch   = vip.gff
+        pep_vip      = proteins ? PROT_VIP('vipsania', vip.gff, CH_GENOME) : null
+        vip_chunks   = vip.chunks
+        vip_versions = vip.versions
+    }
+
+    // ---- the empty placeholder for the evidence inputs a run does not have
+    def none = (!transcripts || !proteins) ? NO_EVIDENCE() : null
+
+    // ---- the protein database for the DIAMOND runs of every gene set
+    def db = proteins ? DIAMOND_MAKEDB(proteindb) : null
+
+    // ---- the ORF callers on the one StringTie assembly (evidence modes), or the
+    // empty placeholder for their gene sets and DIAMOND tables (mode proteins)
+    def d = params_map.drusilla ?: [:]
+    def dru_gtf
+    def td2_gff3
+    def dia_dru
+    def dia_td2
+    if( transcripts ) {
+        // ---- the one StringTie assembly as GTF and GFF3 (merged only if there are several)
+        def merged_asm = STRINGTIE_MERGE(asm_gtf.collect())
+
+        // ---- Drusilla ORFs on the filtered StringTie assembly
+        def dru
+        if( d.result ) {
+            if( !file(d.result).exists() )
+                error "params.drusilla.result is set, but the file does not exist: ${d.result}"
+            dru = [gtf: channel.fromPath(d.result, checkIfExists: true).toList()]
+        } else {
+            if( truthy(d.unstranded_both_strands) && truthy(d.drop_unstranded) )
+                log.warn "drusilla.unstranded_both_strands has no effect while drusilla.drop_unstranded is true: " +
+                         "FILTER_STRINGTIE drops every transcript with strand '.' before Drusilla runs."
+            def filt = FILTER_STRINGTIE(merged_asm.gtf)
+            def drusillaModel = channel.value([])
+            def useModel = false
+            if( !d.weights && !d.cache_dir ) {
+                def manifest = "${projectDir}/drusilla/model_cfg/${drusillaSetting(params_map, 'model')}.yaml"
+                def url = tiberiusModelValue(manifest, 'weights_url')
+                if( url ) {
+                    drusillaModel = DOWNLOAD_DRUSILLA_MODEL(url, tiberiusModelValue(manifest, 'weights_sha256') ?: '').model
+                    useModel = true
+                }
+            }
+            def dru_raw = DRUSILLA_ANNOTATE(filt.gtf, CH_GENOME, useModel, drusillaModel)
+            dru        = COLLAPSE_ORFS(dru_raw.gtf)
+        }
+
+        // ---- TD2 with the partial-ORF rescue
+        def td        = TD_ALL(merged_asm.gtf, CH_GENOME)
+        def pep_short = SHORTEN_INCOMPLETE_ORFS(td.pep)
+        def dia_norm  = DIAMOND_NORM(td.pep, db.db)
+        def dia_short = DIAMOND_SHORT(pep_short.pep_short, db.db)
+        def rev       = CDS_CLASSIFY_AND_REVISE(dia_norm.tsv, dia_short.tsv, td.pep, pep_short.pep_short)
+        def td2_gff   = TD_REVISED_TO_GENOME(rev.revised_pep, td.cdna, merged_asm.gtf, merged_asm.gff3)
+
+        // ---- proteins of the ORF-caller gene sets and their DIAMOND runs (14-column)
+        def pep_td2 = PROT_TD2('td2',      td2_gff.gff3, CH_GENOME)
+        def pep_dru = PROT_DRU('drusilla', dru.gtf,     CH_GENOME)
+        dru_gtf  = dru.gtf
+        td2_gff3 = td2_gff.gff3
+        dia_td2  = DIAMOND_TD2(pep_td2, db.db).tsv
+        dia_dru  = DIAMOND_DRU(pep_dru, db.db).tsv
+    } else {
+        if( d.result )
+            log.warn "drusilla.result is not used without transcript evidence: no ORF caller runs."
+        dru_gtf  = none
+        td2_gff3 = none
+        dia_td2  = none
+        dia_dru  = none
+    }
+
+    // ---- the DIAMOND runs of the gene finders (14-column); without Tiberius its
+    // placeholder stands for the table as well, without protein evidence both do
+    def dia_tib
+    def dia_vip
+    if( proteins ) {
+        dia_tib = tiberius ? DIAMOND_TIB(tib_proteins, db.db).tsv : tib_proteins
+        dia_vip = DIAMOND_VIP(pep_vip, db.db).tsv
+    } else {
+        dia_tib = none
+        dia_vip = none
+    }
+
+    // ---- RNA-Seq coverage; without a BAM the given track goes on as it is:
+    // the bedGraph of a given assembly, or the placeholder (COMBINE_GENESETS
+    // then runs combine_genesets.py without --coverage)
+    def cov_bg = have_bam ? BAM2COV(merged_bam).bg : merged_bam
+
+    // ---- integrate
+    def clade  = hcClade(params_map)
+    def insect = clade.name?.toLowerCase() in ['insecta', 'lepidoptera']
+    def min_locus = (params_map.combine?.min_locus != null) ? params_map.combine.min_locus : 4
+    // learned selection: the model of params.combine.classifier (evidence modes
+    // with Tiberius), classifier_vipsania (evidence modes without a Tiberius
+    // model), classifier_proteins (mode proteins) or classifier_abinitio (the
+    // ab initio combination); false / null: tier rules, the empty placeholder
+    // goes in. The clade is known to the model when its HC-table entry names a
+    // classifier_clade; an entry with standard_thresholds gets the thresholds
+    // of the training clades as well; otherwise the model's threshold for
+    // other clades applies (--unknown-clade).
+    def clfParam = !transcripts ? (proteins ? params_map.combine?.classifier_proteins : params_map.combine?.classifier_abinitio) :
+                   tiberius ? params_map.combine?.classifier : params_map.combine?.classifier_vipsania
+    def classifier = clfParam ? channel.value(file(clfParam.toString(), checkIfExists: true)) : NO_CLASSIFIER()
+    def unknown_clade = classifierUnknownClade(clade)
+    if( clfParam && unknown_clade )
+        log.info "combine_genesets: clade ${clade.name ?: 'unknown'} has no classifier_clade in the HC table; " +
+                 "the classifier uses its locus threshold for clades outside its training clades (--unknown-clade)."
+    else if( clfParam && !(clade.entry?.classifier_clade) )
+        log.info "combine_genesets: clade ${clade.name} is not a training clade of the classifier; the HC table " +
+                 "sets the thresholds of its training clades (standard_thresholds)."
+    // the thresholds of params.combine.t_locus / t_iso override the model's;
+    // with -resume a change here reruns only the combine step and what follows
+    def clf_opts = [unknown_clade ? '--unknown-clade' : '',
+                    params_map.combine?.t_locus != null ? "--t-locus ${params_map.combine.t_locus}" : '',
+                    params_map.combine?.t_iso   != null ? "--t-iso ${params_map.combine.t_iso}"     : '']
+                   .findAll().join(' ')
+
+    def combined = COMBINE_GENESETS(
+        tib_gff, vip_gff_ch, dru_gtf, td2_gff3,
+        intron_hints, cov_bg, chains,
+        dia_tib, dia_vip, dia_dru, dia_td2,
+        prot_train_gff, miniprot_scored, prot_hc_hints,
+        classifier, insect, min_locus, clf_opts)
+
+    emit:
+    gff      = combined.gff3
+    report   = combined.report
+    chunks   = vip_chunks            // for cmscan in POSTPROCESS (empty when Vipsania ran in main.nf)
+    versions = vip_versions
+}

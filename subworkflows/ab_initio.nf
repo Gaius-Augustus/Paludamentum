@@ -1,9 +1,11 @@
 nextflow.enable.dsl=2
 
-include { genefinderEnabled } from '../lib_nf/functions.nf'
+include { genefinderEnabled; resolveGenefinder } from '../lib_nf/functions.nf'
 include { GENEFINDER } from './genefinder.nf'
 
-// Ab initio mode: run the gene finder only, parallelized over genome chunks.
+// Ab initio mode: run ONE gene finder (picked via params.genefinder or
+// <tool>.run), parallelized over genome chunks. Evidence modes (rnaseq /
+// isoseq / mixed) run both gene finders through HC_COMBINED instead.
 workflow AB_INITIO {
 
     take:
@@ -14,7 +16,8 @@ workflow AB_INITIO {
     if( !genefinderEnabled(params_map) ) {
         error "The ab initio mode requires a gene finder: set params.tiberius.run=true or params.vipsania.run=true."
     }
-    GENEFINDER(CH_GENOME, params_map, true)
+    def tool = resolveGenefinder(params_map)
+    GENEFINDER(CH_GENOME, params_map, tool, true)
 
     emit:
     gff    = GENEFINDER.out.gff      // <tool>_ab_initio.gff3, the input of POSTPROCESS

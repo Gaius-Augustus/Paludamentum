@@ -46,7 +46,11 @@ workflow ISOSEQ_EVIDENCE {
         iso_bam  = MINIMAP2_MAP(CH_GENOME, CH_ISO)
         FILTER_ISOSEQ(iso_bam.bam)
 
-        iso_bams = channel.empty().mix(FILTER_ISOSEQ.out)
+        // Every library below min_alignment_rate (FILTER_ALIGNMENT): no BAM,
+        // and the run would end without the HC genes and without a word.
+        iso_bams = channel.empty().mix(FILTER_ISOSEQ.out).ifEmpty {
+            error "Iso-Seq: every library was dropped, its alignment rate is below params.min_alignment_rate (${params_map.min_alignment_rate ?: 80} %); see the 'Removing' lines above."
+        }
 
         iso_merged = MERGE_BAMS_ISO(iso_bams)
         iso_hints  = BAM2HINTS_ISO(iso_merged.bam, CH_GENOME)

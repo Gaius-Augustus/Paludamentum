@@ -1,14 +1,15 @@
 nextflow.enable.dsl=2
 
-// Runs the selected gene finder on the genome and emits the merged ab initio
-// annotation. The gene finder is chosen by resolveGenefinder(): 'tiberius' or
-// 'vipsania'. Each has its own params block (params.tiberius, params.vipsania).
-// The genome chunks are emitted too: cmscan of the ncRNA annotation
+// Runs ONE gene finder (tiberius or vipsania) on the genome and emits its
+// merged annotation. The caller selects the gene finder via the 'tool' input;
+// the HC_COMBINED subworkflow invokes GENEFINDER twice to run both finders.
+// Each has its own params block (params.tiberius, params.vipsania). The
+// genome chunks are emitted too: cmscan of the ncRNA annotation
 // (subworkflows/postprocess.nf) runs on them instead of a second split.
 // The version line of the gene finder (versions) is that of its first task;
 // all tasks run the same image. A reused result (<tool>.result) has none.
 
-include { truthy; resolveGenefinder; tiberiusModelValue } from '../lib_nf/functions.nf'
+include { truthy; tiberiusModelValue } from '../lib_nf/functions.nf'
 include { RUN_TIBERIUS; DOWNLOAD_TIBERIUS_WEIGHTS; SPLIT_GENOME; MERGE_GENEFINDER;
           MERGE_GENEFINDER_EVI } from '../modules/genefinder.nf'
 include { DOWNLOAD_VIPSANIA_MODEL; RUN_VIPSANIA } from '../modules/vipsania.nf'
@@ -18,10 +19,12 @@ workflow GENEFINDER {
     take:
     CH_GENOME
     params_map
+    tool             // 'tiberius' or 'vipsania'
     publish_top      // true: publish the ab initio annotation in outdir, false: in outdir/intermediate
 
     main:
-    def tool = resolveGenefinder(params_map)
+    if( !(tool in ['tiberius', 'vipsania']) )
+        error "GENEFINDER: tool must be 'tiberius' or 'vipsania', got '${tool}'."
     def cfg  = params_map[tool] ?: [:]
     def predictions
     def versions_ch = channel.empty()

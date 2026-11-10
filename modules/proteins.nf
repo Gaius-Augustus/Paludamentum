@@ -73,43 +73,65 @@ process PREPROCESS_PROTEINDB {
   label 'container', 'bigmem'
 
   input:
-    path proteinDB
+    // staged apart from the output name: a user file named
+    // protein_preprocessed.fa would otherwise be truncated by the redirect
+    path proteinDB, stageAs: 'db/*'
     path tiberius_prot
 
-  output: path "protein_preprocessed.fa"
+  output:
+    path "protein_preprocessed.fa", emit: db
+    // the species ranking of a reduced database: which species were kept
+    path "species_rank.tsv", optional: true, emit: rank
 
-  script: """
+  script:
+  // species kept of a large database (params.protein_top_species); 0 keeps it whole
+  def top = params.protein_top_species != null ? params.protein_top_species : 13
+  if( !(top.toString().isInteger() && (top as int) >= 0) )
+      error "protein_top_species: a whole number >= 0, not '${top}'."
+  """
     # Count protein sequences (FASTA headers start with '>'); grep -c prints 0
     # itself for an empty database, its exit code 1 must not stop the task
     N_PROT=\$(grep -c '^>' ${proteinDB} || true)
-    # The species selection below needs OrthoDB-style ids (<taxid>_<n>:<hex>);
-    # other databases (UniProt, NCBI) carry no species in the id.
+    # The species selection below needs ids that name their species: OrthoDB
+    # (<taxid>_<n>:<hex>) or reference proteomes (<Genus>_<species>_<id>, the
+    # pattern of bin/rank_species_from_diamond.py). Other databases (UniProt,
+    # NCBI) carry no species in the id.
     N_ODB=\$(grep -c -E '^>[0-9]+_[0-9]+:' ${proteinDB} || true)
+    N_GS=\$(grep -c -E '^>[A-Z][a-z]+_[a-z][A-Za-z0-9.-]*_' ${proteinDB} || true)
 
-    echo "[PREPROCESS_PROTEINDB] Number of proteins in input: \$N_PROT (OrthoDB-style ids: \$N_ODB)" >&2
+    echo "[PREPROCESS_PROTEINDB] Number of proteins in input: \$N_PROT (OrthoDB-style ids: \$N_ODB, Genus_species ids: \$N_GS)" >&2
 
-    if [[ "\$N_PROT" -le 1000000 || "\$N_ODB" -lt "\$N_PROT" ]]; then
-        if [[ "\$N_PROT" -le 1000000 ]]; then
+    # Sanitize the FASTA for DIAMOND and miniprot:
+    #  - headers keep only the first whitespace-delimited token after '>'. An
+    #    embedded tab (e.g. OrthoDB-style headers) survives into DIAMOND's
+    #    sseqid as the literal two characters '\\t', breaking downstream id
+    #    matching in hc_module.getting_hc_supported_by_proteins;
+    #  - blank or whitespace-only lines are dropped: DIAMOND makedb refuses a
+    #    FASTA whose first line is blank ("First line seems to be blank");
+    #  - Windows line ends (CR) are removed.
+    sanitize_fasta() {
+        awk '{ sub(/\\r\$/, "") } /^[ \\t]*\$/ { next }
+             /^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' "\$1"
+    }
+
+    if [[ ${top} -eq 0 || "\$N_PROT" -le 1000000 || ( "\$N_ODB" -lt "\$N_PROT" && "\$N_GS" -lt "\$N_PROT" ) ]]; then
+        if [[ ${top} -eq 0 ]]; then
+            echo "[PREPROCESS_PROTEINDB] protein_top_species = 0 – using full DB." >&2
+        elif [[ "\$N_PROT" -le 1000000 ]]; then
             echo "[PREPROCESS_PROTEINDB] <= 1,000,000 proteins – using full DB." >&2
         else
-            echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins, but the ids are not OrthoDB-style, so no species can be selected – using full DB." >&2
+            echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins, but not every id names its species (OrthoDB or Genus_species), so no species can be selected – using full DB." >&2
         fi
-        # Sanitize headers: keep only the first whitespace-delimited token after '>'.
-        # An embedded tab (e.g. OrthoDB-style headers) survives into DIAMOND's
-        # sseqid as the literal two characters '\\t', breaking downstream
-        # id matching in hc_module.getting_hc_supported_by_proteins.
-        awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-            ${proteinDB} > protein_preprocessed.fa
+        sanitize_fasta ${proteinDB} > protein_preprocessed.fa
     else
-        echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins – running DIAMOND soft filter." >&2
+        echo "[PREPROCESS_PROTEINDB] > 1,000,000 proteins – running DIAMOND soft filter (top ${top} species)." >&2
 
-        # Sanitize headers on the way into the database (same as above, streamed,
-        # no copy of the FASTA). OrthoDB headers carry a tab, which DIAMOND
-        # reports once per sequence ("Tabulator character in sequence title"):
-        # gigabytes of log for millions of proteins. The per-sequence warnings
-        # are dropped from stderr; everything else DIAMOND reports is kept.
-        awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-            ${proteinDB} \
+        # Sanitize on the way into the database (streamed, no copy of the
+        # FASTA). OrthoDB headers carry a tab, which DIAMOND reports once per
+        # sequence ("Tabulator character in sequence title"): gigabytes of log
+        # for millions of proteins. The per-sequence warnings are dropped from
+        # stderr; everything else DIAMOND reports is kept.
+        sanitize_fasta ${proteinDB} \
           | ${params.tools.diamond} makedb --db prot_db --threads ${task.cpus} \
               2> >(grep -v -e 'Tabulator character in sequence title' >&2)
 
@@ -129,27 +151,32 @@ process PREPROCESS_PROTEINDB {
           --very-sensitive \
           --threads ${task.cpus}
 
-        rank_species_from_diamond.py diamond_hits.tsv 13 > species_rank.tsv
+        rank_species_from_diamond.py diamond_hits.tsv ${top} > species_rank.tsv
 
         if [[ ! -s top_species.txt ]]; then
             echo "[PREPROCESS_PROTEINDB] No species could be ranked (no DIAMOND hits): using the full DB." >&2
-            awk '/^>/ { split(substr(\$0,2), a, /[ \\t]/); print ">" a[1]; next } { print }' \
-                ${proteinDB} > protein_preprocessed.fa
+            sanitize_fasta ${proteinDB} > protein_preprocessed.fa
             exit 0
         fi
 
+        # the species selection sanitizes like sanitize_fasta
         awk '
         BEGIN {
           while ((getline < "top_species.txt") > 0) {
             wanted[\$1] = 1
           }
         }
+        { sub(/\\r\$/, "") }
+        /^[ \\t]*\$/ { next }
         /^>/ {
           hdr = substr(\$0, 2)
           split(hdr, a, /[ \t]/)
-          id = a[1]                 # e.g. 101020_0:000003
-          species = id
-          sub(/_.*/, "", species)   # species = 101020
+          id = a[1]
+          # the species as rank_species_from_diamond.py reads it:
+          # 101020_0:000003 -> 101020, Acorus_americanus_Acora_01G000100_1 -> Acorus_americanus
+          if (id ~ /^[0-9]+_[0-9]+:/) { species = id; sub(/_.*/, "", species) }
+          else if (match(id, /^[A-Z][a-z]+_[a-z][A-Za-z0-9.-]*_/)) species = substr(id, 1, RLENGTH - 1)
+          else species = id
           keep = (species in wanted)
         }
         keep && /^>/ { print ">" id; next }

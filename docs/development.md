@@ -11,13 +11,17 @@ them; they do not depend on Paludamentum.
 | [Vipsania](https://github.com/Gaius-Augustus/Vipsania) (`vipsania/`) | gene finder | supported, see [vipsania.md](vipsania.md) |
 | [Drusilla](https://github.com/Gaius-Augustus/Drusilla) (`drusilla/`) | ORF annotator for assembled transcripts | high-confidence genes for vertebrate models, see [Drusilla flow](drusilla_flow.md) |
 
-> **Status (v0.6.0).** Paludamentum is the entry point: `paludamentum`
+> **Status (v0.7.0).** Paludamentum is the entry point: `paludamentum`
 > launches the pipeline with Tiberius or Vipsania. Earlier versions were a
 > submodule of Tiberius and were launched by `tiberius.py`; that direction is
 > reversed since v0.3.0. v0.4.0 adds the [Drusilla flow](drusilla_flow.md) for
 > vertebrate models, v0.5.0 the [post-processing and quality
 > control](postprocessing.md) of the final annotation, v0.6.0 the Drusilla
-> flow without proteins, recommended for insects.
+> flow without proteins. v0.7.0 replaces these flows by one
+> [combined flow](combined_flow.md) for every clade (both gene finders, both
+> ORF callers, a trained selection model), adds the modes `proteins`, the
+> ab initio combination and the flow for species without a Tiberius model,
+> and names the final gene set `paludamentum.gff3` in every mode.
 
 ## Repository layout
 
@@ -107,10 +111,25 @@ smoke tests use `tiberius/test_data/Panthera_pardus` and
   - [x] ncRNA: pybarrnap, tRNAscan-SE, Infernal/Rfam, FEELnc
   - [x] OMArk and gffcompare
   - [x] GO terms with FANTASIA-Lite (GPU)
-- [x] v0.6.0: Drusilla flow without proteins (docs/drusilla_flow.md#without-proteins):
+- [x] v0.6.0: Drusilla flow without proteins:
   - [x] transcripts without proteins for clades with a Drusilla model; `COLLAPSE_ORFS`
-  - [x] clade `Insecta` (Drusilla model `insects`, no LightGBM model) and the
-        `recommended` flow of a clade, with a warning for runs that differ
+  - [x] clade `Insecta` (Drusilla model `insects`) and the `recommended`
+        flow of a clade, with a warning for runs that differ
   - [x] gffcompare 0.12.10 (image `paludamentum-postprocess:0.1.2`)
-- [ ] BUSCO rescue of *ab initio* genes dropped by the Drusilla flow (decide with the completeness numbers)
+- [x] v0.7.0: unified combined HC flow (`combine_genesets.py`): both gene
+      finders, both ORF callers (TD2 with partial-ORF rescue + Drusilla),
+      four DIAMOND runs (14-col), `bedtools genomecov` coverage, same for
+      every clade. Insect clades add `--drop-lone-single-exon tiberius`.
+      Retired the TransDecoder HC filter, the LightGBM filter and the hint
+      rescue; retired `docs/hint_rescue_comparison.md` and
+      `docs/orf_finder_comparison.md`.
+  - [x] learned selection of `combine_genesets.py` (`combine.classifier`)
+  - [x] mode `proteins`, ab initio combination, flow without a Tiberius model,
+        each with its own selection model
+  - [x] StringTie assembly as input (`stringtie`), chains of full-length reads
+  - [x] final files `paludamentum.*` in every mode; the launcher refuses
+        unsupported input combinations and adds the matching model of the
+        other gene finder
+  - [x] no `recommended` flow of a clade any more (insects run the same flow)
+- [ ] Benchmarks of `combine_genesets.py` on vertebrate / mammal / insect genomes
 - [ ] `vipsania annotate --finetune_only`, so finetuning can be combined with chunked annotation

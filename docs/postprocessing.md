@@ -7,8 +7,8 @@ It is the port of what BRAKER4 and GALBA2 do after gene prediction, without
 the steps that need AUGUSTUS. Evidence runs without a gene finder have no
 final annotation and skip it.
 
-`<stem>` below is `<tool>_evidence`, or `<tool>_ab_initio` in mode
-`abinitio`; `<tool>` is `tiberius` or `vipsania`.
+The final files have the same names in every mode: `paludamentum.gff3` is
+the final gene set. `<tool>` below is `tiberius` or `vipsania`.
 
 | Step | Runs | Parameters |
 | --- | --- | --- |
@@ -16,7 +16,7 @@ final annotation and skip it.
 | [UTRs](#utrs) | modes `rnaseq`, `isoseq`, `mixed` | `postprocess.utr`, `postprocess.max_utr_extension` |
 | [Final files](#final-files-and-the-gff3-contract) | always | |
 | [Completeness](#completeness) | with `qc.busco_lineage` | `qc.busco_lineage`, `qc.busco_download_path`, `qc.compleasm`, `qc.busco` |
-| [Evidence support](#evidence-support-and-statistics) | evidence modes | `qc.gene_support` |
+| [Evidence support](#evidence-support-and-statistics) | every mode but `abinitio` (modes `proteins`, `rnaseq`, `isoseq`, `mixed`) | `qc.gene_support` |
 | [Gene set statistics](#evidence-support-and-statistics) | always | `qc.statistics` |
 | [OMArk](#omark) | `qc.omark: true` | `qc.omamer_db`, `qc.ete_taxa_path` |
 | [gffcompare](#gffcompare) | with `qc.reference_annotation` | `qc.reference_annotation` |
@@ -83,7 +83,7 @@ nearest same-strand gene that is a barrier: one that has its own StringTie
 match, or one that already has UTRs (the HC genes).
 `qc/utr_report.tsv` lists per coding transcript `matched_by` (`short`, `long`,
 `none`, `has_utr`) and the UTR lengths. The annotation before the UTRs is
-`intermediate/<stem>_sanity_filtered.gff3`.
+`intermediate/paludamentum_sanity_filtered.gff3`.
 
 Limitations: a neighbour without a StringTie match and without UTRs does not
 stop a UTR, so a read-through StringTie transcript can extend a UTR over it.
@@ -97,14 +97,14 @@ does not have).
 
 ## Final files and the GFF3 contract
 
-`FINALIZE_ANNOTATION` publishes `<stem>.gff3`, `<stem>.gtf` (`gffread -T`;
+`FINALIZE_ANNOTATION` publishes `paludamentum.gff3`, `paludamentum.gtf` (`gffread -T`;
 transcript, exon and CDS lines, no gene lines, no UTR lines), the proteins of
-all isoforms `<stem>_proteins.fa` (`gffread -y -S`) and the coding sequences
-`<stem>_cds.fa` (`gffread -x`).
+all isoforms `paludamentum_proteins.fa` (`gffread -y -S`) and the coding sequences
+`paludamentum_cds.fa` (`gffread -x`).
 
-Every GFF3 that the pipeline publishes (`<stem>.gff3`,
-`<stem>_with_ncRNA.gff3`, `<stem>_go.gff3`, `<stem>_with_ncRNA_go.gff3`,
-`qc/<stem>_longest_isoform.gff3`) satisfies this contract; `bin/normalize_gff3.py`
+Every GFF3 that the pipeline publishes (`paludamentum.gff3`,
+`paludamentum_with_ncRNA.gff3`, `paludamentum_go.gff3`, `paludamentum_with_ncRNA_go.gff3`,
+`qc/paludamentum_longest_isoform.gff3`) satisfies this contract; `bin/normalize_gff3.py`
 writes it, `bin/validate_gff3.sh` checks it, and a file that fails the check
 fails the run.
 
@@ -118,8 +118,8 @@ fails the run.
    before it. Gene IDs `gene_000001`, transcripts `gene_000001.t1`, exons
    `<tx>.exon<N>`, CDS `<tx>.cds` (one ID for all segments of a transcript),
    UTRs `<tx>.utr5p<N>`/`<tx>.utr3p<N>`, numbered in genome order. ncRNA IDs
-   are `<stem>-rRNA_<n>_<name>`, `<stem>-<seq>.trna<n>`, `<stem>-ncRNA_<i>`,
-   `<stem>-lncRNA_<n>` with genes `gene-<rnaID>`.
+   are `paludamentum-rRNA_<n>_<name>`, `paludamentum-<seq>.trna<n>`, `paludamentum-ncRNA_<i>`,
+   `paludamentum-lncRNA_<n>` with genes `gene-<rnaID>`.
 4. Coding genes have `gene_biotype=protein_coding`; ncRNA genes their biotype.
 5. The gene span is the union of its transcripts, a transcript span the union
    of its exons; CDS and UTR segments lie in exons; exons of a transcript do
@@ -143,7 +143,7 @@ proteome:
 | `qc/compleasm_genome/summary.txt`, `qc/compleasm_proteins/summary.txt` | compleasm 0.2.9 |
 | `qc/busco_genome_short_summary.txt`, `qc/busco_proteins_short_summary.txt` | BUSCO 6.1.0 |
 | `qc/completeness.tsv` | all four as one table (`assessment genome_or_proteome complete single duplicated fragmented missing n`); compleasm's F and I count as fragmented |
-| `qc/<stem>_longest_isoform.gff3`, `qc/<stem>_longest_isoform_proteins.fa` | the proteome that is assessed |
+| `qc/paludamentum_longest_isoform.gff3`, `qc/paludamentum_longest_isoform_proteins.fa` | the proteome that is assessed |
 | `qc/completeness.png` | bar chart, drawn by the report |
 
 The proteome is the longest coding isoform of each gene
@@ -184,8 +184,11 @@ coordinates and strand, a CDS segment by an overlapping `CDSpart`, `exonpart`,
 | `C` | both | not written by Paludamentum; counted as both, as in BRAKER4 | |
 
 miniprothint's high-confidence hints (`hc.gff`) are not part of
-`hintsfile.gff`; the Drusilla flow uses them. Short reads and Iso-Seq both
-write `src=E` and cannot be told apart. Not in mode `abinitio` (no hints).
+`hintsfile.gff`; the combined HC flow uses them. Short reads and Iso-Seq both
+write `src=E` and cannot be told apart. In mode `proteins` `hintsfile.gff`
+holds the protein hints only. Without reads (a `--stringtie` assembly alone)
+it holds the protein hints and the intron hints derived from the assembly
+(`src=E`, written by `bin/assembly_hints.py`). Not in mode `abinitio` (no hints).
 
 `qc/gene_set_statistics.txt` and the plots `qc/isoform_and_exon_structure.png`,
 `qc/transcript_lengths.png`, `qc/introns_per_gene.png` and, with the support
@@ -231,7 +234,7 @@ transcript and gene (locus) level.
 | `ncrna/tRNAs.gff3`, `ncrna/tRNAs.txt` | tRNAscan-SE 2.0.12 (`-E`; with `ncrna.trnascan_high_confidence` the EukHighConfidenceFilter) |
 | `ncrna/infernal.tblout`, `ncrna/ncRNAs_infernal.gff3` | Infernal 1.1.5 `cmscan --cut_ga --rfam --nohmmonly --clanin --oclan` against Rfam 15.1, one task per genome chunk; `bin/infernal_to_gff3.py` keeps the hits above the gathering threshold and, where several hits of one Rfam clan cover the same locus, the best-scoring one (`olp` other than `=`), and types each by its Rfam family |
 | `ncrna/lncRNAs.gff3`, `ncrna/feelnc_classifier.txt` | FEELnc 0.2 on the merged StringTie assemblies (modes with transcripts, `ncrna.lncrna`; see below) |
-| `<stem>_with_ncRNA.gff3` | the final annotation plus the ncRNA genes (`bin/merge_ncrna_gff3.py`; priority rRNA > tRNA > Rfam > lncRNA; an ncRNA that overlaps coding exons is dropped) |
+| `paludamentum_with_ncRNA.gff3` | the final annotation plus the ncRNA genes (`bin/merge_ncrna_gff3.py`; priority rRNA > tRNA > Rfam > lncRNA; an ncRNA that overlaps coding exons is dropped) |
 
 Rfam 15.1 (`Rfam.cm`, `Rfam.clanin`, the `cmpress` index) is read from
 `ncrna.rfam_dir`, else downloaded once into `~/.cache/paludamentum/rfam` on
@@ -277,7 +280,7 @@ proteins and GO terms by similarity to the FANTASIA lookup table.
 | `fantasia.proteins_per_task` | proteins per `FANTASIA_ANNOTATE` task (default 2000 with `cpu`, one task with `cuda`; `0`: one task) |
 | `fantasia.additional_params` | appended to `fantasia_pipeline.py` |
 
-Outputs: `<stem>_go.gff3` (and `<stem>_with_ncRNA_go.gff3` with `ncrna.run`)
+Outputs: `paludamentum_go.gff3` (and `paludamentum_with_ncRNA_go.gff3` with `ncrna.run`)
 with `Ontology_term` on mRNAs and genes, `qc/fantasia/results.csv`,
 `qc/fantasia/failed_sequences.csv`, `qc/fantasia/fantasia_summary.txt`,
 `qc/fantasia/fantasia_go_terms.tsv`, `qc/fantasia/fantasia_go_categories.png`
@@ -331,7 +334,9 @@ limit.
 ## Report
 
 `report.html` (`bin/paludamentum_report.py`): the Paludamentum logo, run
-summary, methods (`methods.md`), output files, gene set statistics,
+summary (version, mode, the evidence the run used: proteins, reads or BAMs,
+a given StringTie assembly with or without reads, chains; gene finder, model,
+HC genes, output prefix), methods (`methods.md`), output files, gene set statistics,
 completeness (chart in the colours of the BUSCO plot), evidence support,
 sanity filter, UTRs, ncRNA (bar chart of the ncRNAs per type and tool),
 OMArk, gffcompare, FANTASIA, software versions (`qc/software_versions.tsv`)
@@ -344,22 +349,22 @@ physical size, so the text of all plots is equally large.
 
 ```
 <outdir>/
-  <stem>.gff3, <stem>.gtf, <stem>_proteins.fa, <stem>_cds.fa
-  <stem>_with_ncRNA.gff3                       ncrna.run
-  <stem>_go.gff3, <stem>_with_ncRNA_go.gff3    fantasia.run
+  paludamentum.gff3, paludamentum.gtf, paludamentum_proteins.fa, paludamentum_cds.fa
+  paludamentum_with_ncRNA.gff3                       ncrna.run
+  paludamentum_go.gff3, paludamentum_with_ncRNA_go.gff3    fantasia.run
   report.html
   intermediate/
-    <tool>_merged.gff3                         evidence modes: ab initio + HC genes, before the sanity filter
+    combined.gff3                              output of combine_genesets.py, before the sanity filter
     <tool>_ab_initio.gff3                      ab initio predictions, before the sanity filter
-    <stem>_sanity_filtered.gff3                after the sanity filter, before the UTRs
+    paludamentum_sanity_filtered.gff3                after the sanity filter, before the UTRs
   qc/
     sanity_filter.tsv, utr_report.tsv
     gene_support.tsv, gene_set_statistics.txt, *.png
-    software_versions.tsv                      gene finder and post-processing tools
+    software_versions.tsv                      gene finder and post-processing tools; reused results as "not run, <tool>.result: <file name>"
     compleasm_genome/summary.txt, compleasm_proteins/summary.txt,
     busco_genome_short_summary.txt, busco_proteins_short_summary.txt,
     completeness.tsv, completeness.png,
-    <stem>_longest_isoform.gff3, <stem>_longest_isoform_proteins.fa     qc.busco_lineage
+    paludamentum_longest_isoform.gff3, paludamentum_longest_isoform_proteins.fa     qc.busco_lineage
     omark_summary.txt                          qc.omark
     gffcompare.stats                           qc.reference_annotation
     fantasia/                                  fantasia.run

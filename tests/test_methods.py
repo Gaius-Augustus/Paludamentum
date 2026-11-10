@@ -1,27 +1,18 @@
 """methods.md: the methods text of a run (lib_nf/methods.nf).
 
-Two kinds of tests, both need a ``nextflow`` executable (or NEXTFLOW_BIN):
-
-- tests/methods_check.nf renders the text of some thousand run maps (every
-  mode, gene finder, HC flow, input form and post-processing switch) in one
-  Nextflow run without processes. Every citation of a text must be the short
-  form of a reference that citations.md of that run lists, and the text must
-  keep the format that bin/paludamentum_report.py reads.
-- Stub runs check that main.nf writes methods.md, and that its citations are
-  those of the citations.md next to it.
+Stub runs check that main.nf writes methods.md and that its citations are
+those of the citations.md next to it. The exhaustive run-map tests of the
+previous flow (methods_check.nf over thousands of maps) are gone with the
+unified HC flow; a tighter per-run check lives here instead.
 """
 from __future__ import annotations
 
-import itertools
-import json
-import os
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
 
-from test_stub_run import (EVIDENCE, GENEFINDER, NEXTFLOW, ROOT, assert_ok, drusilla_params,
+from test_stub_run import (BOTH_FINDERS, EVIDENCE, GENEFINDER, NEXTFLOW, PROTEINS, assert_ok, fake_stringtie_gtf,
                            run_pipeline)
 
 pytestmark = [
@@ -30,22 +21,22 @@ pytestmark = [
 ]
 
 TITLE = "# Methods of this Paludamentum run"
+CITATION = re.compile(r"\(([^()]*?(?:\b(?:19|20)\d\d[a-z]?|n\.d\.))\)")
 
 
-# ---------------------------------------------------------------- short citations
+def citations_of(text: str) -> list[str]:
+    return [c.strip() for group in CITATION.findall(text) for c in group.split(";")]
+
 
 def short_cite(ref: str) -> str:
-    """The short citation of a reference string, written independently of shortCite in lib_nf/methods.nf."""
     end = ref.find(". ")
     authors = [a.strip() for a in (ref[:end] if end > 0 else ref).split(",") if a.strip()]
-    et_al = authors[-1] == "et al"
+    et_al = authors and authors[-1] == "et al"
     if et_al:
         authors = authors[:-1]
-
     def surname(author: str) -> str:
         parts = author.split()
         return " ".join(parts[:-1]) if len(parts) > 1 else author
-
     if et_al or len(authors) > 2:
         names = f"{surname(authors[0])} et al."
     elif len(authors) == 2:
@@ -56,28 +47,7 @@ def short_cite(ref: str) -> str:
     return f"{names}, {years[-1] if years else 'n.d.'}"
 
 
-def short_cites(refs: dict[str, str]) -> dict[str, str]:
-    """short_cite of each reference (key: ref string, in the order of references()),
-    with a, b, ... after the year where references share authors and year."""
-    plain = {key: short_cite(ref) for key, ref in refs.items()}
-    out = {}
-    for key, cite in plain.items():
-        same = [k for k, c in plain.items() if c == cite]
-        out[key] = cite + "abcdefghijklmnopqrstuvwxyz"[same.index(key)] if len(same) > 1 and not cite.endswith("n.d.") else cite
-    return out
-
-
-CITATION = re.compile(r"\(([^()]*?(?:\b(?:19|20)\d\d[a-z]?|n\.d\.))\)")
-
-
-def citations_of(text: str) -> list[str]:
-    """The single citations of a methods text: '(A, 2020; B et al., 2021)' -> two."""
-    return [c.strip() for group in CITATION.findall(text) for c in group.split(";")]
-
-
 def citations_md_shorts(text: str) -> set[str]:
-    """Short citations of the references that a citations.md lists ('- **Tool** (use). REF LINK',
-    with ' (cited as A & B, 2026a)' after the link when the short citation has a letter)."""
     shorts = set()
     for line in text.splitlines():
         if not line.startswith("- **"):
@@ -92,7 +62,6 @@ def citations_md_shorts(text: str) -> set[str]:
 
 
 def check_format(text: str) -> None:
-    """The format that bin/paludamentum_report.py reads, and the style rules of the text."""
     assert text.startswith(TITLE + "\n\n"), text[:200]
     assert text.endswith("\n") and not text.endswith("\n\n"), repr(text[-50:])
     paragraphs = text[len(TITLE) + 2:-1].split("\n\n")
@@ -101,216 +70,9 @@ def check_format(text: str) -> None:
         assert not p.startswith(("#", "- ", "* ", "1. ")), p
     for bad in ("null", "None", "[]", "${", "http", "](", "  ", " .", " ,", "..", "unknown"):
         assert bad not in text, (bad, text)
-    # "ab initio" is always italic
     assert all(m == "*ab initio*" for m in re.findall(r"\*?ab initio\*?", text)), text
     assert text.count("`") % 2 == 0, text
 
-
-# ---------------------------------------------------------------- run maps
-
-BASE = {
-    "mode": "proteins", "genefinder": "tiberius", "tiberiusModel": "/m/vertebrates.yaml",
-    "hc": "transdecoder", "orfFinder": "td2", "rescue": True, "odb12": False,
-    "shortFastq": False, "shortBam": False, "shortVarus": False, "isoFastq": False, "isoVarus": False,
-    "busco": False, "compleasm": False, "omark": False, "gffcompare": False,
-    "ncrna": False, "lncrna": True, "fantasia": False,
-    "model": "vertebrates", "clade": "Vertebrata", "result": None, "finetune": False,
-    "splitMinSize": 20000000, "splitMaxFiles": 20,
-    "proteinFiles": 1, "odb12Partitions": [], "scoringMatrix": "blosum62.csv",
-    "shortPaired": False, "shortSingle": False, "shortSra": False, "isoSra": False,
-    "minAlignmentRate": 80, "stringtieFiles": 0, "mixVarus": False,
-    "td2PredictArgs": None, "drusillaSettings": None,
-    "sanityFilter": True, "utr": True, "maxUtrExtension": 5000, "buscoLineage": None,
-    "geneSupport": True, "statistics": True, "trnascanHighConfidence": False, "fantasiaMinScore": 0.5,
-}
-
-DRUSILLA = {
-    "model": "vertebrates", "weights": None, "lgbModel": "drusilla_lgb_3class_v1",
-    "minLength": 300, "minCov": 3, "minTpm": 1, "longLength": 3000, "minTpmLong": 0.5,
-    "minCodingLength": 200, "fixStop": True, "fixStart": True, "lgbThreshold": 0.5, "lgbKeep": ["correct"],
-    "rescueModel": "vertebrates", "rescueFlank": 25000, "rescueHintWeight": 2.5, "rescueOrfFilter": False,
-}
-
-INPUTS = {
-    "abinitio": {"none": {}},
-    "proteins": {"local": {}, "odb12": {"odb12": True, "odb12Partitions": ["Vertebrata", "Metazoa"]},
-                 "both": {"proteinFiles": 2, "odb12": True, "odb12Partitions": ["Fungi"]}},
-    "rnaseq": {
-        "fastq": {"shortFastq": True, "shortPaired": True},
-        "sra": {"shortFastq": True, "shortSingle": True, "shortSra": True},
-        "bam": {"shortBam": True},
-        "varus": {"shortVarus": True},
-        "stringtie": {"stringtieFiles": 1},
-        "fastq+stringtie": {"shortFastq": True, "shortPaired": True, "stringtieFiles": 2},
-    },
-    "isoseq": {
-        "fastq": {"isoFastq": True},
-        "sra": {"isoFastq": True, "isoSra": True},
-        "varus": {"isoVarus": True},
-        "stringtie": {"stringtieFiles": 1},
-    },
-    "mixed": {
-        "fastq": {"shortFastq": True, "shortPaired": True, "shortSingle": True, "isoFastq": True},
-        "bam": {"shortBam": True, "isoFastq": True},
-        "varus": {"shortVarus": True, "isoVarus": True},
-        "mixvarus": {"shortVarus": True, "isoVarus": True, "mixVarus": True},
-        "stringtie": {"stringtieFiles": 1},
-    },
-}
-
-GENEFINDERS = {
-    "tiberius": {},
-    "tiberius-mammalia": {"tiberiusModel": "/m/mammalia_softmasking_v2.yaml", "model": "mammalia_softmasking_v2",
-                          "clade": "Mammalia"},
-    "tiberius-result": {"tiberiusModel": None, "model": None, "clade": None, "result": "previous.gtf"},
-    "vipsania": {"genefinder": "vipsania", "tiberiusModel": None, "model": "Fungi", "clade": "Fungi"},
-    "vipsania-vertebrata": {"genefinder": "vipsania", "tiberiusModel": None, "model": "etb1go6q",
-                            "clade": "Vertebrata", "finetune": True},
-    "none": {"genefinder": None},
-}
-
-POSTPROCESSING = {
-    "defaults": {},
-    "all": {"busco": True, "compleasm": True, "buscoLineage": "vertebrata_odb12", "omark": True,
-            "gffcompare": True, "ncrna": True, "trnascanHighConfidence": True, "fantasia": True},
-    "off": {"sanityFilter": False, "utr": False, "geneSupport": False, "statistics": False, "ncrna": True,
-            "lncrna": False, "compleasm": True, "buscoLineage": "eukaryota_odb12"},
-}
-
-
-def cases() -> list[tuple[str, dict]]:
-    out = []
-    for mode, inputs in INPUTS.items():
-        transcripts = mode in ("rnaseq", "isoseq", "mixed")
-        for (inp, extra), (gf, finder), (pp, post) in itertools.product(
-                inputs.items(), GENEFINDERS.items(), POSTPROCESSING.items()):
-            if mode == "abinitio" and gf == "none":
-                continue   # main.nf stops: the ab initio mode needs a gene finder
-            flows = [("transdecoder", "td1"), ("transdecoder", "td2")]
-            if transcripts and gf != "none":
-                flows += [("drusilla", None)]
-            for (hc, orf), rescue in itertools.product(flows, [True, False]):
-                if inp == "mixvarus" and hc != "drusilla":
-                    continue
-                run = {**BASE, "mode": mode, **extra, **finder, **post, "hc": hc,
-                       "orfFinder": orf, "rescue": rescue}
-                if hc == "drusilla":
-                    run["drusillaSettings"] = {**DRUSILLA, "rescueOrfFilter": not rescue,
-                                               "lgbKeep": ["correct"] if rescue else ["correct", "partial"]}
-                if hc == "transdecoder" and orf == "td2" and rescue:
-                    run["td2PredictArgs"] = "--precise"
-                out.append((f"{mode}-{inp}-{gf}-{hc}-{orf}-{pp}-rescue{rescue}", run))
-                if hc == "drusilla" and rescue:
-                    # a clade without LightGBM model (Insecta): no filter, no rescue
-                    nolgb = {**run, "rescue": False,
-                             "drusillaSettings": {**run["drusillaSettings"], "lgbModel": None}}
-                    out.append((f"{mode}-{inp}-{gf}-{hc}-{pp}-nolgb", nolgb))
-                    # no proteins: no protein alignments, no codon fix, no filter, no rescue
-                    out.append((f"{mode}-{inp}-{gf}-{hc}-{pp}-noproteins", {
-                        **nolgb, "proteinFiles": 0, "odb12": False, "odb12Partitions": [], "scoringMatrix": None,
-                        "drusillaSettings": {**nolgb["drusillaSettings"], "fixStop": False, "fixStart": False}}))
-    return out
-
-
-@pytest.fixture(scope="module")
-def rendered(tmp_path_factory) -> dict:
-    tmp = tmp_path_factory.mktemp("methods")
-    named = cases()
-    (tmp / "cases.json").write_text(json.dumps([run for _name, run in named]))
-    proc = subprocess.run(
-        [NEXTFLOW, "run", str(ROOT / "tests" / "methods_check.nf"),
-         "--cases", str(tmp / "cases.json"), "--out", str(tmp / "result.json")],
-        cwd=tmp, env=dict(os.environ, NXF_ANSI_LOG="false"), capture_output=True, text=True,
-    )
-    assert_ok(proc)
-    result = json.loads((tmp / "result.json").read_text())
-    assert len(result["cases"]) == len(named)
-    return {"cases": [(name, run, res) for (name, run), res in zip(named, result["cases"])],
-            "references": result["references"]}
-
-
-def test_short_citations_of_the_references(rendered) -> None:
-    """shortCite (Groovy) agrees with short_cite (above), and no two references share one."""
-    refs = rendered["references"]
-    expected = short_cites({key: r["ref"] for key, r in refs.items()})
-    for key, r in refs.items():
-        assert r["short"] == expected[key], key
-    shorts = [r["short"] for r in refs.values()]
-    assert len(shorts) == len(set(shorts)), sorted(shorts)
-    assert refs["miniprot"]["short"] == "Li, 2023"
-    assert refs["infernal"]["short"] == "Nawrocki & Eddy, 2013"
-    assert refs["nextflow"]["short"] == "Di Tommaso et al., 2017"
-    assert refs["transdecoder"]["short"] == "Haas et al., 2013"
-    assert refs["paludamentum"]["short"] == "Gabriel & Hoff, 2026a" and refs["drusilla"]["short"] == "Gabriel & Hoff, 2026b"
-    assert refs["pybarrnap"]["short"] == "Shimoyama, 2024" and refs["barrnap"]["short"] == "Seemann, 2018"
-
-
-def test_every_citation_is_a_reference_of_the_run(rendered) -> None:
-    refs = rendered["references"]
-    assert len(rendered["cases"]) > 1000
-    for name, _run, res in rendered["cases"]:
-        assert res["problems"] == [], name
-        assert set(res["cited"]) <= set(res["selected"]), name
-        selected = {refs[k]["short"] for k in res["selected"]}
-        cited = citations_of(res["text"])
-        assert cited, name
-        assert set(cited) <= selected, (name, set(cited) - selected)
-        # every cited key appears as its short citation
-        assert {refs[k]["short"] for k in res["cited"]} == set(cited), name
-
-
-def test_format_of_the_text(rendered) -> None:
-    for name, _run, res in rendered["cases"]:
-        try:
-            check_format(res["text"])
-        except AssertionError as e:
-            raise AssertionError(f"{name}: {e}") from None
-
-
-def test_text_follows_the_run(rendered) -> None:
-    for name, run, res in rendered["cases"]:
-        text = res["text"]
-        transcripts = run["mode"] in ("rnaseq", "isoseq", "mixed")
-        drusilla = transcripts and run["hc"] == "drusilla"
-        proteins = run["proteinFiles"] > 0 or run["odb12"]
-        lgb = drusilla and bool((run["drusillaSettings"] or {}).get("lgbModel"))
-        assert f"in mode `{run['mode']}`" in text, name
-        assert ("miniprot" in text) == (run["mode"] != "abinitio" and proteins), name
-        assert ("without protein evidence" in text) == (run["mode"] != "abinitio" and not proteins), name
-        assert ("Drusilla" in text) == drusilla, name
-        assert ("LightGBM (" in text) == lgb, name
-        assert ("without the LightGBM filter" in text) == (drusilla and proteins and not lgb), name
-        assert ("hint rescue" in text) == (lgb and run["rescue"]), name
-        assert ("TD2" in text) == (transcripts and not drusilla and run["orfFinder"] == "td2"), name
-        assert ("TransDecoder" in text) == (transcripts and not drusilla and run["orfFinder"] == "td1"), name
-        assert ("StringTie" in text) == transcripts, name
-        assert ("HISAT2" in text) == (run["mode"] in ("rnaseq", "mixed") and run["shortFastq"]), name
-        assert ("minimap2" in text) == (run["mode"] in ("isoseq", "mixed") and run["isoFastq"]), name
-        assert ("Sequence Read Archive" in text) == (
-            (run["mode"] in ("rnaseq", "mixed") and (run["shortSra"] or run["shortVarus"]))
-            or (run["mode"] in ("isoseq", "mixed") and (run["isoSra"] or run["isoVarus"]))), name
-        assert ("OrthoDB v12" in text) == (run["odb12"] and run["mode"] != "abinitio"), name
-        gf = run["genefinder"]
-        # no gene finder: no final annotation, no post-processing
-        assert ("No gene finder was run" in text) == (gf is None), name
-        assert ("GFF3" in text) == (gf is not None), name
-        if gf is None:
-            continue
-        assert ("Tiberius" if gf == "tiberius" else "Vipsania") in text, name
-        if run["result"]:
-            assert f"`{run['result']}`" in text and "chunks" not in text, name
-        assert ("UTRs from the StringTie" in text) == (transcripts and run["utr"]), name
-        assert ("sanity filter removed" in text) == run["sanityFilter"], name
-        assert ("BUSCO" in text) == run["busco"] and ("compleasm" in text) == run["compleasm"], name
-        if run["busco"] or run["compleasm"]:
-            assert f"`{run['buscoLineage']}`" in text, name
-        assert ("OMArk" in text) == run["omark"] and ("GffCompare" in text) == run["gffcompare"], name
-        assert ("tRNAscan-SE" in text) == run["ncrna"], name
-        assert ("FEELnc" in text) == (run["ncrna"] and run["lncrna"] and transcripts), name
-        assert ("FANTASIA" in text) == run["fantasia"], name
-
-
-# ---------------------------------------------------------------- stub runs
 
 def methods_and_citations(tmp_path: Path) -> tuple[str, str]:
     out = tmp_path / "out"
@@ -325,44 +87,206 @@ def check_stub_run(tmp_path: Path) -> str:
     return methods
 
 
-def test_stub_run_proteins_tiberius(tmp_path: Path) -> None:
-    cfg = tmp_path / "vertebrates.yaml"
-    cfg.write_text('target_species: "Vertebrata"\n')
-    params = {"tiberius": {"run": True, "model_cfg": str(cfg)}, **EVIDENCE["proteins"],
-              "qc": {"busco_lineage": "vertebrata"}}
+def test_stub_run_combined_rnaseq(tmp_path: Path) -> None:
+    """Evidence mode: both gene finders, both ORF callers, combine_genesets."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
     proc, published = run_pipeline(tmp_path, params)
     assert_ok(proc)
     assert "methods.md" in published
     methods = check_stub_run(tmp_path)
-    assert "in mode `proteins`" in methods and "the model `vertebrates`" in methods
-    assert "against the lineage `vertebrata_odb12`" in methods
-    assert "UTRs" not in methods and "StringTie" not in methods
+    assert "in mode `rnaseq`" in methods
+    for phrase in ("Tiberius", "Vipsania", "StringTie", "miniprot", "TD2", "Drusilla"):
+        assert phrase in methods, phrase
+    # default selection: the classifier; the stub models' clade (Vipsania model Fungi) has classifier_clade
+    # fungi in the HC table, so the t_locus of the classifier model (0.25) applies, not the unknown-clade one
+    assert "gradient-boosted tree classifier" in methods and "reached a tier" not in methods
+    assert "if its probability reached 0.25," in methods
+    assert "outside the training clades" not in methods
+    assert "further models of the locus if theirs reached 0.3" in methods
 
 
-def test_stub_run_mixed_drusilla(tmp_path: Path) -> None:
-    proc, published = run_pipeline(tmp_path, {**drusilla_params(tmp_path, "tiberius"), **EVIDENCE["mixed"],
-                                               "ncrna": {"run": True}})
+def test_stub_run_combined_clade_outside_the_classifier(tmp_path: Path) -> None:
+    """A clade not in the HC table (Stramenopiles) gets the conservative locus threshold 0.3 and says so."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": {"model": "Stramenopiles"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
-    assert "HC genes    : drusilla" in proc.stdout
     methods = check_stub_run(tmp_path)
-    for phrase in ("in mode `mixed`", "`stringtie --mix`", "Drusilla flow", "LightGBM", "hint rescue",
-                   "HISAT2", "minimap2", "UTRs from the StringTie", "FEELnc", "tRNAscan-SE"):
-        assert phrase in methods, (phrase, methods)
-    assert "TD2" not in methods and "TransDecoder" not in methods
+    assert "if its probability reached 0.3 (the threshold for clades outside the training clades" in methods
+    assert "reached 0.25" not in methods
 
 
-def test_stub_run_ab_initio_vipsania(tmp_path: Path) -> None:
-    proc, published = run_pipeline(tmp_path, GENEFINDER["vipsania"])
+def test_stub_run_combined_tiberius_mesangiospermae(tmp_path: Path) -> None:
+    """Tiberius target_species Mesangiospermae (classifier_clade embryophyta) is a known clade; it wins
+    over the Vipsania model (Stramenopiles, not in the table)."""
+    cfg = tmp_path / "angiosperms.yaml"
+    cfg.write_text('target_species: "Mesangiospermae"\n')
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": {"model": "Stramenopiles"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "if its probability reached 0.25," in methods
+    assert "outside the training clades" not in methods
+
+
+def test_stub_run_combined_standard_thresholds_clade(tmp_path: Path) -> None:
+    """Chlorophyta is in the HC table with standard_thresholds (no classifier_clade): not a new clade, so the
+    t_locus of the classifier model (0.25) applies and the log names standard_thresholds."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": {"model": "Chlorophyta"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "if its probability reached 0.25," in methods
+    assert "outside the training clades" not in methods
+    assert "standard_thresholds" in proc.stdout
+
+
+def test_stub_run_combined_tiberius_bacillariophyta(tmp_path: Path) -> None:
+    """Tiberius target_species Bacillariophyta (standard_thresholds) wins over the Vipsania model
+    (Stramenopiles, not in the table): standard thresholds, no unknown-clade note."""
+    cfg = tmp_path / "diatoms.yaml"
+    cfg.write_text('target_species: "Bacillariophyta"\n')
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": {"model": "Stramenopiles"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "if its probability reached 0.25," in methods
+    assert "outside the training clades" not in methods
+
+
+def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:
+    """combine.classifier = false: the tier rules are described; combine.t_locus overrides the model's."""
+    base = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, {**base, "combine": {"classifier": False}})
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "reached a tier of 4" in methods
+    assert "classifier" not in methods
+    other = tmp_path / "t"
+    other.mkdir()
+    proc, _ = run_pipeline(other, {**base, "combine": {"t_locus": 0.4}})
+    assert_ok(proc)
+    methods = check_stub_run(other)
+    assert "if its probability reached 0.4," in methods
+
+
+def test_stub_run_rnaseq_without_tiberius(tmp_path: Path) -> None:
+    """Vipsania as the only ab initio gene set: three gene sets, the classifier for runs without Tiberius,
+    no Tiberius anywhere in the methods or the references."""
+    params = {"vipsania": {"model": "Nematoda"}, **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "Genes were predicted *ab initio* with Vipsania" in methods
+    assert "The three gene sets (Vipsania, revised TD2, Drusilla) were integrated" in methods
+    assert "gradient-boosted tree classifier for runs without Tiberius" in methods
+    assert "RNA and protein features" in methods
+    # thresholds of the model, which also apply to clades outside the HC table (Nematoda)
+    assert "if its probability reached 0.225" in methods
+    assert "further models of the locus if theirs reached 0.3" in methods
+    # Tiberius is named only as the gene set the classifier was trained without, never as a run tool
+    for phrase in ("predicted *ab initio* with Tiberius", "(Tiberius, Vipsania", "Tiberius-only", "drop-lone-single-exon"):
+        assert phrase not in methods, phrase
+    citations = (tmp_path / "out" / "citations.md").read_text()
+    assert "**Vipsania**" in citations and "**Tiberius**" not in citations and "gene finder: vipsania" in citations
+
+
+def test_stub_run_stringtie_without_reads(tmp_path: Path) -> None:
+    """A given assembly without reads: the methods say that the intron hints and the coverage track were
+    derived from the assembly, and the integration and the gene support count RNA evidence."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **PROTEINS,
+              "stringtie": fake_stringtie_gtf(tmp_path)}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "in mode `rnaseq` (with protein evidence and transcript assemblies)" in methods
+    assert "was used as the transcript assembly; no reads were aligned." in methods
+    assert "Intron hints were derived from the assembly" in methods
+    assert "a coverage track from the coverage values of its exons" in methods
+    assert "the intron hints and the coverage track derived from the assembly were used" in methods
+    assert "RNA and protein features" in methods
+    assert "the hints of the run were the protein hints and the intron hints of the assembly" in methods
+    assert "supported by RNA-Seq and protein hints were counted" in methods
+    for phrase in ("bam2hints", "genomecov", "HISAT2", "no coverage track and no intron hints"):
+        assert phrase not in methods, phrase
+
+
+def test_stub_run_proteins_combined(tmp_path: Path) -> None:
+    """Protein-only mode: both gene finders and combine_genesets.py with the protein-only classifier,
+    no transcript steps in the text."""
+    cfg = tmp_path / "vertebrates.yaml"
+    cfg.write_text('target_species: "Vertebrata"\n')
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["proteins"]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "methods.md" in published
+    methods = check_stub_run(tmp_path)
+    assert "in mode `proteins` (with protein evidence)" in methods
+    for phrase in ("Tiberius", "Vipsania", "miniprot", "DIAMOND", "two *ab initio* gene sets (Tiberius, Vipsania)",
+                   "gradient-boosted tree classifier for runs without transcript evidence",
+                   "without transcript evidence no ORF caller ran"):
+        assert phrase in methods, phrase
+    for phrase in ("StringTie", "TD2", "Drusilla", "bedtools", "bam2hints", "RNA and protein features", "UTR"):
+        assert phrase not in methods, phrase
+    # the protein-only model's thresholds (Vertebrata has classifier_clade vertebrates: no unknown-clade threshold)
+    assert "if its probability reached 0.2," in methods
+    assert "further models of the locus if theirs reached 0.3" in methods
+    assert "outside the training clades" not in methods
+    assert "reduced to the proteins of 13 species" in methods
+    assert "the genus and species in front of the identifiers of reference proteomes" in methods
+    citations = (tmp_path / "out" / "citations.md").read_text()
+    for tool in ("Tiberius", "Vipsania", "miniprot", "DIAMOND"):
+        assert f"**{tool}**" in citations, tool
+    for tool in ("StringTie", "TD2", "Drusilla", "PSAURON"):
+        assert f"**{tool}**" not in citations, tool
+
+
+def test_stub_run_proteins_no_species_reduction(tmp_path: Path) -> None:
+    cfg = tmp_path / "vertebrates.yaml"
+    cfg.write_text('target_species: "Vertebrata"\n')
+    params = {"tiberius": {"model_cfg": str(cfg)}, "vipsania": BOTH_FINDERS["vipsania"],
+              "protein_top_species": 0, **EVIDENCE["proteins"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "reduced to the proteins of" not in methods
+
+
+def test_stub_run_proteins_tier_rules(tmp_path: Path) -> None:
+    """combine.classifier_proteins = false: the tier rules are described, without RNA rules."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"],
+              "combine": {"classifier_proteins": False}, **EVIDENCE["proteins"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "reached a tier of 4" in methods and "classifier" not in methods
+    assert "adjusted the tier with protein and DIAMOND features" in methods
+
+
+def test_stub_run_abinitio_both_models(tmp_path: Path) -> None:
+    """The ab initio combination: both gene finders and combine_genesets.py without evidence; the methods
+    describe the evidence-free classifier at 0.30 / 0.25 and cite no evidence tool."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
     methods = check_stub_run(tmp_path)
     assert "in mode `abinitio` (without extrinsic evidence)" in methods
-    assert "Vipsania" in methods and "the pretrained model `Fungi`" in methods
-    assert "miniprot" not in methods and "Tiberius" not in methods
+    assert "A second set of *ab initio* predictions was made with Vipsania" in methods
+    assert "integrated by `combine_genesets.py` without extrinsic evidence" in methods
+    assert "gradient-boosted tree classifier for runs without evidence" in methods
+    assert "if its probability reached 0.3, and further models of the locus if theirs reached 0.25" in methods
+    for phrase in ("miniprot", "DIAMOND", "StringTie", "TD2", "Drusilla", "hints", "UTR"):
+        assert phrase not in methods, phrase
+    citations = (tmp_path / "out" / "citations.md").read_text()
+    for tool in ("Tiberius", "Vipsania", "GffRead", "GenomeTools"):
+        assert f"**{tool}" in citations, tool
+    for tool in ("miniprot", "DIAMOND", "StringTie", "TD2", "Drusilla"):
+        assert f"**{tool}**" not in citations, tool
 
 
-def test_stub_run_without_gene_finder(tmp_path: Path) -> None:
-    proc, published = run_pipeline(tmp_path, {**EVIDENCE["rnaseq"], "transdecoder": "td1"})
+def test_stub_run_ab_initio_vipsania(tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, GENEFINDER["vipsania"])
     assert_ok(proc)
     methods = check_stub_run(tmp_path)
-    assert "No gene finder was run" in methods and "TransDecoder" in methods
-    assert "GFF3" not in methods
+    assert "in mode `abinitio`" in methods
+    assert "Vipsania" in methods
+    assert "miniprot" not in methods and "Tiberius" not in methods

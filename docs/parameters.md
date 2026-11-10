@@ -24,10 +24,9 @@ genome: /path/to/genome.fa
 
 ### Protein Sequences (required for every mode except `abinitio`)
 Path to one or more FASTA files with protein sequences aligned to the target genome.
-Multiple files are concatenated in input order. RNA-Seq and Iso-Seq evidence
-need protein evidence, because the TransDecoder high-confidence genes are
-selected by protein homology; only the [Drusilla flow](drusilla_flow.md)
-(clades with a Drusilla model in `hc_table`) runs without proteins.
+Multiple files are concatenated in input order. Evidence runs (`rnaseq`,
+`isoseq`, `mixed`) always need protein evidence: `combine_genesets.py`
+reads four DIAMOND tables, miniprot alignments and miniprothint hints.
 
 Example:
 ```yaml
@@ -116,12 +115,22 @@ You can also set parameters of the pipeline within the file, default parameters 
 | `threads`                  | `48`                                   | Default number of CPUs reserved per task. Every tool runs with exactly the CPUs reserved for its task (`task.cpus`); a site config that sets `process.cpus` overrides this default. |
 | `outdir`                   | `"results"` (the launcher sets `<genefinder>_results`) | Directory where all final results are written.                                                               |
 | `scoring_matrix`           | `"conf/blosum62.csv"` | Amino acid substitution scoring matrix used by homology-based tools.                                         |
+| `protein_top_species`      | `13`                                   | A protein database of more than 1,000,000 proteins whose ids all name their species (OrthoDB `<taxid>_<n>:<hex>`, or `<Genus>_<species>_<id>` of reference proteomes) is reduced to the proteins of this many species, those with the most best DIAMOND hits of the gene finder proteins, before miniprot. `0` keeps the whole database. |
 | `mode`                     | inferred                               | Pipeline mode, see [Mode](#mode).                                                                            |
+| `auto_model`               | `true`                                 | Read by the launcher: in a run with evidence and the model of one gene finder only, add the matching model of the other one (Vipsania `Fungi` and Tiberius `fungi`, ...), see [Matching models](../README.md#matching-models). `false` (`--no_auto_model`) runs what was given. |
 | `keep_downloads`           | `false`                                | Copy the reads downloaded from SRA to `sra_downloads/` in `outdir`. Off, they are kept in the work directory only, which saves a second copy of every library. |
-| `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. |
-| `hc_table`                 | `"conf/hc_genes.yaml"`                 | HC gene step per clade of the gene finder model: `hc: drusilla` (with `drusilla_model`, and optionally `lgb_model`, `lgb_model_sha256`) or the TransDecoder flow, and its `orf_finder`; `recommended`: the most accurate flow measured for the clade, a run that differs gets a warning. Today Drusilla for `Vertebrata`, `Mammalia` and `Insecta` (also `Lepidoptera`, the Tiberius model), TD2 for every other clade. |
-| `transdecoder`             | `orf_finder` of `hc_table` (`"td2"`)   | ORF finder of the TransDecoder HC gene flow: `td1` (TransDecoder 5.7.1) or `td2` ([TD2](https://github.com/Markusjsommer/TD2) 1.1.0, in the container image). See [orf_finder_comparison.md](orf_finder_comparison.md). |
+| `min_alignment_rate`       | `80`                                   | RNA-Seq and Iso-Seq libraries whose alignment rate (`samtools flagstat`, percent mapped) is below this value are dropped. If every RNA-Seq (or every Iso-Seq) library is dropped, the run stops with an error. |
+| `strand_fix`               | `true`                                 | Recover the library strandedness of every short-read BAM before merging and StringTie (`STRAND_FIX_BAM`, `drusilla strand-fix-bam`): the protocol of each run is inferred from its spliced reads, and the `XS` tag is set on all reads of stranded runs. Reads of unstranded runs are unchanged. Not applied to Iso-Seq BAMs; pyVARUS directories bring no BAM. The per-BAM report is `intermediate/strand_fix/<bam>.strand_runs.tsv`. Set `false` to skip it. |
+| `strand_fix_run_regex`     | none                                   | Regex whose group 1 is the run id in the read names of a user BAM (`rnaseq_bam`) that pools several runs, e.g. from VARUS. Without it Drusilla's default is used (leading letters and digits, e.g. `SRR123456`). A HISAT2 BAM of the pipeline is always one run. |
+| `hc_table`                 | `"conf/hc_genes.yaml"`                 | Clade table for the combined HC flow: insect clades trigger `--drop-lone-single-exon tiberius`, `classifier_clade` names the training clade of the selection classifier that covers the clade (a clade with neither it nor `standard_thresholds: true` gets the classifier's conservative locus threshold; `standard_thresholds: true` applies the thresholds of the training clades although the classifier has not seen the clade). It does not choose the Drusilla model (`drusilla.model`). Today Vertebrata, Mammalia (`classifier_clade: vertebrates`), Insecta, Lepidoptera (`insects`), Mesangiospermae (`embryophyta`), Fungi (`fungi`), and Chlorophyta and Bacillariophyta (`standard_thresholds: true`). |
 | `td2_predict_args`         | none                                   | Options appended to `TD2.Predict`, for example `"--precise"`.                                                |
+| `combine.classifier`       | `"conf/combiner_classifier_v1.json"`   | Selection model of `combine_genesets.py --classifier`: gradient-boosted trees (JSON, no extra dependency) that give every candidate structure P(model = reference CDS) from the tools, structure, locus context and RNA / protein evidence; a locus is kept when its best candidate reaches the model's locus threshold (0.25; 0.30 for clades the model was not trained on), further isoforms need 0.30. Full-length transcripts (`--chains`, mixed and Iso-Seq runs) raise the log-odds of a structure whose CDS chain lies in one of them by 1.5 (`combine_genesets.py --chain-logit-full`, calibrated on H. sapiens: +1.2 to +1.7 transcript F1). Trained on 15 species outside the benchmark set; measured +2.6 transcript / +2.4 gene F1 over the tier rules on the 31 benchmark species. `false` selects by the tier rules. |
+| `combine.classifier_proteins` | `"conf/combiner_classifier_protonly_v1.json"` | Selection model of mode `proteins` (genome and proteins, no transcript evidence): the same recipe trained on the keep-all pools of the two gene finders of the 15 training species with protein evidence alone (41 features, no RNA-Seq features); a locus is kept when its best candidate reaches 0.20 (0.30 for clades with neither `classifier_clade` nor `standard_thresholds`), further isoforms need 0.30 (the sensitive end of the flat F1 plateau 0.20 to 0.30 of the species-out cross-validation; `combine.t_locus: 0.15` adds about one point of sensitivity for up to one point of gene-level F1). Measured on the 31 benchmark species with OrthoDB protein sets: +5.4 transcript / +8.9 gene F1 over Tiberius alone (29 of 31 species better), +2.7 / +3.5 over the tier rules (30 of 31). `false` selects by the tier rules. |
+| `combine.classifier_vipsania` | `"conf/combiner_classifier_vipsania_v1.json"` | Selection model of the evidence modes without a Tiberius model (Vipsania, revised TD2 and Drusilla as gene sets): the same recipe trained on the keep-all pools of the 15 training species without the Tiberius gene set (47 features); locus threshold 0.225, isoforms 0.30, the same for clades outside the HC table (which the clades of this flow are). Measured on the 31 benchmark species with the Tiberius gene set removed: 57.4 transcript / 71.2 gene F1, Vipsania alone 44.2 / 54.8, with Tiberius 60.1 / 74.6. `false` selects by the tier rules, which keep almost nothing without Tiberius. |
+| `combine.classifier_abinitio` | `"conf/combiner_classifier_abinitio_v1.json"` | Selection model of mode `abinitio` when both gene finders are given (their two predictions, no evidence): the same recipe trained on the keep-all pools of the 15 training species without any evidence, from the tools, the structure and the locus context (18 features); locus threshold 0.30, isoforms 0.25, the same for clades outside the HC table. Measured on the 31 benchmark species: 49.4 transcript / 63.9 gene F1, Tiberius alone 47.9 / 59.2, Vipsania alone 44.2 / 54.8 (precision-driven; vertebrates lose 3.4 transcript F1). `false` selects by the tier rules. |
+| `combine.t_locus`          | none                                   | Classifier mode: locus threshold on P, overriding the model's (0.25, in mode `proteins` 0.20, without a Tiberius model 0.225, in the ab initio combination 0.30; 0.30 for a clade with neither `classifier_clade` nor `standard_thresholds` in the HC table with the first two models). With `-resume` a change reruns only the combine step and the post-processing. |
+| `combine.t_iso`            | none                                   | Classifier mode: isoform threshold on P, overriding the model's (0.30; 0.25 in the ab initio combination). |
+| `combine.min_locus`        | `4`                                    | Tier rules only (`combine.classifier = false`): minimum tier of the best model of a locus for `combine_genesets.py` to keep the locus. Everything else uses the script defaults; see `combine_genesets.py --help`. |
 
 The location of the required executables is set by default so that they are available in your path, unless you are using the Singularity container:
 | Tool Parameter                       | Default Value                           | Description                                                         |
@@ -131,18 +140,17 @@ The location of the required executables is set by default so that they are avai
 | `tools.minimap2`                     | `"minimap2"`                            | Path to Minimap2 aligner (used for Iso-Seq).                        |
 | `tools.stringtie`                    | `"stringtie"`                           | Path to StringTie3 for transcript assembly.                          |
 | `tools.samtools`                     | `"samtools"`                            | Path to Samtools for BAM/FASTQ operations.                          |
-| `tools.transdecoder_longorfs`        | `"TransDecoder.LongOrfs"`               | Tool to detect long ORFs for protein prediction.                    |
-| `tools.transdecoder_predict`         | `"TransDecoder.Predict"`                | Main TransDecoder protein prediction step.                          |
 | `tools.transdecoder_util_gtf2fa`     | `"gtf_genome_to_cdna_fasta.pl"`         | Utility for converting GTF + genome → cDNA FASTA.                   |
-| `tools.transdecoder_util_orf2genome` | `"cdna_alignment_orf_to_genome_orf.pl"` | Maps ORF predictions from cDNA-level to genome coordinates.         |
-| `tools.transdecoder_gtf2gff`         | `"gtf_to_alignment_gff3.pl"`            | Converts GTF to alignment-style GFF3 for TransDecoder.              |
-| `tools.td2_longorfs`                 | `"TD2.LongOrfs"`                        | Long ORF detection of TD2 (`transdecoder: td2`).                    |
-| `tools.td2_predict`                  | `"TD2.Predict"`                         | ORF prediction of TD2 (`transdecoder: td2`).                        |
-| `tools.diamond`                      | `"diamond"`                             | Diamond alignment tool for protein-to-genome searches.              |
-| `tools.miniprot`                     | `"miniprot"`                            | MiniProt — protein-to-genome aligner.                               |
-| `tools.miniprot_boundary_scorer`     | `"miniprot_boundary_scorer"`            | Additional MiniProt scoring utility for boundary refinement.        |
-| `tools.miniprothint`                 | `"miniprothint.py"`                     | MiniProtHint wrapper script for generating protein hints.           |
-| `tools.bam2hints`                    | `"bam2hints"`                           | Converts RNA-Seq BAM alignments into genome annotation hint format. |
+| `tools.transdecoder_util_orf2genome` | `"cdna_alignment_orf_to_genome_orf.pl"` | Maps the revised TD2 ORFs from transcript to genome coordinates.    |
+| `tools.transdecoder_gtf2gff`         | `"gtf_to_alignment_gff3.pl"`            | Converts GTF to alignment-style GFF3 (writes the GFF3 that TD2 needs from the StringTie assembly). |
+| `tools.td2_longorfs`                 | `"TD2.LongOrfs"`                        | Long ORF detection of TD2.                                          |
+| `tools.td2_predict`                  | `"TD2.Predict"`                         | ORF prediction of TD2.                                              |
+| `tools.diamond`                      | `"diamond"`                             | DIAMOND, used both for species selection (12-col) and the four combine_genesets runs (14-col). |
+| `tools.miniprot`                     | `"miniprot"`                            | miniprot: protein-to-genome aligner.                                |
+| `tools.miniprot_boundary_scorer`     | `"miniprot_boundary_scorer"`            | miniprot boundary scorer for boundary refinement.                   |
+| `tools.miniprothint`                 | `"miniprothint.py"`                     | miniprothint wrapper for protein hints.                             |
+| `tools.bam2hints`                    | `"bam2hints"`                           | Converts RNA-Seq BAM alignments into intron hints.                  |
+| `tools.bedtools`                     | `"bedtools"`                            | `bedtools genomecov -bg -split` writes `rna_cov.bg.gz` for combine_genesets. |
 
 
 
@@ -150,13 +158,17 @@ The location of the required executables is set by default so that they are avai
 Already aligned short reads, for example from VARUS, go to `rnaseq_bam` as a
 list of BAM files. They skip the HISAT2 step. A BAM whose header does not say
 `SO:coordinate` is sorted first; a coordinate-sorted one is used as it is.
+Like the HISAT2 BAMs, user BAMs go through the strand fix (`strand_fix`); the
+run ids are taken from the read names (`strand_fix_run_regex`).
 
 ### pyVARUS output directories
 [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) writes `stringtie.gtf`
 and `hints.gff` next to `VARUS.bam`, made as the pipeline makes them from a
 BAM. Pass the output directory instead of the BAM; this also works after
 `varus run --drop-bam`. The directories skip mapping, `bam2hints` and
-StringTie.
+StringTie. A pyVARUS directory brings no BAM: with pyVARUS input only,
+there is no coverage track, and `combine_genesets.py` runs without
+`--coverage` (the intron hints are used).
 
 ```yaml
 rnaseq_varus:                # short-read runs
@@ -174,11 +186,11 @@ for long reads).
 
 The hints of several sources of one read type (several directories, or
 directories and reads) are summed as `bam2hints` would count them on all
-reads. TransDecoder flow: each directory adds its assembly to the
-per-library assemblies. The Drusilla flow needs one assembly of all reads of
-a read type: in `rnaseq` and `isoseq` mode pass exactly one directory and no
-other reads of that type. In `mixed` mode it needs one `stringtie --mix`
-assembly of both read types:
+reads. In mixed mode both hint files (short reads and Iso-Seq) go to
+`combine_genesets.py`, which sums them per intron. The combined HC flow
+needs one assembly of all reads of a read type: in `rnaseq` and `isoseq`
+mode pass exactly one directory and no other reads of that type. In `mixed`
+mode it needs one `stringtie --mix` assembly of both read types:
 
 ```sh
 varus assemble genome.fa --short varus_short/VARUS.bam --long varus_long/VARUS.bam --outdir varus_mixed
@@ -190,15 +202,17 @@ isoseq_varus: /path/to/varus_long
 mixed_varus:  /path/to/varus_mixed
 ```
 
-Then pass no other short reads or Iso-Seq. `mixed_varus` is used only by the
-Drusilla flow in mixed mode. `varus replay` rebuilds a BAM deleted by
+Then pass no other short reads or Iso-Seq. `mixed_varus` is used only in
+mixed mode. `varus replay` rebuilds a BAM deleted by
 `--drop-bam`.
 
 ### StringTie assemblies
 
 A StringTie assembly made outside the pipeline goes to `stringtie`
-(`--stringtie`): one GTF, a list, or a glob. It replaces mapping and
-assembly, and it can be combined with reads and BAM files.
+(`--stringtie`): exactly one GTF; several files are an error. It replaces the
+assembly. It can be combined with reads, BAM files and Iso-Seq reads: these
+are mapped and merged into one BAM only, nothing is assembled. The BAM gives
+the coverage track and the intron hints.
 
 ```yaml
 stringtie: /path/to/stringtie.gtf
@@ -206,89 +220,121 @@ stringtie: /path/to/stringtie.gtf
 
 `stringtie` counts as short reads when the mode is inferred, so proteins and
 an assembly give the mode `rnaseq`; a forced `isoseq` or `mixed` accepts it
-as well. In the TransDecoder flow all given assemblies are merged with those
-of the reads (`stringtie --merge`). The Drusilla flow takes exactly one
-assembly and no other RNA-Seq or Iso-Seq input, and needs the `cov` and
-`TPM` attributes that StringTie writes when it assembles reads; an assembly
-without them (the output of `stringtie --merge`) stops the run. A missing
-file is an error. No intron hints are made for a given assembly.
+as well. The combined HC flow takes exactly one assembly and uses it as it
+is (no `stringtie --merge`). It cannot be combined with pyVARUS directories
+(`rnaseq_varus`, `isoseq_varus`, `mixed_varus`): that is an error. The GTF
+needs the `cov` and `TPM` attributes that StringTie writes when it assembles
+reads; an assembly without them (the output of `stringtie --merge`) stops
+the run. A missing file is an error. Without reads there is no BAM for
+`bam2hints` and `bedtools genomecov`; the intron hints and the coverage track
+are then derived from the assembly itself (`ASSEMBLY_HINTS`,
+`bin/assembly_hints.py`): the introns of its transcripts, with the summed
+StringTie `cov` of the transcripts sharing an intron as multiplicity, and a
+bedGraph from the exon `cov` values, published as
+`intermediate/assembly_introns.gff` and `intermediate/assembly_cov.bg.gz`.
+`hintsfile.gff` holds these introns next to the protein hints. Measured on the
+31 benchmark species against the run with the BAM: -0.4 transcript and -0.2
+gene F1, where no RNA evidence at all costs -4.3 / -3.7 (the assembly holds
+about 70 % of the read-supported introns; the real coverage track is worth
+only 0.1 F1).
+
+### Long-read transcripts (chains)
+
+`chains` (`--chains`) takes one or more GTF or GFF3 files (with exon lines) of
+transcripts of full-length reads, typically the `stringtie -L` assembly of
+long reads. They go to `combine_genesets.py --chains`. The ORF callers (TD2,
+Drusilla) still run on the one assembly of the run; only the combiner sees
+these transcripts. A missing file is an error. The parameter works in every
+evidence mode (`rnaseq`, `isoseq`, `mixed`) and is ignored, with a warning,
+in the other modes.
+
+```yaml
+chains:
+  - /path/to/isoseq_stringtie_L.gtf
+```
+
+The combiner calls the CDS chain of a model `full` when its introns are a
+run of the introns of one full-length transcript and its terminal CDS
+segments lie in the flanking exons (a single-exon CDS: inside one exon).
+Such a chain raises a lone ab initio model to tier 6, adds 1 to the rank of
+the model inside its locus, and keeps a further isoform if its tier reaches
+4 (`--iso-chain-min-tier`). The report TSV has the columns `chain_support`
+(`full`, `partial`, `none`) and `chain_n`.
+
+In `mixed` mode the pipeline makes the chains itself when you give no
+`chains`: the `stringtie -L` assembly of the Iso-Seq reads alone.
+`ISOSEQ_EVIDENCE` makes it next to the `--mix` assembly, and an
+`isoseq_varus` directory brings it. With a `stringtie` assembly and Iso-Seq
+reads, the pipeline assembles the Iso-Seq BAM with `-L`
+(`STRINGTIE_ASSEMBLE_CHAINS`). A `mixed_varus` directory alone brings no
+long-read-only assembly, so there are no chains unless you give `chains`.
+Runs in `rnaseq` mode are unchanged unless `chains` is given.
+
+On H. sapiens, the chains raised the transcript F1 (CDS level, gffcompare)
+from 51.5 to 52.2 over the `--mix` assembly alone. The gain is bounded by
+the long-read depth: the long-read assembly held the full CDS chain of 27.5%
+of the reference CDS structures. `--iso-dt-chains` (off) would also require
+a chain for Drusilla+TD2 isoforms; it cost 1.5 to 1.8 F1 there.
 
 ## Gene finder: Tiberius
 
-To run Tiberius set `tiberius.run: true` and choose the model configuration
-for your clade. The available configurations are the YAML files in
-`tiberius/model_cfg/` of the Tiberius submodule (also listed in
+In evidence modes and in mode `proteins` Tiberius always runs; set
+`tiberius.model_cfg` to a model configuration. In `abinitio` mode set
+`tiberius.run: true` as well (one gene finder runs there). The available configurations
+are the YAML files in `tiberius/model_cfg/` of the Tiberius submodule (also
+listed in
 [Tiberius/model_cfg](https://github.com/Gaius-Augustus/Tiberius/tree/main/model_cfg)).
-The launcher resolves a name such as `diatoms` to that file.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `tiberius.run` | `false` (the launcher sets `true` for the selected gene finder) | Run Tiberius and merge its predictions with the HC genes. |
-| `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. |
-| `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` in the model configuration without `.tar.gz`, e.g. `vertebrates_weights`), instead of the download at the start of the run. Tiberius then runs with `--model` and never downloads; the task fails if the directory is missing or empty. Without `model_dir` the archive of `weights_url` is downloaded once on the submitting host (label `download`) and staged into the tasks, so the GPU nodes need no internet. |
-| `tiberius.result` | none | Existing Tiberius prediction (`--result`): the GFF3 or GTF of `tiberius.py`, or the `intermediate/tiberius_ab_initio.gff3` of an earlier run (not `tiberius_ab_initio.gff3` in the output directory of mode `abinitio`, which is the sanity-filtered final annotation). It is used instead of running Tiberius, in every mode; a missing file is an error. `tiberius.model_cfg` is then optional: it is not run, but the model of a vertebrate prediction selects the [Drusilla flow](drusilla_flow.md) and is the model of its hint rescue. |
+| `tiberius.model_cfg` | none | Name of a Tiberius model configuration, or path to a configuration file. Required in mode `proteins` (unless `tiberius.result` is set). In the evidence modes a run without it and without `tiberius.result` has Vipsania as its only *ab initio* gene set (a species outside the Tiberius clades) and selects with `combine.classifier_vipsania`, see [Species without a Tiberius model](../README.md#species-without-a-tiberius-model). |
+| `tiberius.run` | `false` | Only consulted in `abinitio` mode with one model: `true` selects Tiberius as the single gene finder (equivalent to `genefinder: tiberius`). Ignored in evidence modes, in mode `proteins` and in `abinitio` mode with both models, which run both finders. |
+| `tiberius.model_dir` | none | Directory that holds the extracted weights directory (the archive name of `weights_url` without `.tar.gz`, e.g. `vertebrates_weights`), instead of the download at the start of the run. Tiberius then runs with `--model` and never downloads. |
+| `tiberius.result` | none | Existing Tiberius prediction (GFF3 or GTF). Reused instead of running Tiberius. In evidence modes `tiberius.model_cfg` can then be omitted; the clade comes from `tiberius.model_cfg` (if given) via `target_species`. |
 | `tiberius.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |
 | `tiberius.max_files` | `20` | Maximal number of genome chunks, which is the upper limit of parallel Tiberius tasks. |
-| `tiberius.max_parallel` | unlimited | Cap of concurrently running Tiberius tasks, for example `1` on a single-GPU workstation. |
-| `tiberius.batch_size` | automatic | Forwarded to `tiberius.py --batch_size`. Without it, Tiberius sizes the batch from the GPU memory; on GPUs above 80 GB (e.g. 96 GB RTX PRO 6000) that choice overflows int32 in TensorFlow, so the pipeline caps it (`bin/tiberius_batch_size.py`). |
+| `tiberius.max_parallel` | unlimited | Cap of concurrently running Tiberius tasks, e.g. `1` on a single-GPU workstation. |
+| `tiberius.batch_size` | automatic | Forwarded to `tiberius.py --batch_size`. |
 | `tiberius.seq_len` | automatic | Forwarded to `tiberius.py --seq_len`. |
-
-For the prediction the genome is split into smaller FASTA files, so that
-Tiberius can run on several GPUs in parallel.
-
-The pipeline downloads the weights of the model configuration
-(`weights_url` in the YAML) once at the start of the run, on the submitting
-host like the other downloads, and stages them into every Tiberius task, so
-the GPU nodes need no internet. The same holds for the Tiberius model of the
-hint rescue. To skip the download, for example when the submitting host has
-no internet either, download and extract the archive once and set
-`model_dir` to the directory that holds the extracted weights directory: the
-archive name without `.tar.gz`, for example `vertebrates_weights` or `fungi`.
-Tiberius runs with `--model` on these weights and never downloads; a task
-fails if the directory is missing or empty.
 
 ## Gene finder: Vipsania
 
-Set `vipsania.run: true` and `vipsania.model`. All parameters are described in
-[vipsania.md](vipsania.md). Only one gene finder can run. `genefinder: tiberius|vipsania`
-selects one explicitly; without it the block with `run: true` is used.
+In evidence modes and in mode `proteins` Vipsania always runs; set
+`vipsania.model` and (default) leave `vipsania.finetune: true`. In `abinitio`
+mode set `vipsania.run: true` to pick Vipsania as the single gene finder (or
+use `genefinder: vipsania`). All Vipsania-specific parameters are in
+[vipsania.md](vipsania.md).
 
-## Drusilla flow
+## Drusilla
 
-For runs with transcripts and a gene finder model of a clade with
-`hc: drusilla` in `hc_table` (`conf/hc_genes.yaml`: `Vertebrata`, `Mammalia`,
-`Insecta`, `Lepidoptera`), Drusilla ORFs replace the TransDecoder HC genes.
-With protein evidence, the stop and start codons of the ORFs are fixed with
-the protein alignments, and for a clade with a LightGBM model (`Vertebrata`,
-`Mammalia`) the model filters the *ab initio* predictions and the hint rescue
-predicts partial genes again. Without proteins, or without a LightGBM model,
-the ORFs are merged with all *ab initio* predictions. The steps are
-described in [drusilla_flow.md](drusilla_flow.md).
+Drusilla is one of the two ORF callers of the combined HC flow (step 4),
+alongside TD2 (see [drusilla_flow.md](drusilla_flow.md)). The parameters
+below configure the Drusilla model, the StringTie pre-filter and the
+Drusilla GPU task.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `drusilla.run` | `auto` | `auto`: on for the clades with `hc: drusilla` in `hc_table` (Tiberius models whose `target_species` is `Vertebrata`, `Mammalia`, `Insecta` or `Lepidoptera`, Vipsania `Vertebrata` and `Insecta`), if the run has transcripts; `true`: always (an error without transcripts), e.g. for a custom vertebrate model of another clade; a clade without Drusilla models of its own in `hc_table` then uses those of `drusilla_forced` (`Vertebrata`); `false`: never. |
-| `drusilla.model` | `drusilla_model` of the clade in `hc_table` | Released Drusilla model (`drusilla models list`). |
+| `drusilla.model` | `drusilla_model` | Released Drusilla model (`drusilla models list`). The default is the bundled model of all clades (one CNN-BiLSTM, trained on 425 species of vertebrates, insects, embryophyta, fungi, diatoms and chlorophyta). It is bundled with Drusilla and in its image. The per-clade models `vertebrates` and `insects` of earlier versions are no longer released (Drusilla 0.3.0). |
+| `drusilla.result` | none | Existing Drusilla ORFs GTF: used as the Drusilla gene set instead of running `FILTER_STRINGTIE`, `DRUSILLA_ANNOTATE` and `COLLAPSE_ORFS`. The file is passed to `combine_genesets.py` as the `drusilla` input. |
 | `drusilla.weights`, `drusilla.config` | none | A local `.weights.h5` file and its architecture YAML instead of a released model. |
-| `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`), e.g. filled by `drusilla models download vertebrates`, for a submitting host without internet. Without it the archive of the model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task, so the GPU nodes need no internet. A model name that is not in `drusilla/model_cfg/` is downloaded by Drusilla in the task. |
-| `drusilla.batch_size` | automatic | Drusilla batch size; without it Drusilla sizes the batch from the GPU memory. |
+| `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`) for a model that is not bundled, filled by `drusilla models download <model>`. The default model needs none. Without it the archive of such a model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task. |
+| `drusilla.batch_size` | automatic | Drusilla batch size. |
 | `drusilla.shards` | `1` | Parallel Drusilla processes, each on a part of the transcripts. For CPU nodes, where one process uses only one to two cores (e.g. 24 with 48 CPUs). |
 | `drusilla.min_coding_length` | `200` | Minimal CDS length of a Drusilla ORF. |
-| `drusilla.fix_stop`, `drusilla.fix_start` | `true` | Stop codon fix of the ORFs with miniprot alignments; start codon fix with miniprothint start hints (needs `fix_stop`). Runs with protein evidence only. |
 | `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
 | `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
-| `drusilla.drop_unstranded` | `true` | StringTie pre-filter: drop transcripts with strand `.`, which have no spliced reads and are almost all single-exon. On *T. rubripes* the ORFs Drusilla found on them were mostly not genes of the reference: gene F1 76.36 with them, 76.55 without (gffcompare 0.12.6). |
-| `drusilla.lgb_model` | `lgb_model` of the clade in `hc_table` (released `drusilla_lgb_3class_v1` for vertebrates and mammals, none for insects) | LightGBM model of the *ab initio* filter: the archive (URL or file), its unpacked directory, or a `.txt` text model with its `.json`. The filter runs with protein evidence only; without a model, or without proteins, all *ab initio* predictions are merged with the ORFs. |
-| `drusilla.lgb_model_sha256` | none (with `lgb_model` of `hc_table`: its `lgb_model_sha256`) | sha256 of the archive given as `drusilla.lgb_model`, checked after the download; `null`: not checked. |
-| `drusilla.lgb_threshold` | `0.5` | Transcripts with P(partial) + P(correct) at or above it are candidates. |
-| `drusilla.lgb_keep` | `correct` | Classes kept among the candidates, e.g. `correct,partial`. |
-| `drusilla.rescue` | `true` | Hint rescue: loci of partial *ab initio* genes are predicted again by Tiberius with hints. Runs only with the LightGBM filter, whose partial class it predicts again. |
-| `drusilla.rescue_tiberius` | the one of the hint rescue image | Another `tiberius.py` with `--hints`. Without `--hints` the rescue is skipped with a warning. |
-| `drusilla.rescue_model_cfg` | the Tiberius model of the run | Tiberius model of the rescue: a model configuration file, or the name of a model in `model_cfg/` of the hint rescue image. `vertebrates` for Vipsania runs and for `tiberius.result` without `tiberius.model_cfg`. The weights in `tiberius.model_dir` are used only for the model of the run; otherwise the weights of the rescue model are downloaded once on the submitting host (for a name, `weights_url` is read from `model_cfg/` of the Tiberius submodule; a name that is not there is downloaded by Tiberius in the task). |
-| `drusilla.rescue_flank` | `25000` | Flank in bp around each rescue locus. |
-| `drusilla.rescue_hint_weight` | `2.5` | `tiberius.py --hint_weight` of the rescue. |
-| `drusilla.rescue_orf_filter` | `false` | ORF-agreement filter: skip rescue loci where a Drusilla ORF already has all introns of the best protein chain. Off by default, as benchmarked. |
-| `drusilla.rescue_seq_len` | `99990` | `tiberius.py --seq_len` of the rescue (divisible by 18). |
+| `drusilla.drop_unstranded` | `false` | StringTie pre-filter: `true` drops transcripts with strand `.`; `false` (or `null`) keeps them. |
+| `drusilla.unstranded_both_strands` | `true` | `--unstranded-both-strands`: also scan the reverse complement (`<tid>__rc`) of transcripts with strand `.` and keep the orientation with the longer ORF. Needs `drop_unstranded: false`; otherwise the run warns and the option has no effect. |
+| `drusilla.flank_bp` | `500` | Genomic context in bp on both sides of every transcript, with ORF completion into it (`--flank-bp N --flank-3p-bp M --flank-keep`). ORFs truncated at a transcript end carry the attribute `completion "5p\|3p\|5p3p"`. `null` or `0` = off. |
+| `drusilla.flank_3p_bp` | `flank_bp` (`500`) | Context on the 3' side alone (`--flank-3p-bp`); enough on its own to turn the completion on. |
+| `drusilla.flank_min_tx_frac` | Drusilla default (`0.5`) | `--flank-min-tx-frac`: minimal fraction of the CDS of an ORF inside the transcript; ORFs below it are dropped. Only passed with `flank_bp` or `flank_3p_bp`. |
+| `drusilla.orfs_per_tx` | Drusilla default (`1`) | `--orfs-per-tx`: ORFs per transcript, longest first; `0` = all. |
+
+The defaults of `drop_unstranded` to `orfs_per_tx` are the set tested on
+several species across clades and need Drusilla 0.3.0, the image the pipeline
+runs. A change of a default
+needs a measured accuracy gain (see
+[drusilla_flow.md](drusilla_flow.md#unstranded-truncated-and-fused-transcripts)).
 
 ## Post-processing and quality control
 
@@ -308,14 +354,14 @@ Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
 | `qc.omamer_db` | none | OMAmer database (e.g. `LUCA.h5`, about 15 GB). |
 | `qc.ete_taxa_path` | `~/.cache/paludamentum/ncbi_taxonomy` | NCBI taxonomy for OMArk: ete3's `taxa.sqlite`, built once on the submitting host from `taxdump.tar.gz`, which is downloaded there unless the directory holds it. |
 | `qc.reference_annotation` | none | Reference annotation (GFF3 or GTF, gzipped or not): `gffcompare` at CDS level, `qc/gffcompare.stats`. |
-| `qc.gene_support` | `true` | Hint support per transcript, `qc/gene_support.tsv` (evidence modes). |
+| `qc.gene_support` | `true` | Hint support per transcript, `qc/gene_support.tsv` (every mode but `abinitio`). |
 | `qc.statistics` | `true` | Gene set statistics and plots. |
 | `qc.report` | `true` | `report.html`. |
-| `ncrna.run` | `false` | rRNA, tRNA, Rfam and lncRNA genes, `<stem>_with_ncRNA.gff3`. |
+| `ncrna.run` | `false` | rRNA, tRNA, Rfam and lncRNA genes, `paludamentum_with_ncRNA.gff3`. |
 | `ncrna.rfam_dir` | `~/.cache/paludamentum/rfam` | Directory with `Rfam.cm` and `Rfam.clanin` (Rfam 15.1); unset: downloaded once on the submitting host. |
 | `ncrna.trnascan_high_confidence` | `false` | tRNAscan-SE high-confidence filter (EukHighConfidenceFilter). |
 | `ncrna.lncrna` | `true` | lncRNA with FEELnc (modes with transcripts). |
-| `fantasia.run` | `false` | GO terms with FANTASIA-Lite (GPU), `<stem>_go.gff3`. |
+| `fantasia.run` | `false` | GO terms with FANTASIA-Lite (GPU), `paludamentum_go.gff3`. |
 | `fantasia.hf_cache_dir` | none | Hugging Face cache with `Rostlab/prot_t5_xl_uniref50` (required with `fantasia.run`). |
 | `fantasia.lookup_dir` | none | `lookup_table.npz`, `annotations.json`, `accessions.json` of Zenodo record 17720428 (required with `fantasia.run`). |
 | `fantasia.min_score` | `0.5` | Minimum score of a GO term. |
@@ -327,7 +373,26 @@ Command line: `--busco_lineage`, `--reference_annotation`, `--ncrna`,
 ## Mode
 
 The pipeline infers its mode from the inputs, see the table in the
-[README](../README.md#inputs-and-modes). Set `mode` to force one of
+[README](../README.md#alternative-modes). Set `mode` to force one of
 `abinitio`, `proteins`, `rnaseq`, `isoseq`, `mixed`. `tiberius` is accepted as
 the historic name of `abinitio`; any other value is an error, as is a forced
 mode whose inputs are missing (for example `rnaseq` without reads or a StringTie assembly).
+The launcher checks the combination of inputs before it writes the params
+file or starts Nextflow, and `main.nf` checks it again before any task:
+reads or an assembly without proteins, mode `proteins` without a Tiberius
+model, and a run without a genome or without any gene finder model stop with
+a message that lists the supported modes (`paludamentum --help` prints it too).
+Mode `proteins` (a genome and proteins, no reads) runs both gene finders,
+the protein evidence and `combine_genesets.py` without transcript inputs,
+selecting with `combine.classifier_proteins`; see
+[Protein-only runs](../README.md#protein-only-runs) in the README. An
+evidence mode without a Tiberius model runs Vipsania alone with
+`combine.classifier_vipsania`, see
+[Species without a Tiberius model](../README.md#species-without-a-tiberius-model);
+mode `proteins` without a Tiberius model is an error. When a run with
+evidence has the model of one gene finder only, the launcher adds the
+matching model of the other one (`auto_model`, see
+[Matching models](../README.md#matching-models)). Mode `abinitio` with
+both gene finders given combines their predictions without evidence with
+`combine.classifier_abinitio`, see
+[Ab initio runs](../README.md#ab-initio-runs).

@@ -125,7 +125,7 @@ process SPLIT_GENOME {
 }
 
 // Ab initio predictions of the ab initio mode, before the sanity filter; the
-// final <prefix>_ab_initio.gff3 in outdir is written by FINALIZE_ANNOTATION.
+// final paludamentum.gff3 in outdir is written by FINALIZE_ANNOTATION.
 process MERGE_GENEFINDER {
     label 'container'
     publishDir "${params.outdir}/intermediate/", mode:'copy', overwrite: true
@@ -173,43 +173,16 @@ process MERGE_GENEFINDER_EVI {
     """
 }
 
-// Ab initio predictions merged with the HC genes, before the sanity filter;
-// the final <prefix>_evidence.gff3 is written by FINALIZE_ANNOTATION. The HC
-// genes enter the annotation here; nothing is trained on them (the 'TRAIN' of
-// the name, and the traingenes input, come from BRAKER, where they train
-// AUGUSTUS). Both are kept because the process name and its script body are
-// part of the Nextflow task hash: renaming them would invalidate -resume for
-// this process and everything downstream of it.
-process MERGE_GENEFINDER_TRAIN {
-    label 'container'
-    publishDir "${params.outdir}/intermediate/", mode:'copy', overwrite: true
-
-    input:
-      val prefix
-      path ab_initio
-      path traingenes
-
-    output:
-      path "${prefix}_merged.gff3", emit: merged
-
-    script:
-    """
-    merge_annotations.py --mode full \\
-        ${ab_initio} ${traingenes} > ${prefix}_merged.gff3
-    """
-
-    stub:
-    """
-    touch ${prefix}_merged.gff3
-    """
-}
-
 process PROTEIN_FROM_GFF {
   label 'container'
+  // forwards the warning of check_internal_stops.py to the log of the run
+  debug true
 
   input:
       val prefix
-      path ab_initio
+      // staged apart from ab_initio.capped.gff3: a given result of that name
+      // (drusilla.result) would otherwise be truncated by the redirect
+      path ab_initio, stageAs: 'in/*'
       path genome
 
   output:
@@ -217,13 +190,17 @@ process PROTEIN_FROM_GFF {
 
   script:
     """
-    # gffread malloc()s on genes with many isoforms; cap to a safe number
-    # because the resulting protein FASTA is only used by DIAMOND species
-    # ranking, so one representative per gene is enough.
+    # gffread malloc()s on genes with many isoforms; cap to a safe number.
+    # The proteins go to DIAMOND: the species ranking of PREPROCESS_PROTEINDB
+    # and the tables of combine_genesets.py (an isoform beyond the cap has no
+    # DIAMOND hit there). GFF3 and GTF (the Drusilla ORFs) are both handled.
+    # -S writes internal stops as *: DIAMOND rejects the . that gffread writes by default.
+    # Wrong CDS phases then pass DIAMOND without an error, so many stops are reported.
     cap_isoforms_per_gene.py --max 10 ${ab_initio} > ab_initio.capped.gff3
     ${params.tools.gffread} ab_initio.capped.gff3 \\
         -g ${genome} \\
-        -y ${prefix}_proteins.fa
+        -y ${prefix}_proteins.fa -S
+    check_internal_stops.py ${prefix}_proteins.fa ${prefix}
     """
 
   stub:

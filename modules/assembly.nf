@@ -1,5 +1,35 @@
 nextflow.enable.dsl=2
 
+// Intron hints and a coverage track from a given StringTie assembly
+// (params.stringtie without reads: there is no BAM for BAM2HINTS and BAM2COV).
+// bin/assembly_hints.py: the introns of the transcripts with the summed
+// StringTie cov of the transcripts sharing an intron as multiplicity (the
+// layout of bam2hints), and a bedGraph from the exon cov values. Measured on
+// 31 benchmark species against the BAM: -0.4 transcript / -0.2 gene F1, where
+// no RNA evidence at all costs -4.3 / -3.7.
+process ASSEMBLY_HINTS {
+  label 'container'
+  publishDir "${params.outdir}/intermediate", mode: 'copy', overwrite: true
+
+  input:
+    path gtf
+
+  output:
+    path "assembly_introns.gff", emit: hints
+    path "assembly_cov.bg.gz",   emit: bg
+
+  script:
+  """
+  assembly_hints.py ${gtf} --introns assembly_introns.gff --mult cov --bedgraph assembly_cov.bg.gz
+  """
+
+  stub:
+  """
+  touch assembly_introns.gff
+  : | gzip > assembly_cov.bg.gz
+  """
+}
+
 process STRINGTIE_ASSEMBLE_RNA {
   label 'container'
   input:
@@ -40,6 +70,12 @@ process STRINGTIE_ASSEMBLE_ISO {
 }
 
 
+// The one StringTie assembly as GTF and as GFF3 (gtf_to_alignment_gff3.pl,
+// for TD_REVISED_TO_GENOME). A single input is passed through as it is:
+// `stringtie --merge` drops the cov and TPM attributes that FILTER_STRINGTIE
+// reads (it stops without them), drops transcripts below TPM 1 (its -T
+// default) and renames the transcripts (MSTRG). Several inputs are merged
+// (stringtie --merge, merge_annotations.py when that fails).
 process STRINGTIE_MERGE {
     label 'container'
     input:
@@ -51,25 +87,27 @@ process STRINGTIE_MERGE {
 
     script:
     """
-    ls ${gtfs} > mergelist.txt
+    set -- ${gtfs}
+    if [ \$# -eq 1 ]; then
+        cp "\$1" stringtie.gtf
+    else
+        printf '%s\\n' "\$@" > mergelist.txt
 
-    set +e
-    ${params.tools.stringtie} --merge -o stringtie.gtf mergelist.txt
-    exitcode=\$?
-    set -e
+        set +e
+        ${params.tools.stringtie} --merge -o stringtie.gtf mergelist.txt
+        exitcode=\$?
+        set -e
 
-    if [ "\$exitcode" -ne 0 ]; then
-        echo "WARNING: stringtie --merge failed with code \$exitcode, using custom merge." >&2
+        if [ "\$exitcode" -ne 0 ]; then
+            echo "WARNING: stringtie --merge failed with code \$exitcode, using custom merge." >&2
 
-        merge_annotations.py --mode full \\
-            ${gtfs} > merged.gff3
+            merge_annotations.py --mode full "\$@" > merged.gff3
 
-        # convert to GTF for TD_ALL
-        ${params.tools.gffread} merged.gff3 -T -o stringtie.gtf
+            # convert to GTF for TD_ALL
+            ${params.tools.gffread} merged.gff3 -T -o stringtie.gtf
+        fi
     fi
 
-    # in both cases we now have stringtie.gtf
-    # (and we can make a GFF3 if needed)
     ${params.tools.transdecoder_gtf2gff} stringtie.gtf > stringtie.gff3
     """
 

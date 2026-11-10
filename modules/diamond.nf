@@ -15,6 +15,9 @@ process DIAMOND_MAKEDB {
   touch diamond/protein_db.dmnd
   """
 }
+// 12-column DIAMOND blastp. Used for the auxiliary runs that drive the TD2
+// partial-ORF rescue (CDS_CLASSIFY_AND_REVISE via bin/revise_pep.py); the
+// classifier expects this column layout.
 process DIAMOND_BLASTP {
   label 'container'
   input: path pep; path db
@@ -31,6 +34,33 @@ process DIAMOND_BLASTP {
   fi
 
   ${params.tools.diamond} blastp -q ${pep} -d ${db} -o diamond/diamond.tsv -k 5 --threads ${task.cpus} --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+  """
+
+  stub:
+  """
+  mkdir -p diamond
+  touch diamond/diamond.tsv
+  """
+}
+
+// 14-column DIAMOND blastp, with qlen and slen appended. One of these runs
+// per combine_genesets input gene set (Tiberius, Vipsania, revised TD2,
+// Drusilla); combine_genesets.py --diamond-format full reads this layout.
+process DIAMOND_BLASTP_FULL {
+  label 'container'
+  input: path pep; path db
+  output: path "diamond/diamond.tsv", emit: tsv
+  script: """
+  mkdir -p diamond
+  set -euo pipefail
+
+  if ! grep -q '^>' ${pep}; then
+      echo "[DIAMOND] No sequences in ${pep}, emitting empty TSV" >&2
+      : > diamond/diamond.tsv
+      exit 0
+  fi
+
+  ${params.tools.diamond} blastp -q ${pep} -d ${db} -o diamond/diamond.tsv -k 5 --threads ${task.cpus} --outfmt 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen
   """
 
   stub:

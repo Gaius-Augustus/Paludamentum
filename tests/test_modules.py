@@ -163,3 +163,13 @@ def test_gene_finder_tasks_write_their_version_line(module, process, tool):
     body = text.split(f"process {process} {{", 1)[1].split("\n}", 1)[0]
     assert re.search(r'path "versions.tsv",\s+emit: versions', body), body
     assert rf"printf '{tool}\\t" in body, body
+
+
+def test_protein_from_gff_forwards_the_internal_stop_warning():
+    """check_internal_stops.py only prints a warning to stdout; without
+    `debug true` the process does not show it in the log of the run."""
+    text = (ROOT / "modules" / "genefinder.nf").read_text()
+    body = text.split("process PROTEIN_FROM_GFF {", 1)[1].split("\n}", 1)[0]
+    assert re.search(r"^\s*debug true\s*$", body, re.MULTILINE), body
+    assert "check_internal_stops.py" in body, body
+    assert (ROOT / "bin" / "check_internal_stops.py").is_file()

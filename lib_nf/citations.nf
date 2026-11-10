@@ -46,6 +46,9 @@ def references() {
         augustus: [tool: 'AUGUSTUS (bam2hints)', use: 'intron hints from read alignments',
             ref: 'Stanke M, Diekhans M, Baertsch R, Haussler D. Using native and syntenically mapped cDNA alignments to improve *de novo* gene finding. Bioinformatics. 2008;24(5):637-644.',
             doi: '10.1093/bioinformatics/btn013'],
+        bedtools: [tool: 'bedtools', use: 'RNA-Seq read-depth bedGraph for combine_genesets',
+            ref: 'Quinlan AR, Hall IM. BEDTools: a flexible suite of utilities for comparing genomic features. Bioinformatics. 2010;26(6):841-842.',
+            doi: '10.1093/bioinformatics/btq033'],
         varus: [tool: 'VARUS', use: 'sampled and aligned reads of the pyVARUS input',
             ref: 'Stanke M, Bruhn W, Becker F, Hoff KJ. VARUS: sampling complementary RNA reads from the sequence read archive. BMC Bioinformatics. 2019;20(1):558.',
             doi: '10.1186/s12859-019-3182-x'],
@@ -55,7 +58,7 @@ def references() {
         gffread: [tool: 'GffRead and GffCompare', use: 'format conversion, protein sequences, comparison with a reference annotation',
             ref: 'Pertea G, Pertea M. GFF Utilities: GffRead and GffCompare. F1000Research. 2020;9:304.',
             doi: '10.12688/f1000research.23297.2'],
-        transdecoder: [tool: 'TransDecoder', use: 'ORFs of the assembled transcripts',
+        transdecoder: [tool: 'TransDecoder (cdna_alignment_orf_to_genome_orf.pl)', use: 'ORF-to-genome mapping of TD2 ORFs',
             ref: 'Haas BJ, Papanicolaou A, Yassour M, et al. De novo transcript sequence reconstruction from RNA-seq using the Trinity platform for reference generation and analysis. Nature Protocols. 2013;8(8):1494-1512.',
             doi: '10.1038/nprot.2013.084'],
         td2: [tool: 'TD2', use: 'ORFs of the assembled transcripts',
@@ -67,9 +70,6 @@ def references() {
         drusilla: [tool: 'Drusilla', use: 'ORFs of the assembled transcripts as high-confidence genes, filter of the gene predictions',
             ref: 'Gabriel L, Hoff KJ. Annotating Eukaryotic Genomes by Combining Deep Learning with extrinsic evidence. Poster, German Conference on Bioinformatics (GCB). 2026.',
             doi: '10.13140/RG.2.2.24444.91521'],
-        lightgbm: [tool: 'LightGBM', use: 'filter of the gene predictions',
-            ref: 'Ke G, Meng Q, Finley T, Wang T, Chen W, Ma W, Ye Q, Liu TY. LightGBM: A Highly Efficient Gradient Boosting Decision Tree. Advances in Neural Information Processing Systems 30 (NIPS 2017). 2017.',
-            url: 'https://proceedings.neurips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html'],
         genometools: [tool: 'GenomeTools', use: 'validation of the published GFF3 files',
             ref: 'Gremme G, Steinbiss S, Kurtz S. GenomeTools: a comprehensive software library for efficient processing of structured genome annotations. IEEE/ACM Transactions on Computational Biology and Bioinformatics. 2013;10(3):645-656.',
             doi: '10.1109/TCBB.2013.68'],
@@ -117,14 +117,13 @@ def references() {
     ]
 }
 
-// Keys of references() for a run. run: [mode, genefinder (name or null),
-// tiberiusModel (params.tiberius.model_cfg or null), hc ('drusilla' |
-// 'transdecoder'), orfFinder ('td1' | 'td2'), rescue, odb12, shortFastq,
-// shortBam, shortVarus, isoFastq, isoVarus, busco, compleasm, omark,
-// gffcompare, ncrna, lncrna, fantasia] (all but the first five boolean), and
-// proteinFiles (number of protein files; 0 and no odb12: no protein evidence)
-// and drusillaSettings.lgbModel (null: the Drusilla flow ran without the
-// LightGBM filter).
+// Keys of references() for a run. run: [mode, genefinder ('both' in evidence
+// modes and in mode proteins, else name or null), tiberiusModel
+// (params.tiberius.model_cfg or null), hc ('combined' in evidence modes and
+// in mode proteins, else null), orfFinder ('td2' in evidence
+// modes, else null), odb12, shortFastq, shortBam, shortVarus, isoFastq,
+// isoVarus, busco, compleasm, omark, gffcompare, ncrna, lncrna, fantasia] and
+// proteinFiles (0 and no odb12: no protein evidence).
 def citationKeys(Map run) {
     def keys = evidenceCitationKeys(run)
     // post-processing of the final annotation (runs with a gene finder)
@@ -148,48 +147,50 @@ def withProteins(Map run) {
     return (run.proteinFiles ?: 0) > 0 || run.odb12
 }
 
-// True if the Drusilla flow of the run filtered the gene finder genes with LightGBM.
-def withLgb(Map run) {
-    return run.drusillaSettings?.lgbModel as boolean
-}
-
-// Keys of the gene finder and the evidence steps of a run (see citationKeys)
+// Keys of the gene finder and the evidence steps of a run (see citationKeys).
+// Evidence modes always run both gene finders, both ORF callers, DIAMOND,
+// miniprot and miniprothint; the keys reflect that.
 def evidenceCitationKeys(Map run) {
     def keys = ['paludamentum', 'nextflow']
     def transcripts = run.mode in ['rnaseq', 'isoseq', 'mixed']
-    def drusilla = transcripts && run.hc == 'drusilla'
     def shortReads = run.mode in ['rnaseq', 'mixed']
     def longReads = run.mode in ['isoseq', 'mixed']
 
-    if( run.genefinder == 'tiberius' ) {
+    // gene finders
+    def runsTiberius = run.genefinder == 'tiberius' || run.genefinder == 'both'
+    def runsVipsania = run.genefinder == 'vipsania' || run.genefinder == 'both'
+    if( runsTiberius ) {
         keys << 'tiberius'
         def model = run.tiberiusModel ? run.tiberiusModel.toString().tokenize('/').last() : ''
         if( !model.startsWith('mammalia') ) keys << 'tiberius_clades'
     }
-    if( run.genefinder == 'vipsania' ) keys << 'vipsania'
+    if( runsVipsania ) keys << 'vipsania'
     if( run.mode == 'abinitio' ) return keys
 
     if( run.odb12 ) keys << 'orthodb'
     if( withProteins(run) ) keys << 'miniprot' << 'galba'
-    if( (transcripts && !drusilla) || (run.genefinder && run.odb12) ) keys << 'diamond'
+    // DIAMOND runs in every evidence mode (species selection + the four
+    // combine_genesets runs + the TD2 revise auxiliary runs), in mode
+    // proteins for the two combine_genesets runs (hc 'combined') and for the
+    // species selection of a large database (the methods text describes it
+    // whenever protein_top_species is not 0).
+    if( transcripts || run.hc == 'combined' || (withProteins(run) && run.genefinder && run.proteinTopSpecies) ) keys << 'diamond'
 
     if( shortReads && run.shortFastq ) keys << 'hisat2'
     if( longReads && run.isoFastq ) keys << 'minimap2'
     def aligned = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && run.isoFastq)
-    if( aligned || (drusilla && run.rescue) ) keys << 'samtools'
-    if( aligned ) keys << 'augustus'
+    if( aligned ) keys << 'samtools' << 'augustus'
+    // bedtools genomecov writes the coverage track of the merged BAM (transcript modes with alignments)
+    if( aligned && transcripts ) keys << 'bedtools'
     if( (shortReads && run.shortVarus) || (longReads && run.isoVarus) ) keys << 'varus'
     if( transcripts ) keys << 'stringtie'
     keys << 'gffread'
 
-    if( drusilla ) {
-        keys << 'drusilla'
-        if( withLgb(run) ) keys << 'lightgbm'
-        // the hint rescue runs Tiberius, also when Vipsania is the gene finder
-        if( run.rescue && !keys.contains('tiberius') ) keys << 'tiberius'
-    } else if( transcripts ) {
-        if( run.orfFinder == 'td2' ) keys << 'td2' << 'psauron'
-        else keys << 'transdecoder'
+    // combined HC flow: TD2 (and PSAURON) + Drusilla always run in evidence
+    // modes. TransDecoder's cdna_alignment_orf_to_genome_orf.pl maps the
+    // revised TD2 ORFs back to the genome.
+    if( transcripts ) {
+        keys << 'td2' << 'psauron' << 'transdecoder' << 'drusilla'
     }
     return keys
 }
@@ -250,7 +251,7 @@ def citationsText(Map run, String version) {
     def lines = [
         '# References of this Paludamentum run',
         '',
-        "Paludamentum ${version}, mode `${run.mode}`, gene finder: ${run.genefinder ?: 'none'}.",
+        "Paludamentum ${version}, mode `${run.mode}`, gene finder: ${run.genefinder == 'both' ? 'tiberius and vipsania' : (run.genefinder ?: 'none')}.",
         '',
         'This file lists the software and data that this run used, selected from the',
         'inputs and the parameters of the run. Please cite them in a publication',

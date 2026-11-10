@@ -29,8 +29,21 @@ genome: /path/to/genome.fa
 #   - /path/to/varus_short
 
 # StringTie assembly (GTF) made outside the pipeline, from short reads, Iso-Seq
-# or both: instead of reads, or in addition to them (one file, a list or a glob).
+# or both: exactly one file, with the cov and TPM attributes. The reads it was
+# made from may come with it (coverage track and intron hints only, nothing is
+# assembled); pyVARUS directories may not. Without reads, the intron hints and
+# the coverage track are derived from the assembly (bin/assembly_hints.py).
 # stringtie: /path/to/stringtie.gtf
+#
+# Transcripts of full-length reads (GTF/GFF3, e.g. the stringtie -L assembly of
+# long reads) as chain evidence for the combiner; in mixed mode made automatically.
+# chains:
+#   - /path/to/isoseq_stringtie_L.gtf
+#
+# Library strandedness recovered in every short-read BAM before StringTie
+# (drusilla strand-fix-bam); off: the BAMs are assembled as they are.
+# strand_fix: true
+# strand_fix_run_regex: null    # run id regex for a user BAM that pools runs; null = Drusilla's default (SRR...)
 
 # Single-end reads (list of FASTQ files, or one glob string)
 # rnaseq_single:
@@ -89,6 +102,11 @@ genome: /path/to/genome.fa
 # Stramenopiles, Amoebozoa, Euglenozoa, Eukaryota
 # odb12Partitions: [Vertebrata]
 
+# More than 1,000,000 proteins whose ids name their species (OrthoDB, or
+# Genus_species_<id> of reference proteomes): keep the proteins of the 13 species
+# closest to the genome before miniprot; 0 keeps the whole database.
+# protein_top_species: 13
+
 # ------------------------------------------------------------
 # General settings (defaults shown; see docs/parameters.md)
 # ------------------------------------------------------------
@@ -96,14 +114,22 @@ genome: /path/to/genome.fa
 # threads: 48                    # CPUs reserved per task
 # mode: null                     # inferred: abinitio, proteins, rnaseq, isoseq, mixed
 # min_alignment_rate: 80         # libraries below this mapping rate are dropped
-# transdecoder: null             # ORF finder of the HC gene step: td1 or td2; null = conf/hc_genes.yaml (td2)
-# hc_table: conf/hc_genes.yaml   # Drusilla flow or TransDecoder flow per clade of the gene finder model
+# hc_table: conf/hc_genes.yaml   # clade of the gene finder model (insect flag, classifier clade, standard_thresholds)
+# auto_model: true               # one model given in a run with evidence: the launcher adds the matching
+#                                # model of the other gene finder (README, "Matching models")
 
 # ------------------------------------------------------------
-# Gene finder: exactly one of the two blocks has run: true
+# Gene finders.
+# Evidence modes (rnaseq / isoseq / mixed) and mode proteins run BOTH Tiberius
+# and Vipsania. Give both models; with one, the launcher adds the matching
+# model of the other gene finder (auto_model). Without a Tiberius model
+# (no tiberius.model_cfg and no tiberius.result: a species outside the Tiberius
+# clades, e.g. Nematoda) an evidence mode runs Vipsania alone with the
+# classifier trained for that; mode proteins then stops. In abinitio mode both
+# gene finders run and are combined when both have a model (or result); with
+# one model that gene finder runs alone (params.genefinder or <tool>.run).
 # ------------------------------------------------------------
 tiberius:
-  run: true
   # Name of a model configuration in tiberius/model_cfg of the submodule
   # (https://github.com/Gaius-Augustus/Tiberius/tree/main/model_cfg), or the
   # path of a configuration file.
@@ -112,42 +138,43 @@ tiberius:
   # max_files: 20                # maximal number of chunks (parallel GPU tasks)
   # max_parallel: null           # cap of concurrent GPU tasks, e.g. 1 on a workstation
   # model_dir: null              # extracted weights instead of the download at the start of the run
-  # result: /abs/path/tiberius.gff3   # existing Tiberius prediction (GFF3/GTF): Tiberius does not run,
-  #                                   # model_cfg is then optional (it selects the Drusilla flow)
+  # result: /abs/path/tiberius.gff3   # existing Tiberius prediction (GFF3/GTF): Tiberius does not run
+  # run: true                    # only used in abinitio mode (evidence modes and mode proteins always run it)
 
-# Vipsania instead of Tiberius (see docs/vipsania.md):
-# tiberius:
-#   run: false
-# vipsania:
-#   run: true
-#   model: Fungi                 # clade name or model id
-#   model_dir: null              # directory with downloaded models (offline nodes)
-#   finetune: false              # true: finetune on the genome first (one task, no chunks)
-#   result: /abs/path/vipsania.gff    # existing Vipsania prediction (GFF3/GTF): Vipsania does not run,
-#                                     # model is then optional (Vertebrata or Insecta selects the Drusilla flow)
-#
-# Insects (recommended, docs/drusilla_flow.md "Without proteins"): Vipsania
-# Insecta fine-tuned on the genome, RNA-Seq or Iso-Seq, and no proteins; the
-# Drusilla flow then merges the Drusilla ORFs with all Vipsania genes.
-# rnaseq_bam: [/abs/path/VARUS.bam]   # or rnaseq_paired, rnaseq_varus, stringtie, isoseq
-# vipsania:
-#   run: true
-#   model: Insecta
-#   finetune: true
-#   finetune_B: 2
-#   batch_size: 4
+vipsania:
+  model: Vertebrata              # clade name or model id (see docs/vipsania.md)
+  finetune: true                 # finetune on the genome first (one task, no chunks)
+  # model_dir: null              # directory with downloaded models (offline nodes)
+  # finetune_epochs: null
+  # finetune_B: null
+  # finetune_lr: null
+  # result: /abs/path/vipsania.gff    # existing Vipsania prediction (GFF3/GTF): Vipsania does not run
+  # run: true                    # only used in abinitio mode (evidence modes and mode proteins always run it)
 
 # ------------------------------------------------------------
-# Drusilla flow (clades with hc: drusilla in conf/hc_genes.yaml, runs with
-# transcripts; see docs/drusilla_flow.md)
+# Drusilla ORFs on the StringTie assembly (evidence modes)
 # ------------------------------------------------------------
 # drusilla:
-#   run: auto                    # auto: per conf/hc_genes.yaml; true: always; false: never
-#   lgb_model: null              # LightGBM filter model; null = the clade's in conf/hc_genes.yaml
-#   lgb_model_sha256: null       # sha256 of the lgb_model given here; null: not checked
+#   model: drusilla_model        # default: the one Drusilla model of all clades
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
-#   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
-#   rescue: true                 # hint rescue of partial ab initio genes
+#   cache_dir: null              # Drusilla model cache, for a model that is not bundled (the default is)
+#   result: /abs/path/orfs.filtered.gtf  # existing Drusilla ORFs: Drusilla does not run
+#   drop_unstranded: false       # default; true drops transcripts with strand '.' before Drusilla
+#   unstranded_both_strands: true    # default; scan both strands of '.' transcripts (needs drop_unstranded: false)
+#   flank_bp: 500                # default; genomic context on both sides, ORFs completed into it; 0 = off
+#   orfs_per_tx: null            # null = one ORF per transcript; 0 = all (fused transcripts)
+
+# ------------------------------------------------------------
+# combine_genesets.py (the HC integration step; evidence modes and mode proteins)
+# ------------------------------------------------------------
+# combine:
+#   classifier: conf/combiner_classifier_v1.json            # selection model of the evidence modes; false = tier rules
+#   classifier_proteins: conf/combiner_classifier_protonly_v1.json   # selection model of mode proteins; false = tier rules
+#   classifier_vipsania: conf/combiner_classifier_vipsania_v1.json   # evidence modes without a Tiberius model (Vipsania alone)
+#   classifier_abinitio: conf/combiner_classifier_abinitio_v1.json   # mode abinitio with both gene finders (no evidence)
+#   t_locus: null                # locus threshold on P, overrides the model's (0.25; mode proteins 0.20)
+#   t_iso: null                  # isoform threshold on P, overrides the model's (0.30)
+#   min_locus: 4                 # tier rules: keep a locus if its best model reaches this tier (default 4)
 
 # ------------------------------------------------------------
 # Post-processing and quality control (docs/postprocessing.md)
@@ -169,12 +196,12 @@ tiberius:
 #   statistics: true
 #   report: true
 # ncrna:
-#   run: false                   # rRNA, tRNA, Rfam, lncRNA: <stem>_with_ncRNA.gff3
+#   run: false                   # rRNA, tRNA, Rfam, lncRNA: paludamentum_with_ncRNA.gff3
 #   rfam_dir: null               # Rfam.cm and Rfam.clanin; null = downloaded once (Rfam 15.1)
 #   trnascan_high_confidence: false
 #   lncrna: true                 # FEELnc, modes with transcripts
 # fantasia:
-#   run: false                   # GO terms, GPU: <stem>_go.gff3
+#   run: false                   # GO terms, GPU: paludamentum_go.gff3
 #   hf_cache_dir: /abs/path/hf_cache     # with Rostlab/prot_t5_xl_uniref50
 #   lookup_dir: /abs/path/fantasia_lookup
 #   min_score: 0.5

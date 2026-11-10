@@ -16,18 +16,25 @@ MIN_PIDENT = 30.0
 MIN_QCOV   = 0.5   # coverage = aligned_length / qlen
 
 ORTHODB_ID = re.compile(r"^\d+_\d+:")   # OrthoDB v10-v12 ids: <taxid>_<n>:<hex>
+# reference proteomes: <Genus>_<species>_<protein id>; the same pattern as in PREPROCESS_PROTEINDB
+GENUS_SPECIES_ID = re.compile(r"^([A-Z][a-z]+_[a-z][A-Za-z0-9.-]*)_")
 
 
 def get_species_id(sseqid: str) -> str:
     """
     Species of a subject: the NCBI taxonomy id in front of the first '_' of an
-    OrthoDB-style id ('101020_0:000003' -> '101020'). For any other id format
-    the whole id is returned, so that every protein counts as its own
-    "species" and nothing is grouped by a meaningless prefix.
+    OrthoDB-style id ('101020_0:000003' -> '101020'), or Genus_species in front
+    of a reference-proteome id ('Acorus_americanus_Acora_01G000100_1_v1_1' ->
+    'Acorus_americanus'). For any other id format the whole id is returned, so
+    that every protein counts as its own "species" and nothing is grouped by a
+    meaningless prefix.
     """
     head = sseqid.split()[0]
     if ORTHODB_ID.match(head):
         return head.split("_", 1)[0]
+    m = GENUS_SPECIES_ID.match(head)
+    if m:
+        return m.group(1)
     return head
 
 # best hit *per query* (over all species)
