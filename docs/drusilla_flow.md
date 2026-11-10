@@ -38,12 +38,16 @@ replaces the per-model filtering it used to do.
    Drusilla 0.1, because their ORFs were mostly not genes on *T. rubripes*
    (gene F1 76.36 with them, 76.55 without). That comparison was made
    without both-strand scanning, which Drusilla 0.1 did not have.
-3. **`DOWNLOAD_DRUSILLA_MODEL`**: the released model (`drusilla.model`,
-   default `drusilla_model`, the one model of all clades; `vertebrates` and
-   `insects` can be set) is downloaded once on the submitting host and checked against its
-   `weights_sha256`. The GPU nodes need no internet. With `cache_dir`,
-   Drusilla takes the model from that cache instead (`drusilla models
-   download <model>` with `DRUSILLA_CACHE_DIR` set to it fills it once).
+3. **`DOWNLOAD_DRUSILLA_MODEL`**: the model (`drusilla.model`, default
+   `drusilla_model`, the one model of all clades) is bundled with Drusilla
+   0.3.0 and is in its image, so nothing is downloaded and the GPU nodes
+   need no internet. The per-clade models `vertebrates` and `insects` of
+   earlier versions are no longer released. The download step only runs for
+   a model whose manifest in `drusilla/model_cfg/` has a `weights_url`: the
+   archive is fetched once on the submitting host and checked against its
+   `weights_sha256`. With `cache_dir`, Drusilla takes such a model from that
+   cache instead (`drusilla models download <model>` with
+   `DRUSILLA_CACHE_DIR` set to it fills it once).
 4. **`DRUSILLA_ANNOTATE`**: `drusilla annotate` predicts the ORFs of the
    kept transcripts. A flank of 500 bp of genome is added on both sides of
    every transcript, so ORFs truncated at the 5' or 3' end of a transcript
@@ -104,9 +108,8 @@ default, the third is off:
 `unstranded_both_strands` only acts on transcripts that reach Drusilla, so
 it needs `drop_unstranded: false`. With `drop_unstranded: true` the run logs
 a warning and the option has no effect. The flank options are passed when
-`flank_bp` or `flank_3p_bp` is greater than 0. All three need Drusilla 0.3.0
-(branch `strand`), the image the pipeline runs; it also takes the assembly as
-`--assembly-gtf`.
+`flank_bp` or `flank_3p_bp` is greater than 0. All three need Drusilla 0.3.0,
+the image the pipeline runs; it also takes the assembly as `--assembly-gtf`.
 
 The mechanisms were developed on fungal genomes, where unstranded
 single-exon transcripts, 3'-truncated transcripts and fused transcripts are

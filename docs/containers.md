@@ -22,12 +22,10 @@ The Drusilla image is built in the Drusilla repository by its
 `docker/build_push.sh`, from a Drusilla commit and on the same NGC TensorFlow
 base as the Tiberius image. It holds Drusilla with its bundled model and
 pysam, which `STRAND_FIX_BAM` needs. A release is tagged with the Drusilla
-version, which must match the `drusilla/` submodule. While Drusilla's branch
-`strand` is not merged into main, conf/base.config runs
-`gaiusaugustus/drusilla:dev`, the image of that branch; the launcher notes
-this development image instead of comparing its tag with the submodule
-version. `DRUSILLA_ANNOTATE` needs Drusilla 0.3.0 or later, which takes the
-assembly as `--assembly-gtf`.
+version, which must match the `drusilla/` submodule; the launcher warns when
+the two differ. conf/base.config runs `gaiusaugustus/drusilla:0.3.0`.
+`DRUSILLA_ANNOTATE` needs Drusilla 0.3.0 or later, which takes the assembly
+as `--assembly-gtf`.
 
 The post-processing image is micromamba with one environment of pinned
 Bioconda packages (version and build) and compleasm 0.2.9 from its release

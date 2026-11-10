@@ -314,10 +314,10 @@ Drusilla GPU task.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `drusilla.model` | `drusilla_model` | Released Drusilla model (`drusilla models list`). The default is the bundled model of all clades (one CNN-BiLSTM, trained on 425 species of vertebrates, insects, embryophyta, fungi, diatoms and chlorophyta). The per-clade models `vertebrates` and `insects` are still released and can be set. |
+| `drusilla.model` | `drusilla_model` | Released Drusilla model (`drusilla models list`). The default is the bundled model of all clades (one CNN-BiLSTM, trained on 425 species of vertebrates, insects, embryophyta, fungi, diatoms and chlorophyta). It is bundled with Drusilla and in its image. The per-clade models `vertebrates` and `insects` of earlier versions are no longer released (Drusilla 0.3.0). |
 | `drusilla.result` | none | Existing Drusilla ORFs GTF: used as the Drusilla gene set instead of running `FILTER_STRINGTIE`, `DRUSILLA_ANNOTATE` and `COLLAPSE_ORFS`. The file is passed to `combine_genesets.py` as the `drusilla` input. |
 | `drusilla.weights`, `drusilla.config` | none | A local `.weights.h5` file and its architecture YAML instead of a released model. |
-| `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`), e.g. filled by `drusilla models download vertebrates`. Without it the archive of the model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task. |
+| `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`) for a model that is not bundled, filled by `drusilla models download <model>`. The default model needs none. Without it the archive of such a model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task. |
 | `drusilla.batch_size` | automatic | Drusilla batch size. |
 | `drusilla.shards` | `1` | Parallel Drusilla processes, each on a part of the transcripts. For CPU nodes, where one process uses only one to two cores (e.g. 24 with 48 CPUs). |
 | `drusilla.min_coding_length` | `200` | Minimal CDS length of a Drusilla ORF. |

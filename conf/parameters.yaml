@@ -157,7 +157,7 @@ vipsania:
 # drusilla:
 #   model: drusilla_model        # default: the one Drusilla model of all clades
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
-#   cache_dir: null              # Drusilla model cache; null = downloaded once on the submitting host
+#   cache_dir: null              # Drusilla model cache, for a model that is not bundled (the default is)
 #   result: /abs/path/orfs.filtered.gtf  # existing Drusilla ORFs: Drusilla does not run
 #   drop_unstranded: false       # default; true drops transcripts with strand '.' before Drusilla
 #   unstranded_both_strands: true    # default; scan both strands of '.' transcripts (needs drop_unstranded: false)

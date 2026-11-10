@@ -58,9 +58,8 @@ Steps of the combined HC flow (the default run; the other modes leave out the in
    TD2 needs is written from it); several assemblies would be merged.
 2. **Drusilla** filters the StringTie assembly (length, coverage, TPM) and
    predicts the ORFs of the kept transcripts with the one Drusilla model of
-   all clades (`drusilla_model`; set `drusilla.model` to use `vertebrates`
-   or `insects`). Isoforms whose CDS is a subsequence of another
-   one are collapsed.
+   all clades (`drusilla_model`, bundled with Drusilla). Isoforms whose CDS
+   is a subsequence of another one are collapsed.
 3. **TD2** predicts ORFs on the full StringTie assembly. ORFs are then
    shortened to their first methionine where incomplete,
    `CDS_CLASSIFY_AND_REVISE` runs two auxiliary DIAMOND passes to decide
