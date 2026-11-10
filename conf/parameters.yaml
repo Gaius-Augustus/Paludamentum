@@ -122,8 +122,9 @@ genome: /path/to/genome.fa
 # and Vipsania; vipsania.model is always required. Without a Tiberius model
 # (no tiberius.model_cfg and no tiberius.result: a species outside the Tiberius
 # clades, e.g. Nematoda) an evidence mode runs Vipsania alone with the
-# classifier trained for that; mode proteins then stops. In abinitio mode only
-# one gene finder runs, picked by params.genefinder or <tool>.run.
+# classifier trained for that; mode proteins then stops. In abinitio mode both
+# gene finders run and are combined when both have a model (or result); with
+# one model that gene finder runs alone (params.genefinder or <tool>.run).
 # ------------------------------------------------------------
 tiberius:
   # Name of a model configuration in tiberius/model_cfg of the submodule
@@ -171,6 +172,7 @@ vipsania:
 #   classifier: conf/combiner_classifier_v1.json            # selection model of the evidence modes; false = tier rules
 #   classifier_proteins: conf/combiner_classifier_protonly_v1.json   # selection model of mode proteins; false = tier rules
 #   classifier_vipsania: conf/combiner_classifier_vipsania_v1.json   # evidence modes without a Tiberius model (Vipsania alone)
+#   classifier_abinitio: conf/combiner_classifier_abinitio_v1.json   # mode abinitio with both gene finders (no evidence)
 #   t_locus: null                # locus threshold on P, overrides the model's (0.25; mode proteins 0.20)
 #   t_iso: null                  # isoform threshold on P, overrides the model's (0.30)
 #   min_locus: 4                 # tier rules: keep a locus if its best model reaches this tier (default 4)

@@ -76,8 +76,14 @@ workflow {
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions): the unified HC-gene step runs DIAMOND, miniprot and miniprothint on the four gene sets."
     // The protein-only mode runs the same unified HC step (both gene finders,
     // protein evidence, combine_genesets) without transcript inputs: no
-    // assembly, no ORF callers, no coverage track, no intron hints.
-    def combinedMode = transcriptMode || MODE == 'proteins'
+    // assembly, no ORF callers, no coverage track, no intron hints. Mode
+    // abinitio with both gene finders given runs it without any evidence (the
+    // ab initio combination, classifier_abinitio); with one gene finder it
+    // publishes that prediction as before.
+    def tibGiven = (params.tiberius?.model_cfg || params.tiberius?.result) as boolean
+    def vipGiven = (params.vipsania?.model || params.vipsania?.result) as boolean
+    def abBoth = MODE == 'abinitio' && tibGiven && vipGiven
+    def combinedMode = transcriptMode || MODE == 'proteins' || abBoth
     log.info "Running mode: ${MODE}"
 
     // Both gene finders run in evidence modes and in mode proteins; mode
@@ -89,7 +95,7 @@ workflow {
     // 57.4 transcript / 71.2 gene F1, Vipsania alone 44.2 / 54.8, with Tiberius
     // 60.1 / 74.6. Mode proteins needs Tiberius: Vipsania with protein evidence
     // alone ends below Vipsania alone (no agreement signal, no ORF callers).
-    def runTiberius = combinedMode && (params.tiberius?.model_cfg || params.tiberius?.result) as boolean
+    def runTiberius = combinedMode && tibGiven
     if( combinedMode ) {
       if( !params.vipsania?.model && !params.vipsania?.result )
         error "params.vipsania.model is required (Vipsania runs in every evidence mode and in mode proteins)."
@@ -98,7 +104,7 @@ workflow {
               "alone and no transcript evidence the combined selection falls below Vipsania alone. Give a Tiberius " +
               "model, or RNA-Seq / Iso-Seq reads, a BAM, pyVARUS directories or a StringTie assembly."
       if( runTiberius )
-        log.info "Gene finders: tiberius + vipsania"
+        log.info "Gene finders: tiberius + vipsania" + (abBoth ? " (ab initio combination: both models given, no evidence)" : "")
       else
         log.info "Gene finders: vipsania (no Tiberius model given: tiberius.model_cfg / tiberius.result; " +
                  "the combined step selects with combine.classifier_vipsania)"
@@ -161,7 +167,8 @@ workflow {
     // thresholds of the selection model of combine_genesets.py, read from its JSON file: the model of
     // the evidence modes (combine.classifier) or of the protein-only mode (combine.classifier_proteins)
     def clfParam = transcriptMode ? (runTiberius ? params.combine?.classifier : params.combine?.classifier_vipsania) :
-                   (MODE == 'proteins' ? params.combine?.classifier_proteins : null)
+                   MODE == 'proteins' ? params.combine?.classifier_proteins :
+                   abBoth ? params.combine?.classifier_abinitio : null
     def clfFile = clfParam ? file(clfParam.toString()) : null
     def clfModel = clfFile?.exists() ? new groovy.json.JsonSlurper().parse(clfFile.toFile()) : null
     def run = [
@@ -259,7 +266,27 @@ workflow {
     def genefinder_versions = nextflow.Channel.empty()   // version line of the gene finder
     def post_prefix = null                     // stem of the published files
 
-    if( MODE == 'abinitio' ) {
+    if( abBoth ) {
+      // Ab initio combination: both gene finders given and no evidence. Both
+      // run, and HC_COMBINED integrates the two predictions with the
+      // placeholder for every evidence input (no protein database, no DIAMOND,
+      // no miniprot, no transcripts), selecting with the classifier trained on
+      // evidence-free pools. Measured on 31 benchmark species against Tiberius
+      // alone: +1.5 transcript / +4.8 gene F1, precision-driven (sensitivity
+      // falls by 3 to 6 points); negative for vertebrates at transcript level.
+      def empty_file = EMPTY_FILE()
+      def tib = GENEFINDER_TIBERIUS(inp.genome, params, 'tiberius', false)
+      def hc = HC_COMBINED(
+          inp.genome, nextflow.Channel.empty(), empty_file, false, empty_file, empty_file,
+          empty_file, empty_file, empty_file, empty_file,
+          tib.gff, empty_file, params, false, true, false, nextflow.Channel.empty(), nextflow.Channel.empty(), false
+      )
+      final_gff = hc.gff
+      genome_chunks = tib.chunks
+      genefinder_versions = tib.versions.mix(hc.versions)
+      post_prefix = 'combined'
+
+    } else if( MODE == 'abinitio' ) {
       def ab = AB_INITIO(inp.genome, params)
       final_gff = ab.gff
       genome_chunks = ab.chunks
@@ -282,7 +309,7 @@ workflow {
       def hc = HC_COMBINED(
           inp.genome, nextflow.Channel.empty(), empty_file, false, empty_file, empty_file,
           pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
-          tib.gff, tib_prot, params, false, true, false, nextflow.Channel.empty(), nextflow.Channel.empty()
+          tib.gff, tib_prot, params, false, true, false, nextflow.Channel.empty(), nextflow.Channel.empty(), true
       )
       final_gff = hc.gff
       genome_chunks = tib.chunks
@@ -387,7 +414,7 @@ workflow {
           pe.proteindb, pe.scored_gff, pe.prot_traingff, pe.prot_hc_hints,
           runTiberius ? ab.gff : empty_file, runTiberius ? ab_prot : empty_file, params, true,
           runTiberius, !runTiberius,
-          runTiberius ? nextflow.Channel.empty() : ab.gff, runTiberius ? nextflow.Channel.empty() : ab_prot
+          runTiberius ? nextflow.Channel.empty() : ab.gff, runTiberius ? nextflow.Channel.empty() : ab_prot, true
       )
 
       final_gff = hc.gff
@@ -432,7 +459,7 @@ workflow {
       def runInfo = [
           version: version, mode: MODE, evidence: evidence ? evidence.join(', ') : 'none (ab initio)',
           genefinder: post_prefix, model: gfModel,
-          hc: MODE == 'abinitio' ? null : 'combined',
+          hc: combinedMode ? 'combined' : null,
       ]
       POSTPROCESS(final_gff, inp.genome, genome_chunks, post_prefix, genefinder_versions, MODE,
                   asm_short, asm_long, hints, runInfo)

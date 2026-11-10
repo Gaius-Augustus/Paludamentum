@@ -96,11 +96,13 @@ only decides a few per-clade switches in `conf/hc_genes.yaml` (insect flag,
    GPU). `report.html` sums it up. See
    [docs/postprocessing.md](docs/postprocessing.md).
 
-Without transcripts the pipeline runs mode `abinitio` (one gene finder, no
-evidence) or mode `proteins` (a genome and proteins): both gene finders, the
-protein evidence of step 2, and step 4 without the ORF callers, the coverage
-track and the intron hints, with a classifier trained for protein-only runs,
-see [Protein-only runs](#protein-only-runs).
+Without transcripts the pipeline runs mode `abinitio` (no evidence: one gene
+finder, or both combined when both models are given, see
+[Ab initio combination](#ab-initio-combination)) or mode `proteins` (a genome
+and proteins): both gene finders, the protein evidence of step 2, and step 4
+without the ORF callers, the coverage track and the intron hints, with a
+classifier trained for protein-only runs, see
+[Protein-only runs](#protein-only-runs).
 `conf/hc_genes.yaml` lists the known clades (vertebrates, mammals, insects,
 angiosperms, fungi); a new clade is added there with its `classifier_clade`
 (and `recommended` for the clade-specific warning). The Drusilla model does
@@ -243,7 +245,7 @@ The mode is inferred from the inputs and can be forced with `mode`
 
 | Mode | Inputs | Gene finders |
 | --- | --- | --- |
-| `abinitio` (historic name: `tiberius`) | genome only | one (`genefinder`, else the block with `run: true`) |
+| `abinitio` (historic name: `tiberius`) | genome only | one (`genefinder`, else the block with `run: true`), or **both** combined when `tiberius.model_cfg` and `vipsania.model` (or their `result`) are given, see [Ab initio combination](#ab-initio-combination) |
 | `proteins` | proteins | **both** Tiberius and Vipsania; the combined HC flow without transcript evidence, see [Protein-only runs](#protein-only-runs) |
 | `rnaseq` | short reads or a StringTie assembly, and proteins | **both** Tiberius and Vipsania |
 | `isoseq` | Iso-Seq, and proteins | **both** Tiberius and Vipsania |
@@ -300,9 +302,9 @@ need no GPU, no mapping and no assembly step. Notes:
 ## Outputs
 
 All files are written to `outdir` (default `<genefinder>_results`). `<stem>`
-is `combined_evidence` in evidence modes and in mode `proteins`, and
-`<tool>_ab_initio` in mode `abinitio` (with `<tool>` = `tiberius` or
-`vipsania`).
+is `combined_evidence` in evidence modes and in mode `proteins`, and in mode
+`abinitio` `<tool>_ab_initio` (with `<tool>` = `tiberius` or `vipsania`) or
+`combined_ab_initio` when both gene finders ran.
 
 | File | Content |
 | --- | --- |
@@ -338,9 +340,11 @@ an existing prediction via `result`). Without a Tiberius model (no
 `tiberius.model_cfg` and no `tiberius.result`, the case of a species outside
 the Tiberius clades) an evidence mode runs Vipsania as its only *ab initio*
 gene set, see [Species without a Tiberius model](#species-without-a-tiberius-model);
-mode `proteins` then stops. The `run` flags are only consulted in `abinitio`
-mode, where exactly one gene finder runs; `--genefinder` or the block with
-`run: true` picks which.
+mode `proteins` then stops. In `abinitio` mode both gene finders run and
+their predictions are combined when both have a model (or `result`), see
+[Ab initio combination](#ab-initio-combination); with one model that gene
+finder runs alone, and the `run` flags or `--genefinder` pick it when the
+params file names both.
 
 | Gene finder | Model | Parameters |
 | --- | --- | --- |
@@ -494,6 +498,28 @@ cross-validation on 46 species) this gave +1.4 transcript / +1.3 gene F1
 over the rules with that threshold, 27 of 31 species better; insect-like
 genomes are the weak case (gene F1 about -0.3 to -1 when insects were
 unseen).
+
+### Ab initio combination
+
+Mode `abinitio` with both `tiberius.model_cfg` and `vipsania.model` (or an
+existing `result` for either) runs both gene finders and integrates the two
+predictions with `combine_genesets.py` without any evidence: no protein
+database, no DIAMOND, no miniprot, no transcripts. The selection is
+`combine.classifier_abinitio` (`conf/combiner_classifier_abinitio_v1.json`),
+the same recipe trained on the keep-all pools of the same 15 species with
+the features of the tools, the structure and the locus context only (18
+features; thresholds 0.30 / 0.25, also for clades outside the HC table). The
+published stem is `combined_ab_initio`.
+
+Measured on the 31 benchmark species (gffcompare `--strict-match -e 3 -T`,
+CDS level), against Tiberius alone: +1.5 transcript and +4.8 gene F1 (22 and
+27 of 31 species), from precision (transcript 68 against 56, gene 73 against
+56) at a cost of 3 to 6 points of sensitivity; the tier rules reach +1.5 /
++3.5. The gain depends on the clade: insects +4.9 transcript F1, fungi +2.3,
+plants +1.5, vertebrates -3.4 (Vipsania is weak there and the combination
+drops correct Tiberius-only models). With evidence the gains are far larger
+(protein-only +5.4 / +8.9, with RNA-Seq +12.2 / +15.4), so this combination is
+the fallback for a genome without any evidence.
 
 ### Protein-only runs
 

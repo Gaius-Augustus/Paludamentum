@@ -22,7 +22,10 @@ nextflow.enable.dsl=2
 // intron hints, the coverage track and the chains: combine_genesets.py reads
 // an empty gene set and an empty DIAMOND table as no structures and no hits,
 // and the RNA rules stay off as without reads. The classifier is then the
-// protein-only model (params.combine.classifier_proteins).
+// protein-only model (params.combine.classifier_proteins). The ab initio
+// combination (mode abinitio with both gene finders) also passes the
+// placeholder for the miniprot models, the miniprothint hints and the DIAMOND
+// tables of the gene finders, and selects with params.combine.classifier_abinitio.
 process COMBINE_GENESETS {
   label 'container'
   publishDir "${params.outdir}/intermediate", pattern: "combined.{gff3,report.tsv}", mode: 'copy', overwrite: true
@@ -45,9 +48,12 @@ process COMBINE_GENESETS {
     path dia_vip, stageAs: 'diamond/vipsania.tsv'
     path dia_dru, stageAs: 'diamond/drusilla.tsv'
     path dia_td2, stageAs: 'diamond/td2.tsv'
-    path mp_train
-    path mp_rep
-    path hc_hints
+    // the miniprot models and miniprothint hints, staged apart because all
+    // three are the empty placeholder in the ab initio combination (no
+    // protein evidence) and are then left out of the command below
+    path mp_train, stageAs: 'miniprot_train/*'
+    path mp_rep, stageAs: 'miniprot_rep/*'
+    path hc_hints, stageAs: 'miniprot_hints/*'
     // the classifier model (JSON), or the empty placeholder for the tier rules
     path classifier, stageAs: 'classifier/*'
     val  insect
@@ -79,6 +85,11 @@ process COMBINE_GENESETS {
       if [ -s "\$f" ]; then chain_args="\$chain_args \$f"; fi
   done
   if [ -n "\$chain_args" ]; then chain_args="--chains\$chain_args"; fi
+  # protein evidence only where there is some (not in the ab initio combination)
+  prot_args=""
+  if [ -s ${mp_train} ]; then prot_args="\$prot_args --miniprot-train ${mp_train}"; fi
+  if [ -s ${mp_rep} ];   then prot_args="\$prot_args --miniprot-rep ${mp_rep}"; fi
+  if [ -s ${hc_hints} ]; then prot_args="\$prot_args --protein-hints ${hc_hints}"; fi
   combine_genesets.py \\
       --tiberius ${tib_gff} \\
       --vipsania ${vip_gff} \\
@@ -89,11 +100,8 @@ process COMBINE_GENESETS {
       --diamond-drusilla ${dia_dru} \\
       --diamond-td2      ${dia_td2} \\
       --diamond-format full \\
-      --miniprot-train ${mp_train} \\
-      --miniprot-rep   ${mp_rep} \\
-      --protein-hints  ${hc_hints} \\
       --min-locus ${min_locus} ${drop} \\
-      \$clf_args \$rna_args \$chain_args \\
+      \$prot_args \$clf_args \$rna_args \$chain_args \\
       -o combined.gff3 \\
       --report combined.report.tsv
   """

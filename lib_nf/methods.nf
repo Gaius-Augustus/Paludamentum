@@ -352,6 +352,24 @@ def methodsHighConfidence(Map ctx, Map run) {
     return s.join(' ')
 }
 
+// The ab initio combination: both gene finders, no evidence (mode abinitio, hc 'combined').
+def methodsAbInitioCombined(Map ctx, Map run) {
+    def insect = run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
+    def flag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
+    return 'The two *ab initio* gene sets were integrated by `combine_genesets.py` without extrinsic evidence: ' +
+           'transcripts with identical CDS were merged, clustered into loci on the same strand, and ' +
+           (run.classifier ?
+               'selected with its gradient-boosted tree classifier for runs without evidence, which predicts from the ' +
+               'tool agreement, the structure and the locus context of a model the probability that its CDS is correct: ' +
+               "the most probable model of a locus was kept if its probability reached ${run.clfTLocus}, and further " +
+               "models of the locus if theirs reached ${run.clfTIso}" +
+               (insect ? '; single-exon Tiberius-only models were never selected (insect run, ' +
+                         '`--drop-lone-single-exon tiberius`)' : '') + '.' :
+               'tiered from their supporting tool set; each locus whose best model reached a tier of ' +
+               "${numText(run.minLocus)}${flag} was kept.")
+}
+
+
 // Sanity filter, UTRs, published files.
 def methodsPostprocessing(Map ctx, Map run) {
     def s = []
@@ -445,6 +463,8 @@ def methodsParagraphs(Map run, String version) {
         if( withProteins(run) ) ps << methodsProteins(ctx, run)
         if( run.mode in ['rnaseq', 'isoseq', 'mixed'] ) ps << methodsTranscripts(ctx, run)
         ps << methodsHighConfidence(ctx, run)
+    } else if( run.hc == 'combined' ) {
+        ps << methodsAbInitioCombined(ctx, run)
     }
     if( run.genefinder ) {
         ps << methodsPostprocessing(ctx, run)

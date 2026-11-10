@@ -1,7 +1,8 @@
 nextflow.enable.dsl=2
 
-// Unified HC-gene step for evidence modes (rnaseq / isoseq / mixed) and for
-// the protein-only mode (proteins).
+// Unified HC-gene step for evidence modes (rnaseq / isoseq / mixed), for the
+// protein-only mode (proteins) and for the ab initio combination (mode
+// abinitio with both gene finders).
 //
 // Replaces the three HC flows of the previous pipeline (TransDecoder,
 // Drusilla with proteins, Drusilla without proteins). Runs the same chain
@@ -50,6 +51,15 @@ nextflow.enable.dsl=2
 // conf/combiner_classifier_vipsania_v1.json; thresholds 0.225 / 0.30).
 // Measured on 31 benchmark species: 57.4 transcript / 71.2 gene F1 against
 // 44.2 / 54.8 for Vipsania alone and 60.1 / 74.6 with Tiberius.
+//
+// Without any evidence (proteins = false, and so transcripts = false: mode
+// abinitio with both gene finders) step 3 is skipped as well: the two gene
+// sets go to combine_genesets.py with the placeholder for every evidence
+// input, and the selection uses the classifier trained on evidence-free pools
+// (params.combine.classifier_abinitio, the shipped
+// conf/combiner_classifier_abinitio_v1.json: tool agreement, structure and
+// locus context; thresholds 0.30 / 0.25). Measured on 31 benchmark species:
+// 49.4 transcript / 63.9 gene F1 against 47.9 / 59.2 for Tiberius alone.
 
 include { GENEFINDER as GENEFINDER_VIPSANIA } from './genefinder.nf'
 include { STRINGTIE_MERGE } from '../modules/assembly.nf'
@@ -65,7 +75,7 @@ include { DIAMOND_MAKEDB;
           DIAMOND_BLASTP_FULL as DIAMOND_TD2; DIAMOND_BLASTP_FULL as DIAMOND_DRU } from '../modules/diamond.nf'
 include { BAM2COV } from '../modules/rnacov.nf'
 include { COMBINE_GENESETS } from '../modules/combine.nf'
-include { EMPTY_FILE as NO_CLASSIFIER; EMPTY_FILE as NO_TRANSCRIPTS } from '../modules/util.nf'
+include { EMPTY_FILE as NO_CLASSIFIER; EMPTY_FILE as NO_EVIDENCE } from '../modules/util.nf'
 include { hcClade; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
 
 workflow HC_COMBINED {
@@ -78,10 +88,10 @@ workflow HC_COMBINED {
     have_bam               // value: false without a BAM (a given assembly without reads, pyVARUS directories, mode proteins)
     intron_hints           // channel: the intron hints of BAM2HINTS (two files in mixed mode), or an empty placeholder
     chains                 // channel: full-length transcripts for --chains (with the empty placeholder), or the placeholder alone
-    proteindb             // path: preprocessed protein DB (one FASTA)
-    miniprot_scored        // path: scored miniprot alignments (miniprot_parsed.gff)
-    prot_train_gff         // path: miniprot_trainingGenes.gff
-    prot_hc_hints          // path: miniprothint hc.gff
+    proteindb             // path: preprocessed protein DB (one FASTA), or a placeholder without protein evidence
+    miniprot_scored        // path: scored miniprot alignments (miniprot_parsed.gff), or the placeholder
+    prot_train_gff         // path: miniprot_trainingGenes.gff, or the placeholder
+    prot_hc_hints          // path: miniprothint hc.gff, or the placeholder
     tib_gff                // channel: Tiberius ab initio GFF (produced in main.nf for PROTEIN_EVIDENCE), or the empty placeholder
     tib_proteins           // channel: Tiberius protein FASTA (same, reused as the gffread output), or the empty placeholder
     params_map
@@ -90,6 +100,7 @@ workflow HC_COMBINED {
     vip_given              // value: true when main.nf ran Vipsania already (no Tiberius model) and passes it in
     vip_gff                // channel: Vipsania ab initio GFF when vip_given, else empty
     vip_proteins           // channel: Vipsania protein FASTA when vip_given, else empty
+    proteins               // value: false without protein evidence (ab initio combination): no DIAMOND, placeholders for miniprot
 
     main:
     // ---- gene finders: Vipsania runs here unless main.nf ran it first
@@ -105,13 +116,16 @@ workflow HC_COMBINED {
     } else {
         def vip = GENEFINDER_VIPSANIA(CH_GENOME, params_map, 'vipsania', false)
         vip_gff_ch   = vip.gff
-        pep_vip      = PROT_VIP('vipsania', vip.gff, CH_GENOME)
+        pep_vip      = proteins ? PROT_VIP('vipsania', vip.gff, CH_GENOME) : null
         vip_chunks   = vip.chunks
         vip_versions = vip.versions
     }
 
+    // ---- the empty placeholder for the evidence inputs a run does not have
+    def none = (!transcripts || !proteins) ? NO_EVIDENCE() : null
+
     // ---- the protein database for the DIAMOND runs of every gene set
-    def db = DIAMOND_MAKEDB(proteindb)
+    def db = proteins ? DIAMOND_MAKEDB(proteindb) : null
 
     // ---- the ORF callers on the one StringTie assembly (evidence modes), or the
     // empty placeholder for their gene sets and DIAMOND tables (mode proteins)
@@ -166,8 +180,7 @@ workflow HC_COMBINED {
         dia_dru  = DIAMOND_DRU(pep_dru, db.db).tsv
     } else {
         if( d.result )
-            log.warn "drusilla.result is not used without transcript evidence (mode proteins): no ORF caller runs."
-        def none = NO_TRANSCRIPTS()
+            log.warn "drusilla.result is not used without transcript evidence: no ORF caller runs."
         dru_gtf  = none
         td2_gff3 = none
         dia_td2  = none
@@ -175,9 +188,16 @@ workflow HC_COMBINED {
     }
 
     // ---- the DIAMOND runs of the gene finders (14-column); without Tiberius its
-    // placeholder stands for the table as well
-    def dia_tib = tiberius ? DIAMOND_TIB(tib_proteins, db.db).tsv : tib_proteins
-    def dia_vip = DIAMOND_VIP(pep_vip, db.db)
+    // placeholder stands for the table as well, without protein evidence both do
+    def dia_tib
+    def dia_vip
+    if( proteins ) {
+        dia_tib = tiberius ? DIAMOND_TIB(tib_proteins, db.db).tsv : tib_proteins
+        dia_vip = DIAMOND_VIP(pep_vip, db.db).tsv
+    } else {
+        dia_tib = none
+        dia_vip = none
+    }
 
     // ---- RNA-Seq coverage; without a BAM the given track goes on as it is:
     // the bedGraph of a given assembly, or the placeholder (COMBINE_GENESETS
@@ -190,11 +210,12 @@ workflow HC_COMBINED {
     def min_locus = (params_map.combine?.min_locus != null) ? params_map.combine.min_locus : 4
     // learned selection: the model of params.combine.classifier (evidence modes
     // with Tiberius), classifier_vipsania (evidence modes without a Tiberius
-    // model) or classifier_proteins (mode proteins); false / null: tier rules,
-    // the empty placeholder goes in. The clade is known to the model when its
-    // HC-table entry names a classifier_clade; otherwise the model's
-    // conservative locus threshold applies (--unknown-clade).
-    def clfParam = !transcripts ? params_map.combine?.classifier_proteins :
+    // model), classifier_proteins (mode proteins) or classifier_abinitio (the
+    // ab initio combination); false / null: tier rules, the empty placeholder
+    // goes in. The clade is known to the model when its HC-table entry names a
+    // classifier_clade; otherwise the model's threshold for other clades
+    // applies (--unknown-clade).
+    def clfParam = !transcripts ? (proteins ? params_map.combine?.classifier_proteins : params_map.combine?.classifier_abinitio) :
                    tiberius ? params_map.combine?.classifier : params_map.combine?.classifier_vipsania
     def classifier = clfParam ? channel.value(file(clfParam.toString(), checkIfExists: true)) : NO_CLASSIFIER()
     def unknown_clade = !(clade.entry?.classifier_clade)
@@ -211,7 +232,7 @@ workflow HC_COMBINED {
     def combined = COMBINE_GENESETS(
         tib_gff, vip_gff_ch, dru_gtf, td2_gff3,
         intron_hints, cov_bg, chains,
-        dia_tib, dia_vip.tsv, dia_dru, dia_td2,
+        dia_tib, dia_vip, dia_dru, dia_td2,
         prot_train_gff, miniprot_scored, prot_hc_hints,
         classifier, insect, min_locus, clf_opts)
 

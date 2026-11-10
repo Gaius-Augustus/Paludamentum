@@ -18,13 +18,15 @@ SCRIPT = BIN / "combine_genesets.py"
 MODEL = ROOT / "conf" / "combiner_classifier_v1.json"
 MODEL_PROTEINS = ROOT / "conf" / "combiner_classifier_protonly_v1.json"
 MODEL_VIPSANIA = ROOT / "conf" / "combiner_classifier_vipsania_v1.json"
+MODEL_ABINITIO = ROOT / "conf" / "combiner_classifier_abinitio_v1.json"
 FIXTURES = ROOT / "tests" / "data" / "combine_classifier"
 FIXTURE = FIXTURES / "fixture_Tilletiopsis_washingtonensis_300.tsv"
 FIXTURE_PROTEINS = FIXTURES / "fixture_Tilletiopsis_washingtonensis_protonly_300.tsv"
 FIXTURE_VIPSANIA = FIXTURES / "fixture_Tilletiopsis_washingtonensis_noT_300.tsv"
+FIXTURE_ABINITIO = FIXTURES / "fixture_Tilletiopsis_washingtonensis_abinitio_300.tsv"
 # model file, its feature count, its fixture (300 structures of a test species never used for training)
 MODELS = {"evidence": (MODEL, 47, FIXTURE), "proteins": (MODEL_PROTEINS, 41, FIXTURE_PROTEINS),
-          "vipsania": (MODEL_VIPSANIA, 47, FIXTURE_VIPSANIA)}
+          "vipsania": (MODEL_VIPSANIA, 47, FIXTURE_VIPSANIA), "abinitio": (MODEL_ABINITIO, 18, FIXTURE_ABINITIO)}
 
 sys.path.insert(0, str(BIN))
 import combine_genesets as cg  # noqa: E402
@@ -76,8 +78,9 @@ def test_predictor_reproduces_sklearn_probabilities(which):
     diff = max(abs(a - float(r["p"])) for a, r in zip(p, rows))
     assert diff < 1e-6, diff
     # missing evidence (structures without a DIAMOND hit; for the evidence model also single-exon structures
-    # without introns) is NaN
-    assert any(math.isnan(f["dmd_pident"]) for f in F)
+    # without introns) is NaN; the ab initio model has no evidence feature at all
+    if which != "abinitio":
+        assert any(math.isnan(f["dmd_pident"]) for f in F)
     if which == "evidence":
         assert any(math.isnan(f["rna_frac"]) for f in F)
     assert 0.0 < sum(p) / len(p) < 1.0
@@ -196,6 +199,30 @@ def test_classifier_thresholds_override_and_unknown_clade(synth):
     assert rows["tB"]["reason"] == "isoform_classifier"
     _, _, err = combine(synth, "unk", "--classifier", str(MODEL), "--unknown-clade")
     assert "t_locus=0.3 " in err and "unknown_clade=True" in err
+
+
+def test_abinitio_model_without_any_evidence(synth):
+    """The ab initio combination: Tiberius and Vipsania alone, no evidence option at all; the evidence-free
+    model (tools, structure, locus context) selects at 0.30 / 0.25 and ranks the two-tool structure first."""
+    clf = cg.load_classifier(str(MODEL_ABINITIO))
+    assert not any(c.startswith(("dmd_", "prot_", "rna_", "mp_")) or c in ("log_mult", "log_mult_rel", "pif_rel", "cl_has_hit")
+                   for c in clf["features"])
+    assert (clf["t_locus"], clf["t_iso"], clf["t_locus_unknown_clade"]) == (0.3, 0.25, 0.3)
+    (synth / "none.gtf").write_text("")
+    out, rep = synth / "ab.gtf", synth / "ab.report.tsv"
+    cmd = [sys.executable, str(SCRIPT), "--tiberius", str(synth / "tiberius.gtf"), "--vipsania", str(synth / "vipsania.gtf"),
+           "--drusilla", str(synth / "none.gtf"), "--td2", str(synth / "none.gtf"),
+           "--classifier", str(MODEL_ABINITIO), "-o", str(out), "--report", str(rep)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "t_locus=0.3 t_iso=0.25" in r.stderr
+    with open(rep) as fh:
+        rows = {row["member_ids"].split(",")[0].split(":")[1]: row for row in csv.DictReader(fh, delimiter="\t")}
+    assert set(rows) == {"tA", "tB", "tC", "vD"}
+    pa = float(rows["tA"]["p_classifier"])
+    assert pa > float(rows["tB"]["p_classifier"]) and pa > float(rows["vD"]["p_classifier"])
+    assert rows["tA"]["reason"] == "primary"
+    assert all(rows[k]["dmd_searched"] == "" for k in rows)       # no DIAMOND table was given
 
 
 def test_vipsania_model_without_tiberius_set(synth):

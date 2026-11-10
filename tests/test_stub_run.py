@@ -110,6 +110,25 @@ def test_abinitio_mode(tool: str, tmp_path: Path) -> None:
     assert not [f for f in published if Path(f).name.startswith(other)], sorted(published)
 
 
+def test_abinitio_with_both_models_combines_without_evidence(tmp_path: Path) -> None:
+    """Mode abinitio with both models: both gene finders run and combine_genesets.py integrates them without any
+    evidence (no protein database, no DIAMOND, no miniprot); the published stem is combined_ab_initio."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "Running mode: abinitio" in proc.stdout
+    assert "Gene finders: tiberius + vipsania (ab initio combination" in proc.stdout
+    for p in ("RUN_TIBERIUS", "RUN_VIPSANIA", "COMBINE_GENESETS"):
+        assert p in proc.stdout, f"{p} not in: {proc.stdout[-2000:]}"
+    for p in ("MINIPROT", "DIAMOND", "PROT_VIP", "PROTEIN_FROM_GFF", "PREPROCESS_PROTEINDB", "TD_ALL",
+              "DRUSILLA_ANNOTATE", "STRINGTIE", "BAM2COV", "GENE_SUPPORT", "ADD_UTRS"):
+        assert p not in proc.stdout, f"{p} ran in the ab initio combination: {proc.stdout[-2000:]}"
+    assert final_files("combined_ab_initio") <= published, f"missing {final_files('combined_ab_initio') - published}"
+    assert {"intermediate/combined.gff3", "intermediate/tiberius_ab_initio.gff3",
+            "intermediate/vipsania_ab_initio.gff3"} <= published, sorted(published)
+    assert "hintsfile.gff" not in published and "qc/gene_support.tsv" not in published
+
+
 def test_proteins_mode_combines_both_finders_without_transcripts(tmp_path: Path) -> None:
     """Protein-only mode: both gene finders, protein evidence and combine_genesets.py; no assembly,
     no ORF callers, no coverage, no intron hints. The published stem is combined_evidence."""

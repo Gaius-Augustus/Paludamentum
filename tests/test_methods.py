@@ -158,7 +158,9 @@ def test_stub_run_rnaseq_without_tiberius(tmp_path: Path) -> None:
     # thresholds of the model, which also apply to clades outside the HC table (Nematoda)
     assert "if its probability reached 0.225" in methods
     assert "further models of the locus if theirs reached 0.3" in methods
-    assert "Tiberius" not in methods and "tiberius" not in methods
+    # Tiberius is named only as the gene set the classifier was trained without, never as a run tool
+    for phrase in ("predicted *ab initio* with Tiberius", "(Tiberius, Vipsania", "Tiberius-only", "drop-lone-single-exon"):
+        assert phrase not in methods, phrase
     citations = (tmp_path / "out" / "citations.md").read_text()
     assert "**Vipsania**" in citations and "**Tiberius**" not in citations and "gene finder: vipsania" in citations
 
@@ -233,6 +235,27 @@ def test_stub_run_proteins_tier_rules(tmp_path: Path) -> None:
     methods = check_stub_run(tmp_path)
     assert "reached a tier of 4" in methods and "classifier" not in methods
     assert "adjusted the tier with protein and DIAMOND features" in methods
+
+
+def test_stub_run_abinitio_both_models(tmp_path: Path) -> None:
+    """The ab initio combination: both gene finders and combine_genesets.py without evidence; the methods
+    describe the evidence-free classifier at 0.30 / 0.25 and cite no evidence tool."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert "in mode `abinitio` (without extrinsic evidence)" in methods
+    assert "A second set of *ab initio* predictions was made with Vipsania" in methods
+    assert "integrated by `combine_genesets.py` without extrinsic evidence" in methods
+    assert "gradient-boosted tree classifier for runs without evidence" in methods
+    assert "if its probability reached 0.3, and further models of the locus if theirs reached 0.25" in methods
+    for phrase in ("miniprot", "DIAMOND", "StringTie", "TD2", "Drusilla", "hints", "UTR"):
+        assert phrase not in methods, phrase
+    citations = (tmp_path / "out" / "citations.md").read_text()
+    for tool in ("Tiberius", "Vipsania", "GffRead", "GenomeTools"):
+        assert f"**{tool}" in citations, tool
+    for tool in ("miniprot", "DIAMOND", "StringTie", "TD2", "Drusilla"):
+        assert f"**{tool}**" not in citations, tool
 
 
 def test_stub_run_ab_initio_vipsania(tmp_path: Path) -> None:
