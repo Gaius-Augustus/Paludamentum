@@ -1061,3 +1061,62 @@ def test_default_run_with_one_model_runs_both_gene_finders(tmp_path: Path, monke
     # an ab initio run with one model stays a run of one gene finder
     _finder, params = launcher.merge_run_params(cli_args("--genome", GENOME, "--model", "Fungi"))
     assert not params["tiberius"].get("model_cfg")
+
+
+# ---------------------------------------------------------------- pyVARUS inside the pipeline (opt-in)
+
+VARUS = {"varus": {"run": True, "species": "Schizosaccharomyces pombe"}}
+
+
+def test_a_pyvarus_run_is_short_read_evidence():
+    params = {"proteins": [PROTEINS], **TIB, **VIP, **VARUS}
+    assert launcher.infer_mode(params) == "rnaseq"
+    assert launcher.check_mode({"genome": GENOME, **params}) == "rnaseq"
+    assert launcher.infer_mode({**params, "isoseq": ["i.fq"]}) == "mixed"
+    # a forced rnaseq mode has its reads with a pyVARUS run
+    assert launcher.check_mode({"genome": GENOME, "mode": "rnaseq", **params}) == "rnaseq"
+
+
+@pytest.mark.parametrize("varus", [
+    {"run": False, "species": "Schizosaccharomyces pombe"},       # the species alone does not switch it on
+    {"species": "Schizosaccharomyces pombe"},
+    {},
+])
+def test_pyvarus_does_not_run_unless_asked_for(varus):
+    params = {"proteins": [PROTEINS], **TIB, **VIP, "varus": varus}
+    assert not launcher.varus_run(params)
+    assert launcher.infer_mode(params) == "proteins"
+
+
+@pytest.mark.parametrize("extra,message", [
+    ({"varus": {"run": True}}, "needs varus.species"),
+    ({"varus": {"run": True, "species": "pombe"}}, "binomial species name"),
+    ({"varus": {"run": True, "species": "S. pombe; rm -r x"}}, "binomial species name"),
+    ({**VARUS, "stringtie": ["a.gtf"]}, "leave out the StringTie assembly"),
+    ({**VARUS, "proteins": None}, "without proteins"),            # reads of pyVARUS need proteins like any reads
+])
+def test_pyvarus_run_requirements(extra, message):
+    params = {"genome": GENOME, "proteins": [PROTEINS], **TIB, **VIP, **extra}
+    with pytest.raises(SystemExit, match=message):
+        launcher.check_mode(params)
+
+
+def test_pyvarus_in_a_mode_without_short_reads_warns(capsys):
+    params = {"genome": GENOME, "mode": "proteins", "proteins": [PROTEINS], **TIB, **VIP, **VARUS}
+    assert launcher.check_mode(params) == "proteins"
+    assert "varus.run is not used in mode 'proteins'" in capsys.readouterr().out
+
+
+def test_varus_species_on_the_command_line_switches_pyvarus_on(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    model_cfg = str(DATA / "tiny.fa")
+    base = ["--genome", GENOME, "--model_cfg", model_cfg, "--model", "Fungi", "--proteins", PROTEINS]
+    _finder, params = launcher.merge_run_params(cli_args(
+        *base, "--varus_species", "Schizosaccharomyces pombe", "--varus_email", "me@example.org", "--varus_logan"))
+    assert params["varus"] == {"run": True, "species": "Schizosaccharomyces pombe", "email": "me@example.org",
+                               "logan": True}
+    assert launcher.describe_run(params).startswith("Mode: rnaseq")
+    # without the option nothing about pyVARUS enters the params, and the run is a protein-only run
+    _finder, params = launcher.merge_run_params(cli_args(*base))
+    assert "varus" not in params
+    assert launcher.describe_run(params).startswith("Mode: proteins")

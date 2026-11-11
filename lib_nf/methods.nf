@@ -136,7 +136,7 @@ def methodsGeneFinder(Map ctx, Map run, String version) {
 
 // True if the run aligned or brought reads (not only StringTie assemblies).
 def transcriptReads(Map run) {
-    def shortReads = run.mode in ['rnaseq', 'mixed'] && (run.shortFastq || run.shortBam || run.shortVarus)
+    def shortReads = run.mode in ['rnaseq', 'mixed'] && (run.shortFastq || run.shortBam || run.shortVarus || run.varusRun)
     def longReads = run.mode in ['isoseq', 'mixed'] && (run.isoFastq || run.isoVarus)
     return shortReads || longReads || run.mixVarus
 }
@@ -194,6 +194,13 @@ def methodsTranscripts(Map ctx, Map run) {
              (ctx.used.contains('samtools') ? '' : " ${cite(ctx, ['samtools'])}") +
              ' where their header did not declare that order.'
     }
+    if( shortReads && run.varusRun ) {
+        s << "Short RNA-Seq reads of *${run.varusSpecies}* were sampled from the NCBI Sequence Read Archive with pyVARUS, " +
+             "the successor of VARUS ${cite(ctx, ['varus'])}, which downloads batches of the runs of the species and " +
+             "aligns them to the genome with HISAT2 ${cite(ctx, ['hisat2'])} until further batches add little coverage" +
+             (run.varusLogan ? "; the candidate runs were first screened with their Logan contigs ${cite(ctx, ['logan'])}" : '') +
+             '. Its alignment file was used like a provided one.'
+    }
     if( longReads && run.isoFastq ) {
         if( run.isoSra )
             s << 'Iso-Seq runs were downloaded from the NCBI Sequence Read Archive with `prefetch` and `fasterq-dump`.'
@@ -205,12 +212,12 @@ def methodsTranscripts(Map ctx, Map run) {
     if( aligned )
         s << "${capitalized(joinAnd(aligned))} libraries with an alignment rate below ${numText(run.minAlignmentRate)} % " +
              '(`samtools flagstat`) were discarded.'
-    if( shortReads && (run.shortFastq || run.shortBam) && run.strandFix )
+    if( shortReads && (run.shortFastq || run.shortBam || run.varusRun) && run.strandFix )
         s << 'The library strandedness of every short-read alignment file was inferred from its spliced reads ' +
              '(read orientation against the XS strand tag of the aligner), and the XS tag was set on all reads of ' +
              'stranded libraries (`drusilla strand-fix-bam`), so that StringTie could assign a strand to ' +
              'single-exon transcripts and separate overlapping antisense transcripts.'
-    def bams = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && run.isoFastq)
+    def bams = (shortReads && (run.shortFastq || run.shortBam || run.varusRun)) || (longReads && run.isoFastq)
     if( bams )
         s << 'The alignments of all libraries of a read type were merged with SAMtools, and intron hints were ' +
              "extracted from them with bam2hints of AUGUSTUS ${cite(ctx, ['augustus'])} and " +
@@ -313,7 +320,7 @@ def methodsHighConfidence(Map ctx, Map run) {
     def insect = withTiberius && run.clade?.toString()?.toLowerCase() in ['insecta', 'lepidoptera']
     def dropFlag = insect ? ' (plus `--drop-lone-single-exon tiberius`)' : ''
     // the coverage track needs a BAM; pyVARUS directories and a given assembly without reads have none
-    def bams = (run.mode in ['rnaseq', 'mixed'] && (run.shortFastq || run.shortBam)) ||
+    def bams = (run.mode in ['rnaseq', 'mixed'] && (run.shortFastq || run.shortBam || run.varusRun)) ||
                (run.mode in ['isoseq', 'mixed'] && run.isoFastq)
     def varusHints = (run.mode in ['rnaseq', 'mixed'] && run.shortVarus) || (run.mode in ['isoseq', 'mixed'] && run.isoVarus)
     def rna = !transcripts ? ' (without transcript evidence no ORF caller ran, and no coverage track and no intron ' +

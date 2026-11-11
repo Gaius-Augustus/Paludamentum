@@ -206,6 +206,53 @@ Then pass no other short reads or Iso-Seq. `mixed_varus` is used only in
 mixed mode. `varus replay` rebuilds a BAM deleted by
 `--drop-bam`.
 
+### pyVARUS inside the pipeline
+The pipeline can run pyVARUS itself, so that a run needs no RNA-Seq data of
+your own. It is off by default and only runs with `varus.run: true`
+(`--varus_species "Genus species"` on the command line sets both keys).
+`RUN_PYVARUS` asks NCBI SRA for the short-read RNA-Seq runs of the species
+(`varus runlist`), builds a HISAT2 index (`varus index`) and samples reads
+until further batches add little coverage (`varus run --keep-bam`). Its BAM
+is used like a BAM of `rnaseq_bam`: strand fix, StringTie assembly, intron
+hints and coverage track are made by the pipeline. It combines with
+`rnaseq_paired`, `rnaseq_single`, `rnaseq_bam` and the SRA accessions, not
+with `stringtie` or `rnaseq_varus`.
+
+```yaml
+varus:
+  run: true
+  species: "Schizosaccharomyces pombe"
+  email: you@example.org
+```
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `varus.run` | `false` | Run pyVARUS inside the pipeline. |
+| `varus.species` (`--varus_species`) | none | Binomial species name whose RNA-Seq runs are sampled; required with `varus.run`. |
+| `varus.email` (`--varus_email`) | none | Contact e-mail for NCBI Entrez (recommended by NCBI). |
+| `varus.logan` (`--varus_logan`) | `false` | Pre-screen the candidate runs with their Logan contigs first (`varus run --logan`), which avoids downloads of runs that do not fit the genome. |
+| `varus.max_batches` | `1000` | Upper bound of download iterations (`varus run --max-batches`). |
+| `varus.max_runs` | `0` (all) | Use only the first N runs of the species (`varus runlist --max-runs`). |
+| `varus.extra_args` | none | Appended verbatim to `varus run`. |
+
+Notes:
+
+- The task needs internet access and runs on the default executor with
+  `threads` CPUs; its memory follows the genome size (`hisat2-build` needs
+  about 8 times the FASTA), 32 GB at least. Its time limit is 72 h.
+- sra-tools may cache downloads in `~/.ncbi/public/sra`. pyVARUS recommends
+  to switch that cache off once:
+  `echo '/repository/user/cache-disabled = "true"' >> ~/.ncbi/user-settings.mkfg`.
+- `<outdir>/varus/` gets `Runlist.tsv`, `RunStatistics.csv`, `Coverage.csv`,
+  pyVARUS' `CITATIONS.md`, and `VARUS.manifest.tsv` with
+  `VARUS.splicedb.log.gz`, from which `varus replay` rebuilds the BAM
+  (see the pyVARUS README). The BAM is published there as `pyvarus_run.bam`
+  only with `keep_downloads: true`.
+- Short reads only. For long reads run `varus run --longreads` yourself and
+  pass the directory as `isoseq_varus`.
+- Without containers, `varus` and its tools (HISAT2, SAMtools, sra-tools,
+  StringTie) must be on `PATH`.
+
 ### StringTie assemblies
 
 A StringTie assembly made outside the pipeline goes to `stringtie`

@@ -52,6 +52,9 @@ def references() {
         varus: [tool: 'VARUS', use: 'sampled and aligned reads of the pyVARUS input',
             ref: 'Stanke M, Bruhn W, Becker F, Hoff KJ. VARUS: sampling complementary RNA reads from the sequence read archive. BMC Bioinformatics. 2019;20(1):558.',
             doi: '10.1186/s12859-019-3182-x'],
+        logan: [tool: 'Logan', use: 'pre-screen of the SRA runs by pyVARUS (varus.logan)',
+            ref: 'Chikhi R, Lemane T, Loll-Krippleber R, et al. Logan: Planetary-Scale Genome Assembly Surveys Life’s Diversity. bioRxiv. 2025.',
+            doi: '10.1101/2024.07.30.605881'],
         stringtie: [tool: 'StringTie', use: 'transcript assembly',
             ref: 'Kovaka S, Zimin AV, Pertea GM, Razaghi R, Salzberg SL, Pertea M. Transcriptome assembly from long-read RNA-seq alignments with StringTie2. Genome Biology. 2019;20(1):278.',
             doi: '10.1186/s13059-019-1910-1'],
@@ -176,13 +179,15 @@ def evidenceCitationKeys(Map run) {
     // whenever protein_top_species is not 0).
     if( transcripts || run.hc == 'combined' || (withProteins(run) && run.genefinder && run.proteinTopSpecies) ) keys << 'diamond'
 
-    if( shortReads && run.shortFastq ) keys << 'hisat2'
+    // pyVARUS (varus.run) aligns the reads it samples with HISAT2
+    if( shortReads && (run.shortFastq || run.varusRun) ) keys << 'hisat2'
     if( longReads && run.isoFastq ) keys << 'minimap2'
-    def aligned = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && run.isoFastq)
+    def aligned = (shortReads && (run.shortFastq || run.shortBam || run.varusRun)) || (longReads && run.isoFastq)
     if( aligned ) keys << 'samtools' << 'augustus'
     // bedtools genomecov writes the coverage track of the merged BAM (transcript modes with alignments)
     if( aligned && transcripts ) keys << 'bedtools'
-    if( (shortReads && run.shortVarus) || (longReads && run.isoVarus) ) keys << 'varus'
+    if( (shortReads && (run.shortVarus || run.varusRun)) || (longReads && run.isoVarus) ) keys << 'varus'
+    if( shortReads && run.varusRun && run.varusLogan ) keys << 'logan'
     if( transcripts ) keys << 'stringtie'
     keys << 'gffread'
 

@@ -516,3 +516,58 @@ def test_proteins_mode_publishes_hints_and_gene_support(tmp_path: Path) -> None:
     proc, published = run_pipeline(tmp_path, COMBINED_PROTEINS)
     assert_ok(proc)
     assert {"hintsfile.gff", "qc/gene_support.tsv", "qc/gene_set_statistics.txt"} <= published, sorted(published)
+
+
+# ---- pyVARUS inside the pipeline (varus.run, off by default) -----------------
+
+VARUS_RUN = {"varus": {"run": True, "species": "Schizosaccharomyces pombe"}}
+
+
+def test_pyvarus_runs_only_when_asked_for(tmp_path: Path) -> None:
+    """The default run with reads does not start pyVARUS."""
+    proc, published = run_pipeline(tmp_path, {**BOTH_FINDERS, **EVIDENCE["rnaseq"]})
+    assert_ok(proc)
+    assert "RUN_PYVARUS" not in proc.stdout
+    assert not [f for f in published if f.startswith("varus/")], sorted(published)
+
+
+def test_pyvarus_run_gives_the_rnaseq_evidence(tmp_path: Path) -> None:
+    """varus.run without reads: mode rnaseq, the pyVARUS BAM takes the place of a user BAM (strand fix, assembly,
+    intron hints, coverage track), and the files to rebuild it are published."""
+    proc, published = run_pipeline(tmp_path, {**BOTH_FINDERS, **PROTEINS, **VARUS_RUN})
+    assert_ok(proc)
+    assert "Running mode: rnaseq" in proc.stdout
+    for name in ("RUN_PYVARUS", "STRAND_FIX_BAM", "STRINGTIE_ASSEMBLE_RNA", "BAM2HINTS_RNA", "HC_COMBINED"):
+        assert name in proc.stdout, name
+    assert "HISAT2_BUILD" not in proc.stdout          # pyVARUS aligns its own reads
+    assert final_files("paludamentum") <= published, f"missing {final_files('paludamentum') - published}"
+    assert {"varus/VARUS.manifest.tsv", "varus/VARUS.splicedb.log.gz", "varus/Runlist.tsv"} <= published
+    assert "varus/pyvarus_run.bam" not in published   # only with keep_downloads
+    text = citations_text(tmp_path)
+    for tool in ("VARUS", "HISAT2", "SAMtools", "StringTie", "bedtools"):
+        assert f"**{tool}**" in text, (tool, text)
+    assert "**Logan**" not in text
+    methods = (tmp_path / "out" / "methods.md").read_text()
+    assert "sampled from the NCBI Sequence Read Archive with pyVARUS" in methods
+    assert "*Schizosaccharomyces pombe*" in methods
+
+
+def test_pyvarus_run_with_own_reads_and_logan(tmp_path: Path) -> None:
+    params = {**BOTH_FINDERS, **EVIDENCE["rnaseq"], "keep_downloads": True,
+              "varus": {**VARUS_RUN["varus"], "logan": True}}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert "RUN_PYVARUS" in proc.stdout and "HISAT2_BUILD" in proc.stdout
+    assert "varus/pyvarus_run.bam" in published
+    assert "**Logan**" in citations_text(tmp_path)
+
+
+@pytest.mark.parametrize("varus,message", [
+    ({"run": True}, "varus.run = true needs varus.species"),
+    ({"run": True, "species": "pombe"}, "varus.species: a binomial species name"),
+    ({"run": True, "species": "Schizosaccharomyces pombe", "email": "not an address"}, "varus.email"),
+])
+def test_pyvarus_run_needs_a_species(tmp_path: Path, varus, message) -> None:
+    proc, _ = run_pipeline(tmp_path, {**BOTH_FINDERS, **PROTEINS, "varus": varus})
+    assert proc.returncode != 0
+    assert message in proc.stdout + proc.stderr

@@ -1,6 +1,6 @@
 # Image of the Paludamentum evidence tools: every process with the label
 # 'container' (StringTie, HISAT2, minimap2, miniprot, miniprothint, DIAMOND,
-# TransDecoder, TD2, bam2hints, SRA downloads, GffRead and GenomeTools of the
+# TransDecoder, TD2, bam2hints, bedtools, SRA downloads, GffRead and GenomeTools of the
 # post-processing, the scripts in bin/). Tiberius runs
 # in the Tiberius image (label 'tiberius'), Vipsania, Drusilla and the hint
 # rescue in theirs.
@@ -12,9 +12,11 @@
 # apt packages are pinned to its versions.
 #
 # Build (no build context is needed) and tag with the version below:
-#   docker build -t gaiusaugustus/paludamentum-evidence:0.2.2 - < docker/evidence/Dockerfile
-#   docker push gaiusaugustus/paludamentum-evidence:0.2.2
+#   docker build -t gaiusaugustus/paludamentum-evidence:0.2.3 - < docker/evidence/Dockerfile
+#   docker push gaiusaugustus/paludamentum-evidence:0.2.3
 #
+# 0.2.3: bedtools 2.31.1 (bedtools genomecov, BAM2COV), which 0.2.2 and
+# earlier lacked, so BAM2COV failed with 'bedtools: command not found'.
 # 0.2.2: GenomeTools 1.6.5 (gt gff3validator, bin/validate_gff3.sh), which
 # checks every GFF3 that the post-processing publishes.
 # 0.2.1: TD2 1.1.0 (the ORF finder of the TransDecoder flow by default, see
@@ -104,10 +106,12 @@ LABEL org.opencontainers.image.title="paludamentum-evidence" \
 # samtools, HISAT2 and DIAMOND from Ubuntu (the versions that the benchmark
 # image ran: its DIAMOND 2.1.16 tarball came after the apt DIAMOND on PATH).
 # libbamtools for bam2hints, liburi-perl for TransDecoder, GenomeTools for the
-# GFF3 validation of the post-processing, procps for the Nextflow task metrics.
+# GFF3 validation of the post-processing, bedtools for the coverage track
+# (BAM2COV), procps for the Nextflow task metrics.
 RUN apt-get update --yes && \
     apt-get install --yes --no-install-recommends \
         samtools=1.19.2-1build2 \
+        bedtools=2.31.1+dfsg-2 \
         hisat2=2.2.1-4 \
         diamond-aligner=2.1.9-1 \
         libbamtools-dev=2.5.2+dfsg-4 \
@@ -149,6 +153,7 @@ ENV PATH=/opt/venv/bin:/opt/td2/bin:/opt/miniprot:/opt/miniprot-boundary-scorer:
 # Fail the build if a tool is missing or not the pinned version
 RUN set -e; \
     samtools --version | head -1 | grep -qx 'samtools 1.19.2'; \
+    bedtools --version | grep -qx 'bedtools v2.31.1'; \
     hisat2 --version | grep -q 'version 2.2.1'; \
     hisat2-build --version > /dev/null; \
     diamond version | grep -qx 'diamond version 2.1.9'; \
