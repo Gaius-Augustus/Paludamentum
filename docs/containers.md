@@ -2,7 +2,7 @@
 
 | Processes | Image | Built from |
 | --- | --- | --- |
-| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, bedtools, TransDecoder utilities, TD2, GffRead, GenomeTools, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.2` | [docker/evidence/Dockerfile](../docker/evidence/Dockerfile) |
+| evidence tools (StringTie, HISAT2, minimap2, miniprot, DIAMOND, bedtools, TransDecoder utilities, TD2, GffRead, GenomeTools, ...) | `docker://gaiusaugustus/paludamentum-evidence:0.2.3` | [docker/evidence/Dockerfile](../docker/evidence/Dockerfile) |
 | Tiberius | `docker://gaiusaugustus/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 | Drusilla ORFs (step 4 of the combined HC flow) | `docker://gaiusaugustus/drusilla:<version>` | `docker/Dockerfile` in the Drusilla repository |
