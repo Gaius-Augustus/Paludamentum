@@ -73,8 +73,9 @@ def test_short_and_long_bam_are_a_mixed_run_with_one_joint_assembly(tmp_path: Pa
     assert_ok(proc)
     assert "Running mode: mixed" in proc.stdout
     assert started(tmp_path, "HISAT2_BUILD", "MINIMAP2_MAP", *ASSEMBLERS) == \
-        {"HISAT2_BUILD": 0, "MINIMAP2_MAP": 0, "STRINGTIE_ASSEMBLE_RNA": 1, "STRINGTIE_ASSEMBLE_ISO": 1,
+        {"HISAT2_BUILD": 0, "MINIMAP2_MAP": 0, "STRINGTIE_ASSEMBLE_RNA": 0, "STRINGTIE_ASSEMBLE_ISO": 1,
          "STRINGTIE_ASSEMBLE_MIX": 1, "CONCAT_ASSEMBLIES": 0}, proc.stdout
+    assert tasks(tmp_path, "STRAND_FIX_BAM") == 1      # the short-read BAM is strand-fixed for stringtie --mix
     assert tasks(tmp_path, "BAM2HINTS_RNA") == 1 and tasks(tmp_path, "BAM2HINTS_ISO") == 1
     assert tasks(tmp_path, "ASSEMBLY_HINTS") == 0
     assert final_files("paludamentum") <= published
@@ -126,10 +127,11 @@ def test_short_and_long_assembly_are_a_mixed_run_side_by_side(tmp_path: Path) ->
                                "CONCAT_ASSEMBLIES": 1, "BAM2HINTS_RNA": 1, "BAM2HINTS_ISO": 1, "ASSEMBLY_HINTS": 0,
                                "STRAND_FIX_BAM": 0}),
     # no assembly given: both read types are alignments, one joint assembly
-    ("reads", "bam", {"STRINGTIE_ASSEMBLE_RNA": 1, "STRINGTIE_ASSEMBLE_ISO": 1, "STRINGTIE_ASSEMBLE_MIX": 1,
+    # (no short-read assembly of its own: nothing would read it)
+    ("reads", "bam", {"STRINGTIE_ASSEMBLE_RNA": 0, "STRINGTIE_ASSEMBLE_ISO": 1, "STRINGTIE_ASSEMBLE_MIX": 1,
                       "CONCAT_ASSEMBLIES": 0, "BAM2HINTS_RNA": 1, "BAM2HINTS_ISO": 1, "ASSEMBLY_HINTS": 0,
                       "STRAND_FIX_BAM": 1}),
-    ("bam+reads", "bam+reads", {"STRINGTIE_ASSEMBLE_RNA": 1, "STRINGTIE_ASSEMBLE_ISO": 1, "STRINGTIE_ASSEMBLE_MIX": 1,
+    ("bam+reads", "bam+reads", {"STRINGTIE_ASSEMBLE_RNA": 0, "STRINGTIE_ASSEMBLE_ISO": 1, "STRINGTIE_ASSEMBLE_MIX": 1,
                                 "CONCAT_ASSEMBLIES": 0, "BAM2HINTS_RNA": 1, "BAM2HINTS_ISO": 1, "ASSEMBLY_HINTS": 0,
                                 "STRAND_FIX_BAM": 2}),
 ])
@@ -160,6 +162,31 @@ def test_sra_accessions_combine_with_bam_and_assembly(tmp_path: Path) -> None:
         {"DOWNLOAD_SRA_PAIRED": 1, "DOWNLOAD_SRA_ISOSEQ": 1, "MINIMAP2_MAP": 1, "STRINGTIE_ASSEMBLE_ISO": 0,
          "CONCAT_ASSEMBLIES": 1}, proc.stdout
     assert final_files("paludamentum") <= published
+
+
+def test_joint_assembly_with_given_chains_assembles_nothing_else(tmp_path: Path) -> None:
+    """stringtie --mix run with chains given: neither read type needs an assembly of its own."""
+    params = {**BASE, **SHORT_READS, **ISOSEQ, "chains": [gtf(tmp_path, "chains.gtf")]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    assert started(tmp_path, *ASSEMBLERS, "STRAND_FIX_BAM") == \
+        {"STRINGTIE_ASSEMBLE_RNA": 0, "STRINGTIE_ASSEMBLE_ISO": 0, "STRINGTIE_ASSEMBLE_MIX": 1, "CONCAT_ASSEMBLIES": 0,
+         "STRAND_FIX_BAM": 1}, proc.stdout
+    assert final_files("paludamentum") <= published
+
+
+def test_pyvarus_directory_in_a_mixed_run_names_the_other_routes(tmp_path: Path) -> None:
+    varus = tmp_path / "varus_short"
+    varus.mkdir()
+    (varus / "stringtie.gtf").write_text("")
+    (varus / "hints.gff").write_text("")
+    (varus / "VARUS.manifest.tsv").write_text("#genome_md5=0\n")
+    proc, _ = run_pipeline(tmp_path, {**BASE, "rnaseq_varus": [str(varus)], **ISOSEQ})
+    assert proc.returncode != 0
+    out = " ".join((proc.stdout + proc.stderr).split())
+    for hint in ("mixed_varus", "A/VARUS.bam as rnaseq_bam", "B/VARUS.bam as isoseq_bam",
+                 "A/stringtie.gtf as rnaseq_stringtie", "B/stringtie.gtf as isoseq_stringtie"):
+        assert hint in out, (hint, out[-1500:])
 
 
 # ---- one read type with its assembly ----------------------------------------------
