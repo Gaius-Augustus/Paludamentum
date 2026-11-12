@@ -323,8 +323,10 @@ both gene finders run:
 | `Chlorophyta` | `chlorophyta` |
 | `Stramenopiles` | none added (from Tiberius `diatoms`: Vipsania `Stramenopiles`) |
 
-- A model that you give is never replaced. For a mammal, give
-  `--model_cfg mammalia_softmasking_v2`; Vipsania `Vertebrata` is added to it.
+- A model that you give is never replaced. Mammals use `vertebrates` like
+  all other vertebrates. The Tiberius models trained on mammals only can
+  still be given, for example `--model_cfg mammalia_softmasking_v2` (needs a
+  soft-masked genome); Vipsania `Vertebrata` is added to them.
 - Vipsania `Stramenopiles` gets no Tiberius model, because the Tiberius
   model of that clade is a diatom model. For a diatom, give
   `--model_cfg diatoms`.

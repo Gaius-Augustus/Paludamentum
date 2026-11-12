@@ -678,7 +678,7 @@ def complete_models(params: Dict, root: str | Path | None = None) -> List[str]:
         tib["model_cfg"] = name
         notes.append(f"[INFO] No Tiberius model was given: using the Tiberius model '{name}', which matches the "
                      f"Vipsania model '{model}', so that both gene finders run. Give --model_cfg for another model "
-                     "(for example a mammalia model for a mammal), or --no_auto_model to run Vipsania alone.")
+                     "(for example a mammalia model), or --no_auto_model to run Vipsania alone.")
     elif tib.get("model_cfg") and not vip_given:
         cfg = resolve_model_cfg(tib["model_cfg"], root)
         species = tiberius_target_species(cfg)
