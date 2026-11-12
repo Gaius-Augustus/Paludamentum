@@ -1061,3 +1061,58 @@ def test_default_run_with_one_model_runs_both_gene_finders(tmp_path: Path, monke
     # an ab initio run with one model stays a run of one gene finder
     _finder, params = launcher.merge_run_params(cli_args("--genome", GENOME, "--model", "Fungi"))
     assert not params["tiberius"].get("model_cfg")
+
+
+# ---------------------------------------------------------------- every read type as FASTQ, SRA, BAM, assembly
+
+@pytest.mark.parametrize("extra,mode", [
+    ({"isoseq_bam": ["i.bam"]}, "isoseq"),
+    ({"isoseq_stringtie": ["l.gtf"]}, "isoseq"),
+    ({"rnaseq_stringtie": ["s.gtf"]}, "rnaseq"),
+    ({"rnaseq_bam": ["r.bam"], "isoseq_bam": ["i.bam"]}, "mixed"),
+    ({"rnaseq_stringtie": ["s.gtf"], "isoseq_stringtie": ["l.gtf"]}, "mixed"),
+    ({"rnaseq_sra_paired": ["SRR1"], "isoseq_stringtie": ["l.gtf"]}, "mixed"),
+    ({"rnaseq_stringtie": ["s.gtf"], "isoseq": ["i.fq"]}, "mixed"),
+    ({"rnaseq_stringtie": ["s.gtf"], "rnaseq_bam": ["r.bam"], "isoseq_bam": ["i.bam"], "isoseq_sra": ["SRR2"]}, "mixed"),
+    ({"mode": "isoseq", "isoseq_stringtie": ["l.gtf"]}, "isoseq"),
+    ({"mode": "mixed", "rnaseq_bam": ["r.bam"], "isoseq_stringtie": ["l.gtf"]}, "mixed"),
+])
+def test_read_types_come_as_bam_or_assembly(extra, mode):
+    params = {"proteins": [PROTEINS], **TIB, **VIP, **extra}
+    assert launcher.infer_mode(params) == mode
+    assert launcher.check_mode({"genome": GENOME, **params}) == mode
+
+
+@pytest.mark.parametrize("extra,message", [
+    ({"stringtie": ["all.gtf"], "rnaseq_stringtie": ["s.gtf"]}, "stringtie is the one assembly of all reads"),
+    ({"stringtie": ["all.gtf"], "isoseq_stringtie": ["l.gtf"]}, "stringtie is the one assembly of all reads"),
+    ({"rnaseq_stringtie": ["a.gtf", "b.gtf"]}, "rnaseq_stringtie: one StringTie assembly"),
+    ({"isoseq_stringtie": ["a.gtf", "b.gtf"]}, "isoseq_stringtie: one StringTie assembly"),
+    ({"isoseq_stringtie": ["l.gtf"], "rnaseq_varus": ["d"]}, "brings its own StringTie"),
+    ({"isoseq_bam": ["i.bam"], "proteins": None}, "without proteins"),
+    ({"mode": "mixed", "isoseq_bam": ["i.bam"]}, "needs short reads"),
+    ({"mode": "isoseq", "rnaseq_stringtie": ["s.gtf"]}, "needs Iso-Seq reads"),
+])
+def test_refused_bam_and_assembly_inputs(extra, message):
+    params = {"genome": GENOME, "proteins": [PROTEINS], **TIB, **VIP, **extra}
+    with pytest.raises(SystemExit, match=message):
+        launcher.check_mode(params)
+
+
+def test_new_inputs_from_the_command_line_are_absolute_paths(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    model_cfg = str(DATA / "tiny.fa")
+    _finder, params = launcher.merge_run_params(cli_args(
+        "--genome", GENOME, "--model_cfg", model_cfg, "--model", "Fungi", "--proteins", PROTEINS,
+        "--rnaseq_stringtie", "short.gtf", "--isoseq_stringtie", "long.gtf", "--isoseq_bam", "a.bam", "b.bam"))
+    assert params["rnaseq_stringtie"] == [str(tmp_path / "short.gtf")]
+    assert params["isoseq_stringtie"] == [str(tmp_path / "long.gtf")]
+    assert params["isoseq_bam"] == [str(tmp_path / "a.bam"), str(tmp_path / "b.bam")]
+    assert launcher.describe_run(params).startswith("Mode: mixed")
+
+
+def test_missing_new_input_files_fail_the_validation(tmp_path: Path, capsys):
+    params = {"genome": GENOME, "isoseq_bam": [str(tmp_path / "missing.bam")],
+              "rnaseq_stringtie": [str(tmp_path / "missing.gtf")]}
+    errors = launcher.validate_input_data(params, tmp_path / "params.yaml")
+    assert any("Iso-Seq BAM" in e for e in errors) and any("short reads" in e for e in errors), errors

@@ -140,3 +140,33 @@ process STRINGTIE_ASSEMBLE_MIX {
   touch stringtie/stringtie.gtf stringtie/stringtie.gff3
   """
 }
+
+
+// The short-read and the long-read StringTie assembly of a mixed run side by
+// side in one GTF (bin/concat_assemblies.py: gene and transcript ids prefixed
+// with sr. / lr., all attributes kept). Used when the two read types do not
+// both come as alignments, so that `stringtie --mix` cannot assemble them
+// together: one of them, or both, came as an assembly (rnaseq_stringtie,
+// isoseq_stringtie). `stringtie --merge` is not used: it drops the cov and TPM
+// attributes that FILTER_STRINGTIE reads.
+process CONCAT_ASSEMBLIES {
+  label 'container'
+  publishDir "${params.outdir}/intermediate", mode: 'copy', overwrite: true
+
+  input:
+    path short_gtf, stageAs: 'short/*'
+    path long_gtf,  stageAs: 'long/*'
+
+  output:
+    path "stringtie_short_and_long.gtf", emit: gtf
+
+  script:
+  """
+  concat_assemblies.py --short ${short_gtf} --long ${long_gtf} > stringtie_short_and_long.gtf
+  """
+
+  stub:
+  """
+  touch stringtie_short_and_long.gtf
+  """
+}

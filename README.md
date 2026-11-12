@@ -195,10 +195,13 @@ or replace steps of the run. Every input can be given on the command line
 | `odb12Partitions` | OrthoDB v12 partitions to download: `Metazoa`, `Vertebrata`, `Viridiplantae`, `Arthropoda`, `Fungi`, `Alveolata`, `Stramenopiles`, `Amoebozoa`, `Euglenozoa`, `Eukaryota` |
 | `rnaseq_paired`, `rnaseq_single` | short read FASTQ files (glob or list) |
 | `rnaseq_bam` | aligned short reads, for example from VARUS |
-| `stringtie` | StringTie assembly (GTF) made outside the pipeline, exactly one file; instead of reads, or with the reads it was made from, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
+| `rnaseq_stringtie` | StringTie assembly (GTF) of the short reads, one file; instead of the reads, or with the reads it was made from, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
+| `stringtie` | one StringTie assembly (GTF) of all reads of the run, made outside the pipeline, exactly one file; instead of reads, or with the reads it was made from, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
 | `chains` | GTF/GFF3 files of full-length read transcripts (for example the `stringtie -L` assembly of long reads) for `combine_genesets.py`; made automatically in mixed mode, see [Long-read transcripts](docs/parameters.md#long-read-transcripts-chains) |
 | `rnaseq_varus`, `isoseq_varus`, `mixed_varus` | [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) output directories, which bring their StringTie assembly and intron hints but no BAM, so there is no coverage track; see [docs/parameters.md](docs/parameters.md#pyvarus-output-directories) |
 | `isoseq` | Iso-Seq FASTQ files |
+| `isoseq_bam` | aligned Iso-Seq reads (for example `minimap2 -ax splice:hq -uf`); they skip the alignment |
+| `isoseq_stringtie` | StringTie assembly (GTF, `stringtie -L`) of the Iso-Seq reads, one file; instead of the reads, or with the reads it was made from |
 | `rnaseq_sra_paired`, `rnaseq_sra_single`, `isoseq_sra` | SRA run accessions, downloaded by the pipeline; an accession whose download fails twice is dropped with an `Error is ignored` note, and `-resume` tries it again |
 | `keep_downloads` | copy the reads downloaded from SRA to `sra_downloads/` in `outdir`; default false, they stay in the work directory only |
 | `min_alignment_rate` | libraries whose alignment rate (percent mapped) is below this value are dropped; default 80. If all RNA-Seq (or all Iso-Seq) libraries are dropped, the run stops with an error |
@@ -221,10 +224,26 @@ stringtie: /abs/path/stringtie.gtf
 The assembly may come from short reads, Iso-Seq or both (`stringtie --mix`),
 and it must be an assembly of this genome FASTA (same sequence names). It
 combines with `--result`: an existing prediction and an existing assembly
-need no GPU, no mapping and no assembly step. Notes:
+need no GPU, no mapping and no assembly step.
 
-- The pipeline needs exactly one StringTie assembly of all reads;
-  several files are an error. The GTF must come from `stringtie` on the
+If you have one assembly per read type instead, give the assembly of the
+short reads as `--rnaseq_stringtie` and that of the Iso-Seq reads
+(`stringtie -L`) as `--isoseq_stringtie`. Each stands for the reads of its
+type, so the two together make a mixed run, and either one combines with
+reads, BAM files or SRA accessions of the other type, see
+[Iso-Seq and mixed runs](#iso-seq-and-mixed-runs).
+
+```bash
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi \
+    --proteins proteins.faa --rnaseq_stringtie short.gtf --isoseq_stringtie long.gtf
+```
+
+Notes:
+
+- `stringtie` takes exactly one assembly of all reads, and
+  `rnaseq_stringtie` and `isoseq_stringtie` one assembly each; several files
+  are an error, and so is `stringtie` together with one of the other two.
+  The GTF must come from `stringtie` on the
   reads (with `cov` and `TPM` attributes), not from `stringtie --merge`
   (which drops them). Drusilla's StringTie pre-filter reads these
   attributes.
@@ -233,8 +252,8 @@ need no GPU, no mapping and no assembly step. Notes:
   assembled. The BAM gives the coverage track (`bedtools genomecov`) and
   the intron hints (`bam2hints`).
 - pyVARUS directories (`rnaseq_varus`, `isoseq_varus`, `mixed_varus`)
-  cannot be combined with `--stringtie`; that is an error.
-- A run with only an assembly is reported as mode `rnaseq`, whatever reads
+  cannot be combined with a given assembly; that is an error.
+- A run with only `stringtie` is reported as mode `rnaseq`, whatever reads
   the assembly was made from. Without reads there is no BAM for `bam2hints`
   and `bedtools genomecov`, so the intron hints and the coverage track are
   derived from the assembly itself (`ASSEMBLY_HINTS`, `bin/assembly_hints.py`):
@@ -377,6 +396,29 @@ them (mode `mixed`). The run is the default run with another read aligner
 transcripts of the Iso-Seq reads alone are also used as evidence of
 full-length transcripts in the integration.
 
+Each read type can come in any of four forms, and in several at once:
+
+| | FASTQ | SRA accessions | BAM | StringTie assembly |
+| --- | --- | --- | --- | --- |
+| short reads | `rnaseq_paired`, `rnaseq_single` | `rnaseq_sra_paired`, `rnaseq_sra_single` | `rnaseq_bam` | `rnaseq_stringtie` |
+| Iso-Seq reads | `isoseq` | `isoseq_sra` | `isoseq_bam` | `isoseq_stringtie` |
+
+Any input of the first row together with any input of the second row is a
+mixed run. What the pipeline does with them depends on whether an assembly
+is given:
+
+- **No assembly given** (FASTQ, SRA accessions and BAM files only): both
+  read types end up as alignments, and StringTie assembles them together
+  (`stringtie --mix`).
+- **An assembly given for one or both read types:** that read type is not
+  assembled; the other one is assembled from its alignments. The short-read
+  and the Iso-Seq assembly are then used side by side as one transcript set.
+  The Iso-Seq assembly also serves as the full-length transcripts.
+- **Reads next to their assembly** (for example `rnaseq_stringtie` and
+  `rnaseq_bam`) are only aligned, for the coverage track and the intron
+  hints. A read type that comes as an assembly alone gets its intron hints
+  from that assembly.
+
 ```bash
 # Iso-Seq reads
 paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi \
@@ -385,6 +427,14 @@ paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fung
 # short reads and Iso-Seq reads
 paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi \
     --proteins proteins.faa --rnaseq_paired "rnaseq/*_{1,2}.fastq.gz" --isoseq isoseq.fastq.gz
+
+# a short-read BAM and an Iso-Seq BAM
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi \
+    --proteins proteins.faa --rnaseq_bam short.bam --isoseq_bam isoseq.bam
+
+# short reads from SRA and an existing Iso-Seq assembly
+paludamentum --nf_config local --genome genome.fa --model_cfg fungi --model Fungi \
+    --proteins proteins.faa --rnaseq_sra_paired SRR0000001 --isoseq_stringtie isoseq.gtf
 ```
 
 ### Protein-only runs

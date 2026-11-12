@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { PROTEIN_FROM_GFF } from './modules/genefinder.nf'
 include { MERGE_BAMS as MERGE_BAMS_ALL } from './modules/rnaseq.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; varusInputs; hcClade; classifierUnknownClade; truthy } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; gtfFiles; varusInputs; hcClade; classifierUnknownClade; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { methodsText } from './lib_nf/methods.nf'
 
@@ -14,7 +14,7 @@ include { RNASEQ_EVIDENCE } from './subworkflows/rnaseq_evidence.nf'
 include { ISOSEQ_EVIDENCE } from './subworkflows/isoseq_evidence.nf'
 include { AB_INITIO } from './subworkflows/ab_initio.nf'
 include { HC_COMBINED } from './subworkflows/hc_combined.nf'
-include { STRINGTIE_ASSEMBLE_MIX; STRINGTIE_ASSEMBLE_ISO as STRINGTIE_ASSEMBLE_CHAINS; ASSEMBLY_HINTS } from './modules/assembly.nf'
+include { STRINGTIE_ASSEMBLE_MIX; STRINGTIE_ASSEMBLE_ISO as STRINGTIE_ASSEMBLE_CHAINS; ASSEMBLY_HINTS; CONCAT_ASSEMBLIES } from './modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_MIX } from './modules/varus.nf'
 include { POSTPROCESS; buscoLineage } from './subworkflows/postprocess.nf'
 
@@ -28,18 +28,21 @@ workflow {
     def hasSingle   = params.rnaseq_single?.size()  > 0 || params.rnaseq_sra_single?.size() > 0
     def hasIso      = params.isoseq?.size()         > 0 || params.isoseq_sra?.size() > 0
     def hasBAM      = asList(params.rnaseq_bam).size() > 0
+    def hasIsoBam   = asList(params.isoseq_bam).findAll { b -> b }.size() > 0
     // pyVARUS output directories: short reads, Iso-Seq, varus assemble --mix
     def nVarus      = asList(params.rnaseq_varus).size()
     def nIsoVarus   = asList(params.isoseq_varus).size()
     def hasMixVarus = asList(params.mixed_varus).size() > 0
-    // StringTie assemblies of the user (GTF files or globs), used as they are
-    def stringtieFiles = asList(params.stringtie).findAll { p -> p }.collectMany { p ->
-      def f = file(p.toString())
-      def found = (f instanceof List) ? f : [f]
-      if( !found || found.any { g -> !g.exists() } ) error "stringtie: no such file: ${p}"
-      return found
-    }
+    // StringTie assemblies of the user (GTF files or globs), used as they are:
+    // stringtie is the one assembly of all reads; rnaseq_stringtie and
+    // isoseq_stringtie are the assembly of the short reads and of the Iso-Seq
+    // reads, which a mixed run puts side by side (CONCAT_ASSEMBLIES)
+    def stringtieFiles = gtfFiles(params.stringtie, 'stringtie')
     def hasStringtie = stringtieFiles.size() > 0
+    def shortAsmFiles = gtfFiles(params.rnaseq_stringtie, 'rnaseq_stringtie')
+    def longAsmFiles  = gtfFiles(params.isoseq_stringtie, 'isoseq_stringtie')
+    def hasShortAsm = shortAsmFiles.size() > 0
+    def hasLongAsm  = longAsmFiles.size() > 0
 
     def proteinsList = []
     if( params.proteins ) {
@@ -54,15 +57,22 @@ workflow {
     def hasProteins = proteinsList.size() > 0 || odb12List.size() > 0
 
     def MODE = params.mode ? normalizeMode(params.mode) \
-      : inferMode(hasPaired, hasSingle, hasIso || nIsoVarus > 0, hasBAM || nVarus > 0 || hasStringtie, hasProteins)
+      : inferMode(hasPaired, hasSingle, hasIso || hasIsoBam || hasLongAsm || nIsoVarus > 0,
+                  hasBAM || nVarus > 0 || hasStringtie || hasShortAsm, hasProteins)
     // A forced mode without its inputs would end without the main outputs.
     // A StringTie assembly (stringtie) stands for the reads of any transcript mode.
-    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM || nVarus > 0 || hasStringtie) )
-      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_varus or rnaseq_sra_*) or a StringTie assembly (stringtie)."
-    if( MODE in ['isoseq', 'mixed'] && !(hasIso || nIsoVarus > 0 || hasStringtie) )
-      error "params.mode '${MODE}' needs Iso-Seq reads (isoseq, isoseq_sra or isoseq_varus) or a StringTie assembly (stringtie)."
+    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM || nVarus > 0 || hasStringtie || hasShortAsm) )
+      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_varus or rnaseq_sra_*) or a StringTie assembly (rnaseq_stringtie, or stringtie for one assembly of all reads)."
+    if( MODE in ['isoseq', 'mixed'] && !(hasIso || hasIsoBam || nIsoVarus > 0 || hasStringtie || hasLongAsm) )
+      error "params.mode '${MODE}' needs Iso-Seq reads (isoseq, isoseq_bam, isoseq_sra or isoseq_varus) or a StringTie assembly (isoseq_stringtie, or stringtie for one assembly of all reads)."
     if( hasStringtie && MODE in ['abinitio', 'proteins'] )
       log.warn "stringtie is not used in mode '${MODE}'."
+    if( hasShortAsm && !(MODE in ['rnaseq', 'mixed']) )
+      log.warn "rnaseq_stringtie is not used in mode '${MODE}'."
+    if( hasLongAsm && !(MODE in ['isoseq', 'mixed']) )
+      log.warn "isoseq_stringtie is not used in mode '${MODE}'."
+    if( hasIsoBam && !(MODE in ['isoseq', 'mixed']) )
+      log.warn "isoseq_bam is not used in mode '${MODE}'."
     if( MODE == 'proteins' && !hasProteins )
       error "params.mode '${MODE}' needs protein evidence (proteins or odb12Partitions)."
     // species kept of a large protein database (PREPROCESS_PROTEINDB); 0 keeps it whole
@@ -126,9 +136,22 @@ workflow {
     // intron hints), pyVARUS directories may not (they bring an assembly of
     // their own).
     def useStringtie = hasStringtie && transcriptMode
+    // The assembly of one read type (rnaseq_stringtie, isoseq_stringtie): the
+    // assembly of that type's reads; its reads or BAMs may come with it and
+    // then only give the coverage track and the intron hints. In mixed mode
+    // the short-read and the Iso-Seq assembly, given or made by the pipeline,
+    // are put side by side (CONCAT_ASSEMBLIES) as the one assembly.
+    def useShortAsm = hasShortAsm && MODE in ['rnaseq', 'mixed']
+    def useLongAsm  = hasLongAsm && MODE in ['isoseq', 'mixed']
     if( useStringtie && stringtieFiles.size() > 1 )
-      error "stringtie: the unified HC flow needs one StringTie assembly of all reads, got ${stringtieFiles.size()} files. Pass the one assembly (stringtie --mix for short and Iso-Seq reads together), or let the pipeline assemble."
-    if( useStringtie && (nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
+      error "stringtie: the unified HC flow needs one StringTie assembly of all reads, got ${stringtieFiles.size()} files. Pass the one assembly (stringtie --mix for short and Iso-Seq reads together), give the assembly of the short reads as rnaseq_stringtie and that of the Iso-Seq reads as isoseq_stringtie, or let the pipeline assemble."
+    if( useShortAsm && shortAsmFiles.size() > 1 )
+      error "rnaseq_stringtie: one StringTie assembly of all short reads, got ${shortAsmFiles.size()} files."
+    if( useLongAsm && longAsmFiles.size() > 1 )
+      error "isoseq_stringtie: one StringTie assembly of all Iso-Seq reads, got ${longAsmFiles.size()} files."
+    if( useStringtie && (useShortAsm || useLongAsm) )
+      error "stringtie is the one assembly of all reads of the run. Give either stringtie, or the assemblies per read type (rnaseq_stringtie, isoseq_stringtie), not both."
+    if( (useStringtie || useShortAsm || useLongAsm) && (nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
       error "stringtie: a pyVARUS directory brings its own StringTie assembly. Pass either the StringTie GTF (with the reads or BAMs it was made from) or the pyVARUS directories, not both."
     // Reads or BAMs give the one merged BAM of the coverage track (BAM2COV) and
     // the intron hints (BAM2HINTS); pyVARUS directories and a given assembly
@@ -137,9 +160,17 @@ workflow {
     // cov of the transcripts sharing an intron as multiplicity, and a coverage
     // track from the exon cov values. Measured on 31 benchmark species against
     // the BAM: -0.4 transcript / -0.2 gene F1 (no RNA evidence: -4.3 / -3.7).
-    def haveReadsBam = (MODE in ['mixed', 'rnaseq'] && (hasPaired || hasSingle || hasBAM)) ||
-                       (MODE in ['mixed', 'isoseq'] && hasIso)
-    def asmHints = useStringtie && !haveReadsBam
+    def haveShortBam = MODE in ['mixed', 'rnaseq'] && (hasPaired || hasSingle || hasBAM)
+    def haveLongBam  = MODE in ['mixed', 'isoseq'] && (hasIso || hasIsoBam)
+    def haveReadsBam = haveShortBam || haveLongBam
+    def asmHints = (useStringtie || useShortAsm || useLongAsm) && !haveReadsBam
+    // Mixed run in which one read type came as an assembly only and the other
+    // one has alignments: the intron hints of that type are those of its
+    // assembly; the coverage track is that of the alignments.
+    def asmHintsShort = useShortAsm && !haveShortBam && haveLongBam
+    def asmHintsLong  = useLongAsm && !haveLongBam && haveShortBam
+    // Mixed run with an assembly per read type: side by side, not stringtie --mix
+    def concatAsm = MODE == 'mixed' && (useShortAsm || useLongAsm)
 
     // Transcripts of full-length reads for combine_genesets.py --chains (GTF
     // or GFF3 with exon lines, e.g. a StringTie -L assembly of long reads).
@@ -153,7 +184,7 @@ workflow {
     }
     if( chainFiles && !transcriptMode )
       log.warn "chains is not used in mode '${MODE}'."
-    def autoChains = MODE == 'mixed' && (hasIso || nIsoVarus > 0)
+    def autoChains = MODE == 'mixed' && (hasIso || hasIsoBam || nIsoVarus > 0 || useLongAsm)
 
     // What this run does, for the references (citations.md) and the methods
     // text (methods.md) of the run: lib_nf/citations.nf, lib_nf/methods.nf
@@ -179,9 +210,15 @@ workflow {
         orfFinder: transcriptMode ? 'td2' : null,
         odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
-        isoFastq: hasIso, isoVarus: nIsoVarus > 0,
-        // full-length transcripts of the integration: 'given' (chains), 'assembled' (mixed mode), or null
-        chains: !transcriptMode ? null : (chainFiles ? 'given' : (autoChains ? 'assembled' : null)),
+        isoFastq: hasIso, isoVarus: nIsoVarus > 0, isoBam: hasIsoBam,
+        // assembly of one read type given (rnaseq_stringtie, isoseq_stringtie); both side by side in a mixed run
+        shortAsm: useShortAsm, longAsm: useLongAsm, concatAsm: concatAsm,
+        // read type whose intron hints come from its assembly while the other type has alignments
+        asmHintsType: asmHintsShort ? 'short' : (asmHintsLong ? 'long' : null),
+        // full-length transcripts of the integration: 'given' (chains), 'provided' (isoseq_stringtie in mixed
+        // mode), 'assembled' (mixed mode), or null
+        chains: !transcriptMode ? null : (chainFiles ? 'given' :
+                (MODE == 'mixed' && useLongAsm ? 'provided' : (autoChains ? 'assembled' : null))),
         busco: params.qc?.busco_lineage && truthy(params.qc?.busco),
         compleasm: params.qc?.busco_lineage && truthy(params.qc?.compleasm),
         omark: truthy(params.qc?.omark), gffcompare: params.qc?.reference_annotation as boolean,
@@ -199,7 +236,7 @@ workflow {
         isoSra: asList(params.isoseq_sra).size() > 0,
         minAlignmentRate: params.min_alignment_rate ?: 80,
         // the strand fix runs on the BAMs that StringTie assembles (not with a given assembly)
-        strandFix: !hasStringtie && (params.strand_fix == null || truthy(params.strand_fix)),
+        strandFix: !hasStringtie && !useShortAsm && (params.strand_fix == null || truthy(params.strand_fix)),
         // both strands of '.' transcripts only matter when FILTER_STRINGTIE keeps them
         drusillaBothStrands: truthy(params.drusilla?.unstranded_both_strands) &&
             !truthy(params.drusilla?.drop_unstranded),
@@ -236,7 +273,7 @@ workflow {
       if( hasMixVarus ) {
         if( asList(params.mixed_varus).size() > 1 )
           error "mixed_varus takes one directory (the output of varus assemble --short --long), got ${asList(params.mixed_varus).size()}."
-        if( nVarus != 1 || nIsoVarus != 1 || hasPaired || hasSingle || hasBAM || hasIso )
+        if( nVarus != 1 || nIsoVarus != 1 || hasPaired || hasSingle || hasBAM || hasIso || hasIsoBam )
           error "mixed_varus is the one StringTie assembly of the unified HC flow, made from one short-read and one " +
                 "Iso-Seq pyVARUS BAM. Pass exactly one rnaseq_varus and one isoseq_varus directory (the runs whose " +
                 "BAMs varus assemble used) and no other short-read or Iso-Seq input."
@@ -335,26 +372,34 @@ workflow {
       // One StringTie assembly of all reads; one merged BAM for coverage
       // (BAM2COV) and intron hints (BAM2HINTS). With a given assembly the
       // reads are mapped for the BAM only ('none': nothing is assembled).
-      def asmMode = useStringtie ? 'none' : 'merged'
+      // A read type whose assembly is given is not assembled; its reads are
+      // mapped for the BAM only.
+      def asmModeShort = (useStringtie || useShortAsm) ? 'none' : 'merged'
+      def asmModeLong  = (useStringtie || useLongAsm) ? 'none' : 'merged'
       def re = (MODE in ['mixed','rnaseq']) \
-        ? RNASEQ_EVIDENCE(inp.genome, params, asmMode) \
+        ? RNASEQ_EVIDENCE(inp.genome, params, asmModeShort) \
         : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
       def ie = (MODE in ['mixed','isoseq']) \
-        ? ISOSEQ_EVIDENCE(inp.genome, params, asmMode) \
+        ? ISOSEQ_EVIDENCE(inp.genome, params, asmModeLong) \
         : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
 
-      // Assembly channel
+      // Assembly channel. Mixed mode: stringtie --mix of both merged BAMs when
+      // both read types are assembled here; with an assembly given for a read
+      // type, the short-read and the Iso-Seq assembly side by side.
       def asm_gtf  = nextflow.Channel.empty()
       def stringtie_gtf = nextflow.Channel.fromList(stringtieFiles)
+      def short_asm = useShortAsm ? nextflow.Channel.value(shortAsmFiles[0]) : re.asm_gtf
+      def long_asm  = useLongAsm ? nextflow.Channel.value(longAsmFiles[0]) : ie.asm_gtf
       if( useStringtie ) {
         asm_gtf  = stringtie_gtf
       } else if( MODE == 'mixed' ) {
-        if( mixVarus ) asm_gtf = VARUS_INPUT_MIX(nextflow.Channel.fromList(mixVarus), nextflow.Channel.value(file(params.genome))).gtf
-        else           asm_gtf = STRINGTIE_ASSEMBLE_MIX(re.bam, ie.bam).gtf
+        if( mixVarus )       asm_gtf = VARUS_INPUT_MIX(nextflow.Channel.fromList(mixVarus), nextflow.Channel.value(file(params.genome))).gtf
+        else if( concatAsm ) asm_gtf = CONCAT_ASSEMBLIES(short_asm, long_asm).gtf
+        else                 asm_gtf = STRINGTIE_ASSEMBLE_MIX(re.bam, ie.bam).gtf
       } else if( MODE == 'rnaseq' ) {
-        asm_gtf  = re.asm_gtf
+        asm_gtf  = short_asm
       } else if( MODE == 'isoseq' ) {
-        asm_gtf  = ie.asm_gtf
+        asm_gtf  = long_asm
       }
 
       // One merged BAM of all reads for BAM2COV. In mixed mode merge both
@@ -363,7 +408,12 @@ workflow {
       // ASSEMBLY_HINTS derives from a given assembly, or, for pyVARUS
       // directories, the placeholder (combine_genesets.py then runs without
       // --coverage, COMBINE_GENESETS).
-      def asm_ev = asmHints ? ASSEMBLY_HINTS(stringtie_gtf) : null
+      // ASSEMBLY_HINTS reads the one assembly of the run when there are no
+      // alignments at all, else the assembly of the read type without
+      // alignments (its intron hints only; the coverage track is the BAM's).
+      def asm_ev = asmHints ? ASSEMBLY_HINTS(asm_gtf) :
+                   asmHintsShort ? ASSEMBLY_HINTS(short_asm) :
+                   asmHintsLong ? ASSEMBLY_HINTS(long_asm) : null
       def haveBam = haveReadsBam
       def merged_bam
       if( !haveBam ) {
@@ -383,6 +433,8 @@ workflow {
       // --introns accepts several files; COMBINE_GENESETS leaves empty ones out.
       def introns_combine
       if( asmHints )              introns_combine = asm_ev.hints
+      else if( MODE == 'mixed' && (asmHintsShort || asmHintsLong) )
+                                  introns_combine = re.hints.mix(ie.hints).mix(asm_ev.hints).collect()
       else if( MODE == 'mixed' )  introns_combine = re.hints.mix(ie.hints).collect()
       else if( MODE == 'rnaseq' ) introns_combine = re.hints
       else                        introns_combine = ie.hints
@@ -397,7 +449,10 @@ workflow {
       def chains_combine
       if( chainFiles )
         chains_combine = nextflow.Channel.fromList(chainFiles).mix(empty_file).collect()
-      else if( MODE == 'mixed' && useStringtie && hasIso )
+      else if( MODE == 'mixed' && useLongAsm )
+        // the given Iso-Seq assembly is the set of full-length transcripts
+        chains_combine = nextflow.Channel.fromList(longAsmFiles).mix(empty_file).collect()
+      else if( MODE == 'mixed' && useStringtie && haveLongBam )
         chains_combine = STRINGTIE_ASSEMBLE_CHAINS(ie.bam).gtf.mix(empty_file).collect()
       else if( MODE == 'mixed' )
         chains_combine = ie.asm_gtf.mix(empty_file).collect()
@@ -426,7 +481,8 @@ workflow {
 
       // Hints for POSTPROCESS (gene support): protein + RNA + Iso-Seq hints;
       // the intron hints of a given assembly take the RNA slot.
-      def all_hints = CONCAT_HINTS(pe.prot_hints, asmHints ? asm_ev.hints : re.hints, ie.hints)
+      def all_hints = CONCAT_HINTS(pe.prot_hints, (asmHints || asmHintsShort) ? asm_ev.hints : re.hints,
+                                   asmHintsLong ? asm_ev.hints : ie.hints)
       hints = all_hints.hints
     }
 
@@ -446,11 +502,16 @@ workflow {
         }
         if( MODE in ['isoseq', 'mixed'] ) {
           if( hasIso ) evidence << 'Iso-Seq reads'
+          if( hasIsoBam ) evidence << 'Iso-Seq BAM'
           if( nIsoVarus > 0 ) evidence << 'pyVARUS Iso-Seq reads'
         }
         if( hasMixVarus ) evidence << 'pyVARUS mixed assembly'
         if( useStringtie )
           evidence << (asmHints ? 'StringTie assembly (intron hints and coverage derived from it; no reads)' : 'StringTie assembly')
+        if( useShortAsm ) evidence << 'StringTie assembly of the short reads'
+        if( useLongAsm )  evidence << 'StringTie assembly of the Iso-Seq reads'
+        if( (useShortAsm || useLongAsm) && asmHints )
+          evidence << 'intron hints and coverage derived from the assemblies (no reads)'
         if( chainFiles ) evidence << 'full-length transcripts (chains)'
       }
       def runInfo = [

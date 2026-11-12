@@ -137,7 +137,7 @@ def methodsGeneFinder(Map ctx, Map run, String version) {
 // True if the run aligned or brought reads (not only StringTie assemblies).
 def transcriptReads(Map run) {
     def shortReads = run.mode in ['rnaseq', 'mixed'] && (run.shortFastq || run.shortBam || run.shortVarus)
-    def longReads = run.mode in ['isoseq', 'mixed'] && (run.isoFastq || run.isoVarus)
+    def longReads = run.mode in ['isoseq', 'mixed'] && (run.isoFastq || run.isoBam || run.isoVarus)
     return shortReads || longReads || run.mixVarus
 }
 
@@ -202,6 +202,11 @@ def methodsTranscripts(Map ctx, Map run) {
              (ctx.used.contains('samtools') ? '.' : " ${cite(ctx, ['samtools'])}.")
         aligned << 'Iso-Seq'
     }
+    if( longReads && run.isoBam ) {
+        s << 'Provided Iso-Seq alignments (BAM) were used as provided, sorted by coordinate with SAMtools' +
+             (ctx.used.contains('samtools') ? '' : " ${cite(ctx, ['samtools'])}") +
+             ' where their header did not declare that order.'
+    }
     if( aligned )
         s << "${capitalized(joinAnd(aligned))} libraries with an alignment rate below ${numText(run.minAlignmentRate)} % " +
              '(`samtools flagstat`) were discarded.'
@@ -210,7 +215,7 @@ def methodsTranscripts(Map ctx, Map run) {
              '(read orientation against the XS strand tag of the aligner), and the XS tag was set on all reads of ' +
              'stranded libraries (`drusilla strand-fix-bam`), so that StringTie could assign a strand to ' +
              'single-exon transcripts and separate overlapping antisense transcripts.'
-    def bams = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && run.isoFastq)
+    def bams = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && (run.isoFastq || run.isoBam))
     if( bams )
         s << 'The alignments of all libraries of a read type were merged with SAMtools, and intron hints were ' +
              "extracted from them with bam2hints of AUGUSTUS ${cite(ctx, ['augustus'])} and " +
@@ -236,6 +241,20 @@ def methodsTranscripts(Map ctx, Map run) {
                      'transcripts, with the summed StringTie coverage of the transcripts sharing an intron as ' +
                      'multiplicity), and a coverage track from the coverage values of its exons.'
         }
+        else if( run.concatAsm ) {
+            def shortPart = run.shortAsm ? 'the provided StringTie assembly of the short reads' :
+                                           'the StringTie assembly of the merged short-read alignments'
+            def longPart = run.longAsm ? 'the provided StringTie assembly of the Iso-Seq reads' :
+                                         'the StringTie assembly of the merged Iso-Seq alignments (`stringtie -L`)'
+            s << "The transcript assembly was ${shortPart} together with ${longPart} (StringTie ${st}): the " +
+                 'transcripts of both were kept side by side in one set, since the two read types were not both ' +
+                 'available as alignments for a joint assembly.'
+        }
+        else if( (run.mode == 'rnaseq' && run.shortAsm) || (run.mode == 'isoseq' && run.longAsm) )
+            s << "The provided StringTie ${st} assembly of the ${run.mode == 'rnaseq' ? 'short' : 'Iso-Seq'} reads " +
+                 'was used as the transcript assembly' +
+                 (transcriptReads(run) ? '; the read alignments only gave the coverage track and the intron hints.' :
+                                         '; no reads were aligned.')
         else if( run.mode == 'mixed' && run.mixVarus )
             s << "The transcript assembly was the StringTie ${st} assembly of the short-read and the Iso-Seq " +
                  'alignments of pyVARUS together (`varus assemble --short --long`).'
@@ -249,6 +268,14 @@ def methodsTranscripts(Map ctx, Map run) {
         else
             s << "The merged Iso-Seq alignments were assembled into one transcript set with StringTie ${st}, using `stringtie -L`."
     }
+    if( oneAssembly && !run.stringtieFiles && run.asmHints )
+        s << 'Intron hints were derived from the assembly (the gaps between consecutive exons of its ' +
+             'transcripts, with the summed StringTie coverage of the transcripts sharing an intron as ' +
+             'multiplicity), and a coverage track from the coverage values of its exons.'
+    if( oneAssembly && run.asmHintsType )
+        s << "The ${run.asmHintsType == 'short' ? 'short' : 'Iso-Seq'} reads came as an assembly only: their intron " +
+             'hints were derived from that assembly (the gaps between consecutive exons of its transcripts, with ' +
+             'the summed StringTie coverage of the transcripts sharing an intron as multiplicity).'
     if( !bams && !varus )
         s << (run.asmHints ? 'Without reads, the hints of the run were the protein hints and the intron hints of the assembly.' :
               withProteins(run) ? 'Without reads, the hints of the run were protein hints only.' :
@@ -300,6 +327,7 @@ def methodsHighConfidence(Map ctx, Map run) {
              ', and isoforms whose CDS was a subsequence of another were collapsed.'
         if( run.chains )
             s << (run.chains == 'given' ? 'The given full-length transcripts' :
+                  run.chains == 'provided' ? 'The transcripts of the provided Iso-Seq assembly' :
                   'Transcripts assembled from the long reads alone (StringTie -L)') +
                  ' served as full-length transcript evidence in the integration: ' +
                  (run.classifier ?

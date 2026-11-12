@@ -2,11 +2,11 @@ nextflow.enable.dsl=2
 
 include { MINIMAP2_MAP } from '../modules/isoseq.nf'
 include { FILTER_ALIGNMENT as FILTER_ISOSEQ; EMPTY_FILE } from '../modules/util.nf'
-include { MERGE_BAMS as MERGE_BAMS_ISO; BAM2HINTS as BAM2HINTS_ISO } from '../modules/rnaseq.nf'
+include { MERGE_BAMS as MERGE_BAMS_ISO; BAM2HINTS as BAM2HINTS_ISO; SAMTOOLS_SORT as SAMTOOLS_SORT_ISO } from '../modules/rnaseq.nf'
 include { DOWNLOAD_SRA_ISOSEQ } from '../modules/download.nf'
 include { STRINGTIE_ASSEMBLE_ISO } from '../modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_ISO; MERGE_INTRON_HINTS as MERGE_INTRON_HINTS_ISO } from '../modules/varus.nf'
-include { asList; varusInputs } from '../lib_nf/functions.nf'
+include { asList; varusInputs; bamCoordinateSorted } from '../lib_nf/functions.nf'
 
 workflow ISOSEQ_EVIDENCE {
 
@@ -19,7 +19,10 @@ workflow ISOSEQ_EVIDENCE {
     empty_file = EMPTY_FILE()
 
     def DO_ISO_LOCAL = params_map.isoseq && params_map.isoseq.size() > 0
-    def DO_ISO = DO_ISO_LOCAL || (params_map.isoseq_sra && params_map.isoseq_sra.size() > 0)
+    def DO_ISO_FASTQ = DO_ISO_LOCAL || (params_map.isoseq_sra && params_map.isoseq_sra.size() > 0)
+    // aligned Iso-Seq reads of the user (isoseq_bam): they skip minimap2
+    def DO_ISO_BAM = asList(params_map.isoseq_bam).findAll { b -> b }.size() > 0
+    def DO_ISO = DO_ISO_FASTQ || DO_ISO_BAM
 
     // pyVARUS directories (--longreads) bring their StringTie assembly and intron hints
     def varus = varusInputs(params_map.isoseq_varus, 'isoseq_varus', 'longreads')
@@ -34,21 +37,38 @@ workflow ISOSEQ_EVIDENCE {
     def bam_out      = channel.empty()
 
     if( DO_ISO ) {
-        CH_ISO_LOCAL = DO_ISO_LOCAL ? channel.fromPath(params_map.isoseq, checkIfExists:true) : channel.empty()
+        // minimap2 BAMs of the FASTQ files and SRA runs
+        lib_bams = channel.empty()
+        if( DO_ISO_FASTQ ) {
+            CH_ISO_LOCAL = DO_ISO_LOCAL ? channel.fromPath(params_map.isoseq, checkIfExists:true) : channel.empty()
 
-        CH_ISO = CH_ISO_LOCAL
-        if( params_map.isoseq_sra ) {
-            CH_ISO_SRA_IDS = channel.fromList(asList(params_map.isoseq_sra))
-            CH_RNASEQ_ISO_SRA = DOWNLOAD_SRA_ISOSEQ(CH_ISO_SRA_IDS)
-            CH_ISO = CH_ISO_LOCAL.mix(CH_RNASEQ_ISO_SRA.map { _acc, f -> f })
+            CH_ISO = CH_ISO_LOCAL
+            if( params_map.isoseq_sra ) {
+                CH_ISO_SRA_IDS = channel.fromList(asList(params_map.isoseq_sra))
+                CH_RNASEQ_ISO_SRA = DOWNLOAD_SRA_ISOSEQ(CH_ISO_SRA_IDS)
+                CH_ISO = CH_ISO_LOCAL.mix(CH_RNASEQ_ISO_SRA.map { _acc, f -> f })
+            }
+
+            iso_bam  = MINIMAP2_MAP(CH_GENOME, CH_ISO)
+            FILTER_ISOSEQ(iso_bam.bam)
+            lib_bams = FILTER_ISOSEQ.out
         }
 
-        iso_bam  = MINIMAP2_MAP(CH_GENOME, CH_ISO)
-        FILTER_ISOSEQ(iso_bam.bam)
+        // User BAMs (isoseq_bam) are used as they are, sorted unless their
+        // header says SO:coordinate (merging, bam2hints and StringTie need it)
+        user_bams = channel.empty()
+        if( DO_ISO_BAM ) {
+            def given = channel.fromList(asList(params_map.isoseq_bam).findAll { b -> b }).map { f -> file(f, checkIfExists: true) }
+                .branch { f ->
+                    sorted:   bamCoordinateSorted(f)
+                    unsorted: true
+                }
+            user_bams = given.sorted.mix(SAMTOOLS_SORT_ISO(given.unsorted).bam)
+        }
 
         // Every library below min_alignment_rate (FILTER_ALIGNMENT): no BAM,
         // and the run would end without the HC genes and without a word.
-        iso_bams = channel.empty().mix(FILTER_ISOSEQ.out).ifEmpty {
+        iso_bams = lib_bams.mix(user_bams).ifEmpty {
             error "Iso-Seq: every library was dropped, its alignment rate is below params.min_alignment_rate (${params_map.min_alignment_rate ?: 80} %); see the 'Removing' lines above."
         }
 

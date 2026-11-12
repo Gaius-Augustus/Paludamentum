@@ -97,8 +97,8 @@ SUBMODULES: Dict[str, str] = {
 TOP_LEVEL_CLI_KEYS = (
     "threads", "outdir", "genome", "proteins", "odb12Partitions",
     "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "rnaseq_varus",
-    "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_sra", "isoseq_varus", "mixed_varus",
-    "stringtie", "chains", "mode", "scoring_matrix",
+    "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_bam", "isoseq_sra", "isoseq_varus", "mixed_varus",
+    "stringtie", "rnaseq_stringtie", "isoseq_stringtie", "chains", "mode", "scoring_matrix",
 )
 # Post-processing keys of the command line are nested: see BLOCK_CLI_KEYS.
 GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
@@ -118,7 +118,8 @@ GENEFINDER_OWN_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
 # Params values that are paths: they are written as absolute paths, because
 # Nextflow expands neither '~' nor environment variables.
 PATH_KEYS = ("genome", "proteins", "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "isoseq", "scoring_matrix",
-             "rnaseq_varus", "isoseq_varus", "mixed_varus", "stringtie", "chains")
+             "rnaseq_varus", "isoseq_varus", "mixed_varus", "stringtie", "chains",
+             "isoseq_bam", "rnaseq_stringtie", "isoseq_stringtie")
 GENEFINDER_PATH_KEYS = ("result", "model_cfg", "model_dir")
 
 # Command line keys of the post-processing blocks: CLI key -> (block, key)
@@ -491,9 +492,11 @@ def cli_overrides(args, genefinder: str) -> Dict:
     return overrides
 
 
+# Every read type comes as FASTQ, SRA accessions, BAM and/or a StringTie assembly (and as a pyVARUS
+# directory); stringtie is one assembly of all reads and counts as short-read input, as in main.nf
 SHORT_READ_KEYS = ("rnaseq_paired", "rnaseq_single", "rnaseq_bam", "rnaseq_sra_paired", "rnaseq_sra_single",
-                   "rnaseq_varus", "stringtie")
-ISOSEQ_KEYS = ("isoseq", "isoseq_sra", "isoseq_varus")
+                   "rnaseq_varus", "rnaseq_stringtie", "stringtie")
+ISOSEQ_KEYS = ("isoseq", "isoseq_bam", "isoseq_sra", "isoseq_varus", "isoseq_stringtie")
 MODES = ("abinitio", "proteins", "rnaseq", "isoseq", "mixed")
 MODE_HELP = (
     "Default run, the one the pipeline is designed for: genome + proteins + RNA-Seq (mode rnaseq).\n"
@@ -501,9 +504,11 @@ MODE_HELP = (
     "  reads, and the combined step selects the final gene set, paludamentum.gff3. Give the model of one\n"
     "  gene finder (--model_cfg or --model): the matching model of the other one is added where one exists.\n"
     "Alternative modes (inferred from the inputs, or forced with 'mode'):\n"
-    "  rnaseq    also with a StringTie assembly (stringtie) instead of the reads\n"
-    "  isoseq    genome + proteins + Iso-Seq reads (isoseq / isoseq_sra / isoseq_varus)\n"
-    "  mixed     genome + proteins + short reads and Iso-Seq reads\n"
+    "  rnaseq    also with a StringTie assembly (rnaseq_stringtie or stringtie) instead of the reads\n"
+    "  isoseq    genome + proteins + Iso-Seq reads (isoseq / isoseq_bam / isoseq_sra / isoseq_varus /\n"
+    "            isoseq_stringtie)\n"
+    "  mixed     genome + proteins + short reads and Iso-Seq reads; each read type as FASTQ, SRA\n"
+    "            accessions, BAM and/or StringTie assembly, in any combination\n"
     "            rnaseq / isoseq / mixed for a species without a Tiberius model: Vipsania is the only\n"
     "            ab initio gene finder (vipsania.model alone)\n"
     "  proteins  genome + proteins (proteins or odb12Partitions), no transcripts: Tiberius and Vipsania with\n"
@@ -586,10 +591,24 @@ def check_mode(params: Dict) -> str:
                             "reads out for an ab initio run.")
         if mode in ("rnaseq", "mixed") and not short:
             problems.append(f"mode '{mode}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_sra_*, "
-                            "rnaseq_varus) or a StringTie assembly (stringtie).")
+                            "rnaseq_varus) or a StringTie assembly (rnaseq_stringtie, or stringtie for one assembly "
+                            "of all reads).")
         if mode in ("isoseq", "mixed") and not (iso or params.get("stringtie")):
-            problems.append(f"mode '{mode}' needs Iso-Seq reads (isoseq, isoseq_sra, isoseq_varus) or a StringTie "
-                            "assembly (stringtie).")
+            problems.append(f"mode '{mode}' needs Iso-Seq reads (isoseq, isoseq_bam, isoseq_sra, isoseq_varus) or a "
+                            "StringTie assembly (isoseq_stringtie, or stringtie for one assembly of all reads).")
+        typed = [k for k, modes in (("rnaseq_stringtie", ("rnaseq", "mixed")), ("isoseq_stringtie", ("isoseq", "mixed")))
+                 if params.get(k) and mode in modes]
+        if params.get("stringtie") and typed:
+            problems.append("stringtie is the one assembly of all reads of the run: give either stringtie, or the "
+                            f"assemblies per read type ({', '.join(typed)}), not both.")
+        for key in typed:
+            value = params[key]
+            if isinstance(value, (list, tuple)) and len(value) > 1:
+                problems.append(f"{key}: one StringTie assembly of all reads of that type, got {len(value)} files.")
+        varus_dirs = [k for k in ("rnaseq_varus", "isoseq_varus", "mixed_varus") if params.get(k)]
+        if typed and varus_dirs:
+            problems.append(f"{', '.join(typed)}: a pyVARUS directory ({', '.join(varus_dirs)}) brings its own StringTie "
+                            "assembly; give either the assembly or the pyVARUS directories.")
         if not vip:
             problems.append(f"mode '{mode}' needs vipsania.model (or vipsania.result): Vipsania runs in every evidence "
                             "mode, and no Vipsania model could be derived from the Tiberius model. tiberius.model_cfg "
@@ -886,7 +905,10 @@ def validate_input_data(params: Dict, params_path: Path) -> List[str]:
         "rnaseq_paired": "RNA-Seq paired-end FASTQ",
         "rnaseq_bam": "RNA-Seq BAM",
         "isoseq": "Iso-Seq FASTQ",
+        "isoseq_bam": "Iso-Seq BAM",
         "stringtie": "StringTie assembly",
+        "rnaseq_stringtie": "StringTie assembly of the short reads",
+        "isoseq_stringtie": "StringTie assembly of the Iso-Seq reads",
         "chains": "Full-length transcripts (chains)",
         "scoring_matrix": "Scoring matrix",
         "proteins": "Protein FASTA",
