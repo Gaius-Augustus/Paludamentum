@@ -54,6 +54,17 @@ def inferMode(boolean hasPaired, boolean hasSingle, boolean hasIso, boolean hasB
   return hasProteins ? 'proteins' : 'abinitio'
 }
 
+// The existing files of a params value that names GTF files (one path or
+// glob, or a list of them); a path without a file is an error that names key.
+def gtfFiles(value, String key) {
+    return asList(value).findAll { p -> p }.collectMany { p ->
+        def f = file(p.toString())
+        def found = (f instanceof List) ? f : [f]
+        if( !found || found.any { g -> !g.exists() } ) error "${key}: no such file: ${p}"
+        return found
+    }
+}
+
 // params.mode normalised to one of modes(), or an error for anything else.
 def normalizeMode(value) {
   def mode = value.toString().trim().toLowerCase()

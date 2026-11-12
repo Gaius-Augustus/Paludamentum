@@ -100,6 +100,8 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument("--rnaseq_sra_single", nargs="*", default=[], help="RNA-Seq single-end SRA accession(s).")
     inputs.add_argument("--rnaseq_sra_paired", nargs="*", default=[], help="RNA-Seq paired-end SRA accession(s).")
     inputs.add_argument("--isoseq", nargs="*", default=[], help="Iso-Seq FASTQ file(s).")
+    inputs.add_argument("--isoseq_bam", nargs="*", default=[],
+                        help="Aligned Iso-Seq read BAM file(s) (e.g. minimap2 -ax splice:hq); they skip the alignment.")
     inputs.add_argument("--isoseq_sra", nargs="*", default=[], help="Iso-Seq SRA accession(s).")
     inputs.add_argument("--isoseq_varus", nargs="*", default=[],
                         help="pyVARUS output directory(ies) of --longreads runs, instead of their BAM.")
@@ -107,8 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Output directory of 'varus assemble --short --long': the assembly of the "
                              "Drusilla flow in mixed mode.")
     inputs.add_argument("--stringtie", nargs="*", default=[],
-                        help="StringTie assembly(ies) (GTF) made outside the pipeline, instead of or in addition "
-                             "to reads. Needs --proteins or --odb12Partitions.")
+                        help="One StringTie assembly (GTF) of all reads, made outside the pipeline, instead of or in "
+                             "addition to reads. Needs --proteins or --odb12Partitions.")
+    inputs.add_argument("--rnaseq_stringtie", nargs="*", default=[],
+                        help="StringTie assembly (GTF) of the short reads, instead of or in addition to them. With "
+                             "Iso-Seq input the run is a mixed run: the short-read and the Iso-Seq assembly are "
+                             "used side by side.")
+    inputs.add_argument("--isoseq_stringtie", nargs="*", default=[],
+                        help="StringTie -L assembly (GTF) of the Iso-Seq reads, instead of or in addition to them; "
+                             "in a mixed run also the full-length transcripts of the integration.")
     inputs.add_argument("--chains", nargs="*", default=[],
                         help="Transcripts of full-length reads (GTF/GFF3 with exon lines, e.g. a StringTie -L "
                              "assembly of long reads) as chain evidence for the gene set integration. In mixed "

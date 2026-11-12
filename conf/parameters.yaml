@@ -35,6 +35,13 @@ genome: /path/to/genome.fa
 # the coverage track are derived from the assembly (bin/assembly_hints.py).
 # stringtie: /path/to/stringtie.gtf
 #
+# One assembly per read type instead: of the short reads, and of the Iso-Seq
+# reads (stringtie -L). Each stands for the reads of its type and combines with
+# reads, BAM files or SRA accessions of either type (docs/parameters.md,
+# "StringTie assemblies").
+# rnaseq_stringtie: /path/to/short_reads.gtf
+# isoseq_stringtie: /path/to/isoseq_L.gtf
+#
 # Transcripts of full-length reads (GTF/GFF3, e.g. the stringtie -L assembly of
 # long reads) as chain evidence for the combiner; in mixed mode made automatically.
 # chains:
@@ -72,6 +79,10 @@ genome: /path/to/genome.fa
 # isoseq: "/path/to/isoseq/*.fastq.gz"
 # isoseq:
 #   - /path/to/isoseq1.fastq.gz
+
+# Aligned Iso-Seq reads (BAM). They skip minimap2.
+# isoseq_bam:
+#   - /path/to/isoseq1.bam
 
 # pyVARUS output directories of --longreads runs:
 # isoseq_varus:

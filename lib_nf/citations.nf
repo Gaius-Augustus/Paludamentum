@@ -178,7 +178,7 @@ def evidenceCitationKeys(Map run) {
 
     if( shortReads && run.shortFastq ) keys << 'hisat2'
     if( longReads && run.isoFastq ) keys << 'minimap2'
-    def aligned = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && run.isoFastq)
+    def aligned = (shortReads && (run.shortFastq || run.shortBam)) || (longReads && (run.isoFastq || run.isoBam))
     if( aligned ) keys << 'samtools' << 'augustus'
     // bedtools genomecov writes the coverage track of the merged BAM (transcript modes with alignments)
     if( aligned && transcripts ) keys << 'bedtools'
