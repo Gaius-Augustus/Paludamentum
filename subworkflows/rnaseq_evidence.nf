@@ -25,7 +25,9 @@ workflow RNASEQ_EVIDENCE {
     take:
     CH_GENOME
     params_map
-    asm_mode     // 'per_sample': one StringTie assembly per BAM; 'merged': one of the merged BAM; 'none'
+    asm_mode     // 'per_sample': one StringTie assembly per BAM; 'merged': one of the merged BAM;
+                 // 'bam': no assembly, the BAMs are strand-fixed for an assembly made elsewhere
+                 // (stringtie --mix); 'none': no assembly and no strand fix (a given assembly)
 
     main:
     empty_file = EMPTY_FILE()
@@ -167,7 +169,8 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
     // (params.strand_fix, default on): a HISAT2 BAM is one library ('none'); a
     // user BAM may pool runs (VARUS), which drusilla strand-fix-bam tells apart
     // by their read names (params.strand_fix_run_regex, null = its default).
-    // Not with a given assembly (asm_mode 'none'): bam2hints takes intron
+    // Also for the BAM that stringtie --mix assembles ('bam'). Not with a
+    // given assembly (asm_mode 'none'): bam2hints takes intron
     // strands from the splice sites and the coverage track is unstranded.
     if( asm_mode != 'none' && (params_map.strand_fix == null || truthy(params_map.strand_fix)) ) {
         def to_fix = lib_bams.map { b -> tuple(b, 'none') }

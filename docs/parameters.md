@@ -214,6 +214,18 @@ Then pass no other short reads or Iso-Seq. `mixed_varus` is used only in
 mixed mode. `varus replay` rebuilds a BAM deleted by
 `--drop-bam`.
 
+A mixed run can also use what a pyVARUS run produced without `mixed_varus`,
+and then combine it with reads, BAM files or SRA accessions of the other
+read type. Pass the files, not the directory:
+
+- the BAM (`varus run --keep-bam`, or rebuilt with `varus replay`) as
+  `rnaseq_bam` or `isoseq_bam`: the pipeline assembles both read types
+  together, or
+- the assembly `stringtie.gtf` as `rnaseq_stringtie` or `isoseq_stringtie`:
+  it is used side by side with the assembly of the other read type, and its
+  intron hints are derived from the assembly (not taken from `hints.gff`),
+  see [StringTie assemblies](#stringtie-assemblies).
+
 ### StringTie assemblies
 
 A StringTie assembly made outside the pipeline goes to `stringtie`

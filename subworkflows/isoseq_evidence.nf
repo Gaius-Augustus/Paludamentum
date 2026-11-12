@@ -13,7 +13,8 @@ workflow ISOSEQ_EVIDENCE {
     take:
     CH_GENOME
     params_map
-    asm_mode     // 'per_sample': one StringTie assembly per BAM; 'merged': one of the merged BAM; 'none'
+    asm_mode     // 'per_sample': one StringTie assembly per BAM; 'merged': one of the merged BAM;
+                 // 'none': the reads are aligned for the BAM only
 
     main:
     empty_file = EMPTY_FILE()

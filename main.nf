@@ -280,9 +280,15 @@ workflow {
         mixVarus = varusInputs(params.mixed_varus, 'mixed_varus', 'mixed')
       } else if( nVarus > 0 || nIsoVarus > 0 ) {
         error "The unified HC flow in mixed mode needs one StringTie assembly of the short reads and the Iso-Seq " +
-              "reads together, and pyVARUS directories have no BAM to make it. Run " +
-              "`varus assemble GENOME --short A/VARUS.bam --long B/VARUS.bam --outdir M` " +
-              "(`varus replay` rebuilds a dropped BAM) and pass M as mixed_varus."
+              "reads together, and pyVARUS directories have no BAM to make it. Three ways out: " +
+              "(1) run `varus assemble GENOME --short A/VARUS.bam --long B/VARUS.bam --outdir M` " +
+              "(`varus replay` rebuilds a dropped BAM) and pass M as mixed_varus next to the two directories; " +
+              "(2) pass the BAMs of the pyVARUS runs instead of the directories (A/VARUS.bam as rnaseq_bam, " +
+              "B/VARUS.bam as isoseq_bam): the pipeline then assembles them together; " +
+              "(3) pass the assemblies of the directories instead (A/stringtie.gtf as rnaseq_stringtie, " +
+              "B/stringtie.gtf as isoseq_stringtie): they are used side by side, and the intron hints are " +
+              "derived from them. (2) and (3) also combine a pyVARUS run of one read type with reads, BAM files " +
+              "or SRA accessions of the other."
       }
     } else if( hasMixVarus ) {
       log.warn "mixed_varus is not used in mode '${MODE}'."
@@ -374,8 +380,14 @@ workflow {
       // reads are mapped for the BAM only ('none': nothing is assembled).
       // A read type whose assembly is given is not assembled; its reads are
       // mapped for the BAM only.
-      def asmModeShort = (useStringtie || useShortAsm) ? 'none' : 'merged'
-      def asmModeLong  = (useStringtie || useLongAsm) ? 'none' : 'merged'
+      // In a mixed run without a given assembly, stringtie --mix assembles
+      // both BAMs together (or mixed_varus brings that assembly): the short
+      // reads need no assembly of their own ('bam': aligned and strand-fixed,
+      // not assembled), and the Iso-Seq reads only for the full-length
+      // transcripts, unless chains gives those.
+      def jointAsm = MODE == 'mixed' && !concatAsm
+      def asmModeShort = (useStringtie || useShortAsm) ? 'none' : (jointAsm ? 'bam' : 'merged')
+      def asmModeLong  = (useStringtie || useLongAsm || (jointAsm && chainFiles)) ? 'none' : 'merged'
       def re = (MODE in ['mixed','rnaseq']) \
         ? RNASEQ_EVIDENCE(inp.genome, params, asmModeShort) \
         : [hints: empty_file, asm_gtf: nextflow.Channel.empty(), bam: nextflow.Channel.empty()]
