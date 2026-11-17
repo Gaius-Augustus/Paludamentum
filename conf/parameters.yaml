@@ -185,7 +185,9 @@ vipsania:
 #   classifier_abinitio: conf/combiner_classifier_abinitio_v1.json   # mode abinitio with both gene finders (no evidence)
 #   t_locus: null                # locus threshold on P, overrides the model's (0.25; mode proteins 0.20)
 #   t_iso: null                  # isoform threshold on P, overrides the model's (0.30)
-#   min_locus: 4                 # tier rules: keep a locus if its best model reaches this tier (default 4)
+#   fragmented_l50: 100          # evidence modes with Tiberius: an assembly with an L50 above this many sequences ...
+#   t_locus_fragmented: 0.10     # ... gets this locus threshold (null = off; t_locus overrides it)
+#   min_locus: 4                # tier rules: keep a locus if its best model reaches this tier (default 4)
 
 # ------------------------------------------------------------
 # Post-processing and quality control (docs/postprocessing.md)

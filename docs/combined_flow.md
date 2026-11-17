@@ -102,7 +102,9 @@ Steps of the combined HC flow (the default run; the other modes leave out the in
    (tools, structure, locus context, RNA-Seq intron and coverage evidence,
    DIAMOND and miniprot protein evidence; no clade input). Per locus the
    best candidate is the primary if its P reaches the locus threshold
-   (0.25); further candidates are isoforms if P reaches 0.30. The `reason`
+   (0.25, or 0.10 for a fragmented assembly, see
+   [Fragmented assemblies](#fragmented-assemblies)); further candidates are
+   isoforms if P reaches 0.30. The `reason`
    column of the report is `primary`, `isoform_classifier`,
    `isoform_rejected`, `locus_below_min` or `dropped_lone_single_exon`, and
    the last column is `p_classifier`. With `combine.classifier = false` the
@@ -124,7 +126,7 @@ that the inputs of the mode provide. The models are clade-agnostic.
 
 | Run | Parameter | File | Features | Thresholds (locus / isoform) |
 | --- | --- | --- | --- | --- |
-| default run and modes `isoseq`, `mixed` | `combine.classifier` | `conf/combiner_classifier_v1.json` | 47: tools, structure, locus context, RNA-Seq intron and coverage evidence, DIAMOND and miniprot protein evidence | 0.25 / 0.30 (locus 0.30 for a clade outside the clade table) |
+| default run and modes `isoseq`, `mixed` | `combine.classifier` | `conf/combiner_classifier_v1.json` | 47: tools, structure, locus context, RNA-Seq intron and coverage evidence, DIAMOND and miniprot protein evidence | 0.25 / 0.30 (locus 0.30 for a clade outside the clade table; 0.10 on a fragmented assembly, see below) |
 | mode `proteins` | `combine.classifier_proteins` | `conf/combiner_classifier_protonly_v1.json` | 41: no RNA-Seq features | 0.20 / 0.30 (locus 0.30 for a clade outside the clade table) |
 | evidence mode without a Tiberius model | `combine.classifier_vipsania` | `conf/combiner_classifier_vipsania_v1.json` | as the default, without the Tiberius gene set | 0.225 / 0.30 |
 | mode `abinitio` with both models | `combine.classifier_abinitio` | `conf/combiner_classifier_abinitio_v1.json` | 18: tools, structure and locus context only | 0.30 / 0.25 |
@@ -144,6 +146,33 @@ that the inputs of the mode provide. The models are clade-agnostic.
 - **Mode `abinitio` with both models.** `combine_genesets.py` integrates the
   two predictions without any evidence: no protein database, no DIAMOND, no
   miniprot, no transcripts.
+
+## Fragmented assemblies
+
+In the evidence-mode classifier run with a Tiberius model,
+`combine_genesets.py` reads the genome (`--genome`), computes the number of
+sequences, length, N50 and L50 (the number of the longest sequences that hold
+half of the genome) and, if the L50 exceeds `combine.fragmented_l50` (100),
+uses `combine.t_locus_fragmented` (0.10) as locus threshold. Many genes of a
+fragmented assembly have only partial models whose low P would cost the whole
+locus. Precedence: `combine.t_locus`, then the fragmented threshold, then the
+0.30 of a clade new to the classifier (`--unknown-clade`), then the model's.
+`combine.fragmented_l50 = null` switches the rule off. The isoform threshold
+is unchanged. The other modes and models do not use the rule.
+
+Evidence (Nov 2026, replay of the selection against NCBI RefSeq): two
+fragmented assemblies (L50 639 and 1939) gained +0.11 and +0.08 gene-level F1
+at 0.10, with exact-CDS F1 unchanged (+0.008, +0.005). Fifteen contiguous
+assemblies (L50 <= 33) gain little from a lower threshold (at most +0.03 at
+0.15) and lose exact-CDS F1 at 0.10 (-0.01 to -0.07). No benchmark assembly
+has an L50 above 56.
+
+`intermediate/combined.settings.tsv` (`key`, `value`) records what a run
+used: `selection`, `assembly_sequences`, `assembly_length`, `assembly_n50`,
+`assembly_l50`, `fragmented_l50`, `fragmented` (0/1) and, in classifier mode,
+`t_locus`, `t_locus_source` (`t_locus`, `fragmented_assembly`,
+`model_unknown_clade` or `model`) and `t_iso`; with the tier rules
+`min_locus` instead.
 
 ## Clade table
 

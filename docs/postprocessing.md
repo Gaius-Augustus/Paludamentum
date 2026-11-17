@@ -355,6 +355,7 @@ physical size, so the text of all plots is equally large.
   report.html
   intermediate/
     combined.gff3                              output of combine_genesets.py, before the sanity filter
+    combined.settings.tsv                      assembly statistics and thresholds used by combine_genesets.py
     <tool>_ab_initio.gff3                      ab initio predictions, before the sanity filter
     paludamentum_sanity_filtered.gff3                after the sanity filter, before the UTRs
   qc/

@@ -143,7 +143,8 @@ def test_proteins_mode_combines_both_finders_without_transcripts(tmp_path: Path)
               "BAM2COV", "BAM2HINTS", "HISAT2", "ADD_UTRS"):
         assert p not in proc.stdout, f"{p} ran in mode proteins: {proc.stdout[-2000:]}"
     assert final_files("paludamentum") <= published, f"missing {final_files('paludamentum') - published}"
-    assert {"intermediate/combined.gff3", "intermediate/combined.report.tsv", "intermediate/tiberius_ab_initio.gff3",
+    assert {"intermediate/combined.gff3", "intermediate/combined.report.tsv", "intermediate/combined.settings.tsv",
+            "intermediate/tiberius_ab_initio.gff3",
             "intermediate/vipsania_ab_initio.gff3", "hintsfile.gff"} <= published, sorted(published)
     # one final gene set, under the same name in every mode: no <tool>_evidence.* or combined_evidence.* files
     assert not [f for f in published if "_evidence" in Path(f).name], sorted(published)
@@ -224,7 +225,7 @@ def test_combined_flow_published_set(tmp_path: Path) -> None:
     assert {
         "paludamentum.gff3", "paludamentum.gtf",
         "paludamentum_proteins.fa", "paludamentum_cds.fa",
-        "intermediate/combined.gff3", "intermediate/combined.report.tsv",
+        "intermediate/combined.gff3", "intermediate/combined.report.tsv", "intermediate/combined.settings.tsv",
         "intermediate/paludamentum_sanity_filtered.gff3",
         "intermediate/drusilla_orfs.gtf",
         "intermediate/rna_cov.bg.gz",

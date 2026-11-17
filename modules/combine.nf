@@ -10,8 +10,12 @@ nextflow.enable.dsl=2
 // a JSON model, with the options of clf_opts: --unknown-clade when the clade
 // has neither classifier_clade nor standard_thresholds in the HC table, --t-locus / --t-iso from
 // params.combine.t_locus / t_iso) or, with the empty placeholder instead of
-// a model, the tier rules with --min-locus. All other combine_genesets.py
-// thresholds use the script defaults.
+// a model, the tier rules with --min-locus. The genome goes in for the
+// assembly L50: in frag_opts (--fragmented-l50 N --t-locus-fragmented T, from
+// params.combine) a fragmented assembly gets the lower locus threshold. The
+// assembly statistics and the thresholds used are written to
+// combined.settings.tsv. All other combine_genesets.py thresholds use the
+// script defaults.
 //
 // Inputs that may share a file name are staged apart (Nextflow refuses two
 // input files of one name): the four DIAMOND tables are all diamond.tsv, and
@@ -28,7 +32,7 @@ nextflow.enable.dsl=2
 // tables of the gene finders, and selects with params.combine.classifier_abinitio.
 process COMBINE_GENESETS {
   label 'container'
-  publishDir "${params.outdir}/intermediate", pattern: "combined.{gff3,report.tsv}", mode: 'copy', overwrite: true
+  publishDir "${params.outdir}/intermediate", pattern: "combined.{gff3,report.tsv,settings.tsv}", mode: 'copy', overwrite: true
 
   input:
     path tib_gff
@@ -56,21 +60,26 @@ process COMBINE_GENESETS {
     path hc_hints, stageAs: 'miniprot_hints/*'
     // the classifier model (JSON), or the empty placeholder for the tier rules
     path classifier, stageAs: 'classifier/*'
+    // the genome, read only for its L50 (fragmented assemblies, frag_opts)
+    path genome, stageAs: 'genome/*'
     val  insect
     val  min_locus
     // further classifier options as one string: --unknown-clade, --t-locus X, --t-iso Y (may be empty)
     val  clf_opts
+    // --fragmented-l50 N --t-locus-fragmented T, or empty (no fragmented-assembly threshold)
+    val  frag_opts
 
   output:
-    path "combined.gff3",       emit: gff3
-    path "combined.report.tsv", emit: report
+    path "combined.gff3",         emit: gff3
+    path "combined.report.tsv",   emit: report
+    path "combined.settings.tsv", emit: settings
 
   script:
   def drop = insect ? "--drop-lone-single-exon tiberius" : ""
   """
   # learned selection with the shipped model; the empty placeholder means tier rules
   clf_args=""
-  if [ -s ${classifier} ]; then clf_args="--classifier ${classifier} ${clf_opts}"; fi
+  if [ -s ${classifier} ]; then clf_args="--classifier ${classifier} ${clf_opts} ${frag_opts}"; fi
   # RNA-Seq evidence only where there is some: without --introns and
   # --coverage the RNA rules of combine_genesets.py stay off, whereas an
   # empty hints file would count every intron as unsupported
@@ -102,12 +111,14 @@ process COMBINE_GENESETS {
       --diamond-format full \\
       --min-locus ${min_locus} ${drop} \\
       \$prot_args \$clf_args \$rna_args \$chain_args \\
+      --genome ${genome} \\
       -o combined.gff3 \\
-      --report combined.report.tsv
+      --report combined.report.tsv \\
+      --settings combined.settings.tsv
   """
 
   stub:
   """
-  touch combined.gff3 combined.report.tsv
+  touch combined.gff3 combined.report.tsv combined.settings.tsv
   """
 }

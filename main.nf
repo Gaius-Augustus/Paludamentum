@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { PROTEIN_FROM_GFF } from './modules/genefinder.nf'
 include { MERGE_BAMS as MERGE_BAMS_ALL } from './modules/rnaseq.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; gtfFiles; varusInputs; hcClade; classifierUnknownClade; truthy } from './lib_nf/functions.nf'
+include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; gtfFiles; varusInputs; hcClade; classifierUnknownClade; fragmentedOpts; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { methodsText } from './lib_nf/methods.nf'
 
@@ -261,6 +261,12 @@ workflow {
                                                (clfModel.t_locus_unknown_clade ?: clfModel.t_locus))),
         clfTIso: params.combine?.t_iso != null ? params.combine.t_iso : clfModel?.t_iso,
         clfUnknownClade: clfModel != null && params.combine?.t_locus == null && classifierUnknownClade(clade),
+        // the locus threshold of a fragmented assembly (combine_genesets.py decides from the genome's L50;
+        // the methods text states the rule, combined.settings.tsv what the run used); null when it does not apply
+        clfFragmentedL50: fragmentedOpts(params, clfModel != null && transcriptMode && runTiberius) ?
+                          params.combine.fragmented_l50 : null,
+        clfTLocusFragmented: fragmentedOpts(params, clfModel != null && transcriptMode && runTiberius) ?
+                             params.combine.t_locus_fragmented : null,
     ]
     def version = workflow.manifest.version ?: 'unknown'
     file("${outdir}/citations.md").text = citationsText(run, version)

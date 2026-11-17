@@ -313,3 +313,137 @@ def test_classifier_refuses_a_tier_table_and_rules_mode_is_unchanged(synth):
     rows, kept, _ = combine(synth, "rules")
     assert "p_classifier" not in next(iter(rows.values()))
     assert rows["tA"]["reason"] == "primary" and rows["tA"]["locus_tier"] == "10"
+
+
+# ---------------------------------------------------------------- fragmented assemblies: L50 and the locus threshold
+
+def write_fasta(path: Path, records: list, width: int = 60) -> Path:
+    """records: (name, length); sequences wrapped at `width`, a .gz path is written compressed."""
+    import gzip
+    text = ""
+    for name, n in records:
+        seq = "ACGT" * (n // 4 + 1)
+        seq = seq[:n]
+        text += f">{name} toy\n" + "".join(seq[i:i + width] + "\n" for i in range(0, n, width))
+    if str(path).endswith(".gz"):
+        with gzip.open(path, "wt") as fh:
+            fh.write(text)
+    else:
+        path.write_text(text)
+    return path
+
+
+@pytest.mark.parametrize("suffix", [".fa", ".fa.gz"])
+def test_assembly_stats_n50_l50(tmp_path, suffix):
+    # total 1000: 400 + 300 = 700 >= 500 -> L50 2, N50 300 (the shortest of those two)
+    g = write_fasta(tmp_path / f"g{suffix}", [("s1", 100), ("s2", 400), ("s3", 50), ("s4", 300), ("s5", 150)])
+    assert cg.assembly_stats(str(g)) == {"n_seqs": 5, "length": 1000, "n50": 300, "l50": 2}
+
+
+def test_assembly_stats_exact_half_and_single_sequence(tmp_path):
+    # the longest sequence holds exactly half the length: L50 1 (cumulative >= half)
+    g = write_fasta(tmp_path / "half.fa", [("a", 500), ("b", 250), ("c", 250)])
+    assert cg.assembly_stats(str(g)) == {"n_seqs": 3, "length": 1000, "n50": 500, "l50": 1}
+    one = write_fasta(tmp_path / "one.fa.gz", [("only", 77)])
+    assert cg.assembly_stats(str(one)) == {"n_seqs": 1, "length": 77, "n50": 77, "l50": 1}
+
+
+def test_assembly_stats_empty_record_multiline_and_empty_file(tmp_path):
+    g = tmp_path / "e.fa"
+    g.write_text(">a\nACGT\nACGT\nAC\n>empty\n>b desc\nACGTACGTAC\n\n")
+    st = cg.assembly_stats(str(g))
+    assert st["n_seqs"] == 3 and st["length"] == 20            # the empty record counts as a sequence of length 0
+    assert (st["n50"], st["l50"]) == (10, 1)                   # 10 of 20 is exactly half
+    (tmp_path / "none.fa").write_text("")
+    assert cg.assembly_stats(str(tmp_path / "none.fa")) == {"n_seqs": 0, "length": 0, "n50": 0, "l50": 0}
+
+
+def test_select_t_locus_precedence():
+    clf = {"t_locus": 0.25, "t_locus_unknown_clade": 0.3}
+    assert cg.select_t_locus(clf) == (0.25, "model")
+    assert cg.select_t_locus(clf, unknown_clade=True) == (0.3, "model_unknown_clade")
+    assert cg.select_t_locus(clf, unknown_clade=True, t_locus_fragmented=0.1) == (0.1, "fragmented_assembly")
+    assert cg.select_t_locus(clf, t_locus=0.4, unknown_clade=True, t_locus_fragmented=0.1) == (0.4, "t_locus")
+    assert cg.select_t_locus(clf, t_locus=0.0, t_locus_fragmented=0.1) == (0.0, "t_locus")   # 0 is a value, not unset
+    # a model file without the unknown-clade threshold falls back to t_locus
+    assert cg.select_t_locus({"t_locus": 0.2}, unknown_clade=True) == (0.2, "model_unknown_clade")
+
+
+def read_settings(path: Path) -> dict:
+    lines = path.read_text().splitlines()
+    assert lines[0] == "key\tvalue"
+    return dict(line.split("\t", 1) for line in lines[1:])
+
+
+FRAG = ("--fragmented-l50", "5", "--t-locus-fragmented", "0.1")
+
+
+def test_fragmented_assembly_lowers_the_locus_threshold(synth):
+    """20 sequences of equal length: L50 10 > 5. The synth loci have P 0.68 (tA), 0.20 (tC), 0.18 (vD): the
+    model's 0.25 keeps one locus, 0.10 keeps all three."""
+    write_fasta(synth / "frag.fa", [("chr1", 1000)] + [(f"s{i}", 1000) for i in range(19)])
+    _, kept0, _ = combine(synth, "base", "--classifier", str(MODEL))
+    assert len(kept0) == 1
+    rows, kept, err = combine(synth, "frag", "--classifier", str(MODEL), "--genome", str(synth / "frag.fa"), *FRAG,
+                              "--settings", str(synth / "frag.settings.tsv"))
+    assert len(kept) == 3 and rows["tC"]["kept"] == "1" and rows["vD"]["kept"] == "1"
+    assert "t_locus=0.1 " in err and "L50 10" in err and "fragmented (L50 > 5)" in err
+    s = read_settings(synth / "frag.settings.tsv")
+    assert s == {"selection": "classifier", "assembly_sequences": "20", "assembly_length": "20000",
+                 "assembly_n50": "1000", "assembly_l50": "10", "fragmented_l50": "5", "fragmented": "1",
+                 "t_locus": "0.1", "t_locus_source": "fragmented_assembly", "t_iso": "0.3"}
+
+
+def test_fragmented_threshold_also_for_unknown_clade_and_gz_genome(synth):
+    write_fasta(synth / "frag.fa.gz", [(f"s{i}", 1000) for i in range(20)])
+    _, kept, _ = combine(synth, "unk", "--classifier", str(MODEL), "--unknown-clade",
+                         "--genome", str(synth / "frag.fa.gz"), *FRAG, "--settings", str(synth / "u.tsv"))
+    assert len(kept) == 3
+    assert read_settings(synth / "u.tsv")["t_locus_source"] == "fragmented_assembly"
+
+
+def test_contiguous_assembly_keeps_the_model_threshold(synth):
+    # L50 1 <= 5; also exactly L50 == N is not fragmented (L50 must exceed N)
+    write_fasta(synth / "contig.fa", [("chr1", 20000)] + [(f"s{i}", 100) for i in range(10)])
+    _, kept, err = combine(synth, "contig", "--classifier", str(MODEL), "--genome", str(synth / "contig.fa"), *FRAG,
+                           "--settings", str(synth / "c.tsv"))
+    assert len(kept) == 1 and "fragmented (" not in err and "L50 1," in err
+    s = read_settings(synth / "c.tsv")
+    assert (s["fragmented"], s["t_locus"], s["t_locus_source"], s["assembly_l50"]) == ("0", "0.25", "model", "1")
+    write_fasta(synth / "edge.fa", [(f"s{i}", 1000) for i in range(10)])       # L50 5
+    combine(synth, "edge", "--classifier", str(MODEL), "--genome", str(synth / "edge.fa"), *FRAG,
+            "--settings", str(synth / "e.tsv"))
+    s = read_settings(synth / "e.tsv")
+    assert (s["assembly_l50"], s["fragmented"], s["t_locus_source"]) == ("5", "0", "model")
+
+
+def test_t_locus_overrides_the_fragmented_threshold(synth):
+    write_fasta(synth / "frag.fa", [(f"s{i}", 1000) for i in range(20)])
+    _, kept, _ = combine(synth, "ov", "--classifier", str(MODEL), "--genome", str(synth / "frag.fa"), *FRAG,
+                         "--t-locus", "0.5", "--settings", str(synth / "o.tsv"))
+    assert len(kept) == 1
+    s = read_settings(synth / "o.tsv")
+    assert (s["t_locus"], s["t_locus_source"], s["fragmented"]) == ("0.5", "t_locus", "1")
+
+
+def test_fragmented_options_are_inert_without_genome_or_both_options(synth):
+    write_fasta(synth / "frag.fa", [(f"s{i}", 1000) for i in range(20)])
+    combine(synth, "nog", "--classifier", str(MODEL), *FRAG, "--settings", str(synth / "n.tsv"))
+    s = read_settings(synth / "n.tsv")
+    assert "assembly_l50" not in s and s["fragmented"] == "0" and s["t_locus_source"] == "model"
+    combine(synth, "not", "--classifier", str(MODEL), "--genome", str(synth / "frag.fa"), "--fragmented-l50", "5",
+            "--settings", str(synth / "t.tsv"))        # no --t-locus-fragmented
+    s = read_settings(synth / "t.tsv")
+    assert s["assembly_l50"] == "10"
+    assert s["fragmented"] == "0" and s["t_locus"] == "0.25"
+
+
+def test_settings_in_tier_rule_mode_write_min_locus(synth):
+    write_fasta(synth / "frag.fa", [(f"s{i}", 1000) for i in range(20)])
+    combine(synth, "rules", "--genome", str(synth / "frag.fa"), *FRAG, "--min-locus", "7",
+            "--settings", str(synth / "r.tsv"))
+    s = read_settings(synth / "r.tsv")
+    assert s["selection"] == "tier_rules" and float(s["min_locus"]) == 7.0
+    assert "t_locus" not in s and "t_iso" not in s
+    # the tier rules do not use the fragmented threshold
+    assert s["assembly_l50"] == "10" and s["fragmented"] == "1"
