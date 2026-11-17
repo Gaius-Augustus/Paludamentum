@@ -128,6 +128,9 @@ process DRUSILLA_ANNOTATE {
   if( params.drusilla.orfs_per_tx != null )           extra += " --orfs-per-tx ${params.drusilla.orfs_per_tx}"
   // shards > 1: the transcripts are split by gene into this many parts, each
   // annotated by its own process. On CPUs one process uses only 1-2 cores.
+  // gffread indexes the genome once before they start: each shard's gffread
+  // writes the .fai when none exists, all at the same time, and pyfaidx in a
+  // shard could read a half-written index (Drosophila mixed run, Nov 2026).
   def shards = (params.drusilla.shards ?: 1) as Integer
   def threads = Math.max(1, (task.cpus as Integer).intdiv(shards))
   """
@@ -149,6 +152,7 @@ process DRUSILLA_ANNOTATE {
               match(\$9, /gene_id "[^"]+"/); g = substr(\$9, RSTART, RLENGTH)
               if (!(g in shard)) shard[g] = k++ % n
               print > ("shard_" shard[g] ".gtf") }' ${gtf}
+      gffread -g ${genome} -w /dev/null shard_0.gtf
       pids=""
       for f in shard_*.gtf; do
           i=\${f#shard_}; i=\${i%.gtf}

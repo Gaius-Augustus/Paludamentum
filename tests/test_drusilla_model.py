@@ -2,8 +2,9 @@
 
 The process runs for real (not as a stub) in a one-process workflow with a stand-in `drusilla`
 that creates the output, like tests/test_no_writes_to_inputs.py; the rendered .command.sh in
-the work directory is then inspected. The clade does not choose the model. Needs a ``nextflow``
-executable (or NEXTFLOW_BIN).
+the work directory is then inspected. The clade does not choose the model. With shards, the
+genome index exists before the shards start (they wrote it all at once before, and one read a
+half-written index). Needs a ``nextflow`` executable (or NEXTFLOW_BIN).
 """
 from __future__ import annotations
 
@@ -23,18 +24,32 @@ pytestmark = [
 ]
 
 FAKE_DRUSILLA = """#!/usr/bin/env bash
-# stand-in for `drusilla`: `models download` does nothing, `annotate` writes an empty orfs.gtf
+# stand-in for `drusilla`: `models download` does nothing, `annotate` writes an orfs.gtf that
+# says whether the genome index existed when it started
 set -euo pipefail
 if [[ $1 == models ]]; then exit 0; fi
 [[ $1 == annotate ]] || { echo "unexpected subcommand $1" >&2; exit 64; }
 while [[ $# -gt 0 ]]; do
     case $1 in
         --out-dir) out=$2; shift 2 ;;
+        --genome) genome=$2; shift 2 ;;
         *) shift ;;
     esac
 done
 mkdir -p "$out"
-touch "$out/orfs.gtf"
+if [[ -e $genome.fai ]]; then echo "index yes" > "$out/orfs.gtf"; else echo "index no" > "$out/orfs.gtf"; fi
+"""
+
+# stand-in for `gffread`: writes <genome>.fai when none exists, as gffread does
+FAKE_GFFREAD = """#!/usr/bin/env bash
+set -euo pipefail
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -g) genome=$2; shift 2 ;;
+        *) shift ;;
+    esac
+done
+[[ -e $genome.fai ]] || printf 'c\\t4\\t3\\t4\\t5\\n' > "$genome.fai"
 """
 
 WORKFLOW = f"""nextflow.enable.dsl=2
@@ -53,20 +68,27 @@ CONFIG = """process {
 singularity.enabled = false
 docker.enabled      = false
 params.outdir = '%s'
-params.drusilla = [shards: 1, flank_bp: 0, unstranded_both_strands: false%s]
+params.drusilla = [shards: %d, flank_bp: 0, unstranded_both_strands: false%s]
 """
 
+# two genes, one per shard with shards: 2
+TWO_GENES = (
+    'c\tx\texon\t1\t2\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'
+    'c\tx\texon\t3\t4\t.\t+\t.\tgene_id "g2"; transcript_id "t2";\n'
+)
 
-def command_sh(tmp_path: Path, model_setting: str) -> str:
-    (tmp_path / "in.gtf").write_text("")
+
+def task_dir(tmp_path: Path, model_setting: str, shards: int = 1, gtf: str = "") -> Path:
+    (tmp_path / "in.gtf").write_text(gtf)
     (tmp_path / "genome.fa").write_text(">c\nACGT\n")
     (tmp_path / "placeholder.txt").write_text("")
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    (fake_bin / "drusilla").write_text(FAKE_DRUSILLA)
-    (fake_bin / "drusilla").chmod(0o755)
+    for name, text in (("drusilla", FAKE_DRUSILLA), ("gffread", FAKE_GFFREAD)):
+        (fake_bin / name).write_text(text)
+        (fake_bin / name).chmod(0o755)
     (tmp_path / "main.nf").write_text(WORKFLOW)
-    (tmp_path / "test.config").write_text(CONFIG % (tmp_path / "results", model_setting))
+    (tmp_path / "test.config").write_text(CONFIG % (tmp_path / "results", shards, model_setting))
     env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}", "NXF_ANSI_LOG": "false"}
     proc = subprocess.run(
         [NEXTFLOW, "run", str(tmp_path / "main.nf"), "-c", str(tmp_path / "test.config"),
@@ -76,7 +98,11 @@ def command_sh(tmp_path: Path, model_setting: str) -> str:
     assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-3000:]
     scripts = list((tmp_path / "work").glob("*/*/.command.sh"))
     assert len(scripts) == 1, scripts
-    return scripts[0].read_text()
+    return scripts[0].parent
+
+
+def command_sh(tmp_path: Path, model_setting: str) -> str:
+    return (task_dir(tmp_path, model_setting) / ".command.sh").read_text()
 
 
 def test_default_model_is_drusilla_model(tmp_path: Path) -> None:
@@ -89,3 +115,9 @@ def test_params_drusilla_model_is_used(tmp_path: Path) -> None:
     script = command_sh(tmp_path, ", model: 'vertebrates'")
     assert "--model vertebrates" in script and "--model drusilla_model" not in script, script
     assert "drusilla models download vertebrates" in script
+
+
+def test_shards_start_with_the_genome_index(tmp_path: Path) -> None:
+    work = task_dir(tmp_path, "", shards=2, gtf=TWO_GENES)
+    assert sorted(p.name for p in work.glob("shard_*.gtf")) == ["shard_0.gtf", "shard_1.gtf"]
+    assert (work / "drusilla" / "orfs.gtf").read_text().splitlines() == ["index yes", "index yes"]
