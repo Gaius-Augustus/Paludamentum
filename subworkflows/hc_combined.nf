@@ -138,7 +138,13 @@ workflow HC_COMBINED {
     // with -resume a change here reruns only the combine step and what follows
     def clf_opts = [unknown_clade ? '--unknown-clade' : '',
                     params_map.combine?.t_locus != null ? "--t-locus ${params_map.combine.t_locus}" : '',
-                    params_map.combine?.t_iso   != null ? "--t-iso ${params_map.combine.t_iso}"     : '']
+                    params_map.combine?.t_iso   != null ? "--t-iso ${params_map.combine.t_iso}"     : '',
+                    // protein rescue (backport of the rule of Nov 19 2026): a locus below the locus threshold is
+                    // kept if a multi-exon candidate has a full-length protein hit and protein hints for its
+                    // introns; only with the classifier of the evidence modes with Tiberius
+                    (clfParam) && params_map.combine?.rescue_protein_cov != null ?
+                        "--rescue-protein-cov ${params_map.combine.rescue_protein_cov} --rescue-protein-introns " +
+                        "${params_map.combine?.rescue_protein_introns != null ? params_map.combine.rescue_protein_introns : 0.5}" : '']
                    .findAll().join(' ')
 
     def combined = COMBINE_GENESETS(
