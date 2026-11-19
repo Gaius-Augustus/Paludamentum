@@ -378,6 +378,10 @@ def methodsHighConfidence(Map ctx, Map run) {
                  " (${run.clfTLocusFragmented} on a fragmented assembly, one whose L50 exceeds " +
                  "${run.clfFragmentedL50} sequences; `intermediate/combined.settings.tsv` gives the L50 and the threshold of this run)" : '') +
              ", and further models of the locus if theirs reached ${run.clfTIso}" +
+             (run.clfRescueCov != null ?
+                 "; a locus below the threshold was kept all the same if one of its models had at least two CDS exons, " +
+                 "a best DIAMOND hit covering at least ${run.clfRescueCov} of the model and of the protein, and protein " +
+                 "hints for at least ${run.clfRescueIntrons} of its introns (the most probable such model)" : '') +
              (insect ? '; single-exon Tiberius-only models without an identical miniprot model were never selected ' +
                        '(insect run, `--drop-lone-single-exon tiberius`)' : '') + '. ' :
              'tiered each unique structure from its supporting tool set, adjusted the tier with ' +

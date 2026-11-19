@@ -319,7 +319,7 @@ gene set is `paludamentum.gff3`, in every mode.
 | `ncrna/` | rRNA, tRNA, Rfam and lncRNA annotations (`ncrna.run`) |
 | `intermediate/combined.gff3` | output of `combine_genesets.py` before the sanity filter |
 | `intermediate/combined.report.tsv` | per-structure report of combine_genesets (tools, tier, decision, features; last column `p_classifier`, the classifier probability of the structure, in classifier mode) |
-| `intermediate/combined.settings.tsv` | assembly statistics (sequences, length, N50, L50), fragmented flag and the locus and isoform thresholds the combine step used, with the source of the locus threshold |
+| `intermediate/combined.settings.tsv` | assembly statistics (sequences, length, N50, L50), fragmented flag and the locus and isoform thresholds the combine step used, with the source of the locus threshold, and the settings and the number of loci of the protein rescue |
 | `intermediate/tiberius_ab_initio.gff3`, `intermediate/vipsania_ab_initio.gff3` | *ab initio* predictions of each gene finder, before the integration; the files to give to `--result` of a later run |
 | `intermediate/drusilla_orfs.gtf` | Drusilla ORFs on the StringTie assembly |
 | `intermediate/td2.gff3` | revised TD2 ORFs mapped to the genome |

@@ -149,6 +149,18 @@ def fragmentedOpts(Map p, boolean applies) {
     return "--fragmented-l50 ${c.fragmented_l50 as Integer} --t-locus-fragmented ${c.t_locus_fragmented}"
 }
 
+// The protein rescue of combine_genesets.py as options (--rescue-protein-cov C
+// --rescue-protein-introns F), or '' when it does not apply: not the
+// classifier of the evidence modes with Tiberius (applies = false), or
+// combine.rescue_protein_cov null.
+def rescueOpts(Map p, boolean applies) {
+    def c = p.combine ?: [:]
+    if( !applies || c.rescue_protein_cov == null )
+        return ''
+    def introns = c.rescue_protein_introns != null ? c.rescue_protein_introns : 0.5
+    return "--rescue-protein-cov ${c.rescue_protein_cov} --rescue-protein-introns ${introns}"
+}
+
 // Drusilla model (key 'model'): params.drusilla.model, else drusilla_model,
 // the one model of all clades since Drusilla 0.3. The clade does not choose it.
 def drusillaSetting(p, String key) {

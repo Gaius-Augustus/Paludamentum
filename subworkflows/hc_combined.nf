@@ -77,7 +77,7 @@ include { DIAMOND_MAKEDB;
 include { BAM2COV } from '../modules/rnacov.nf'
 include { COMBINE_GENESETS } from '../modules/combine.nf'
 include { EMPTY_FILE as NO_CLASSIFIER; EMPTY_FILE as NO_EVIDENCE } from '../modules/util.nf'
-include { hcClade; classifierUnknownClade; fragmentedOpts; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
+include { hcClade; classifierUnknownClade; fragmentedOpts; rescueOpts; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
 
 workflow HC_COMBINED {
 
@@ -237,13 +237,18 @@ workflow HC_COMBINED {
     // combine.t_locus_fragmented: only with the classifier of the evidence modes with Tiberius, the one
     // this was measured with; combine.t_locus still overrides it
     def frag_opts = fragmentedOpts(params_map, clfParam && transcripts && tiberius)
+    // protein rescue (combine.rescue_protein_cov / rescue_protein_introns): a locus below the locus
+    // threshold is kept if a multi-exon candidate has a full-length protein hit and protein hints for
+    // its introns; with the same classifier only, the one this was measured with
+    def rescue_opts = rescueOpts(params_map, clfParam && transcripts && tiberius)
+    def sel_opts = [frag_opts, rescue_opts].findAll().join(' ')
 
     def combined = COMBINE_GENESETS(
         tib_gff, vip_gff_ch, dru_gtf, td2_gff3,
         intron_hints, cov_bg, chains,
         dia_tib, dia_vip, dia_dru, dia_td2,
         prot_train_gff, miniprot_scored, prot_hc_hints,
-        classifier, CH_GENOME, insect, min_locus, clf_opts, frag_opts)
+        classifier, CH_GENOME, insect, min_locus, clf_opts, sel_opts)
 
     emit:
     gff      = combined.gff3

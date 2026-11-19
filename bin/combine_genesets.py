@@ -45,6 +45,13 @@ instead of the model's (also with --unknown-clade; --t-locus still overrides): o
 have only partial or imperfect models, P(structure = reference CDS) stays low for all candidates of the locus
 and the locus would be lost, while a contiguous assembly gains nothing from the lower threshold.
 --drop-lone-single-exon still applies: those structures are never selected.
+Protein rescue (--rescue-protein-cov C --rescue-protein-introns F): a locus whose best candidate stays below
+the locus threshold is kept all the same if one of its candidates has at least two CDS exons, a best DIAMOND
+hit that covers >= C of the candidate and of the protein, and protein hints for >= F of its introns; the
+candidate with the highest P among them becomes the primary transcript (reason primary_protein_rescue).
+P estimates an exact match to the reference, so conserved genes whose only model is imperfect, mostly from
+one gene finder with partial RNA-Seq support, fell below the threshold and were missing in BUSCO
+(benchmark, Nov 2026: with C 0.9 and F 0.5 BUSCO completeness +1.1 and exact-match gene F1 -0.3 on average).
 Full-length transcripts (--chains) were not available for the training species, so they enter as a correction
 of P: the log-odds of a structure whose CDS chain lies in one full-length transcript move by
 --chain-logit-full, those of a 'partial' structure by --chain-logit-partial (calibrated on H. sapiens).
@@ -951,16 +958,34 @@ def select_t_locus(clf, t_locus=None, unknown_clade=False, t_locus_fragmented=No
     return float(clf['t_locus']), 'model'
 
 
-def classifier_select(S, by_cl, p, t_locus, t_iso, unselectable):
+def protein_rescuable(s, min_cov, min_intron_frac):
+    """Whether a structure qualifies for the protein rescue of a locus below the locus threshold: at least
+    two CDS exons, a best DIAMOND hit covering >= min_cov of the structure and of the protein, and protein
+    hints for >= min_intron_frac of its introns. Missing evidence ('' in the report values) never qualifies."""
+    vals = (s.get('dmd_qcov', ''), s.get('dmd_tcov', ''), s.get('prot_intron_frac', ''))
+    if len(s['segs']) < 2 or any(v == '' or v is None for v in vals):
+        return False
+    return vals[0] >= min_cov and vals[1] >= min_cov and vals[2] >= min_intron_frac
+
+
+def classifier_select(S, by_cl, p, t_locus, t_iso, unselectable, rescuable=frozenset()):
     """Per locus: candidates ordered by P (ties: input order); the first is primary if its P >= t_locus, the
     others are isoforms if P >= t_iso. Structures in `unselectable` (indices into S) are never selected and
-    never primary (--drop-lone-single-exon)."""
+    never primary (--drop-lone-single-exon). A locus below t_locus with structures in `rescuable` (indices
+    into S; protein rescue) is kept: the best-ranked of them moves to the front and becomes primary."""
     for s, pi in zip(S, p):
         s['p_clf'] = float(pi)
     for members in by_cl.values():
         members.sort(key=lambda s: (-(-1.0 if s['_ix'] in unselectable else s['p_clf']), s['_ix']))
         prim = members[0]
         open_locus = prim['_ix'] not in unselectable and prim['p_clf'] >= t_locus
+        rescued = False
+        if not open_locus:
+            res = next((s for s in members if s['_ix'] in rescuable and s['_ix'] not in unselectable), None)
+            if res is not None:
+                members.remove(res)
+                members.insert(0, res)
+                open_locus = rescued = True
         for r, s in enumerate(members):
             s['rank'] = r + 1
             if s['_ix'] in unselectable:
@@ -968,7 +993,7 @@ def classifier_select(S, by_cl, p, t_locus, t_iso, unselectable):
             elif not open_locus:
                 s['keep'], s['why'] = False, 'locus_below_min'
             elif r == 0:
-                s['keep'], s['why'] = True, 'primary'
+                s['keep'], s['why'] = True, 'primary_protein_rescue' if rescued else 'primary'
             elif s['p_clf'] >= t_iso:
                 s['keep'], s['why'] = True, 'isoform_classifier'
             else:
@@ -1149,6 +1174,12 @@ def main():
                         '--t-locus-fragmented as its locus threshold')
     g.add_argument('--t-locus-fragmented', type=float, metavar='T',
                    help='locus threshold on P for a fragmented assembly (see --fragmented-l50)')
+    g.add_argument('--rescue-protein-cov', type=float, metavar='C',
+                   help='protein rescue: keep a locus below the locus threshold if a candidate with >= 2 CDS exons '
+                        'has a best DIAMOND hit covering >= C of the candidate and of the protein and protein '
+                        'hints for --rescue-protein-introns of its introns (see the module docstring) [off]')
+    g.add_argument('--rescue-protein-introns', type=float, default=0.5, metavar='F',
+                   help='protein rescue: share of the introns of the candidate with protein hints [0.5]')
     g.add_argument('--settings', metavar='TSV',
                    help='write the assembly statistics and the thresholds the selection used (key, value)')
     g.add_argument('--chain-logit-full', type=float, default=CHAIN_LOGIT_FULL, metavar='W',
@@ -1279,7 +1310,9 @@ def main():
         p = classifier_predict(clf, classifier_features(S, by_cl))
         if chains is not None:
             p = [chain_adjust(pi, s['chain_support'], a.chain_logit_full, a.chain_logit_partial) for pi, s in zip(p, S)]
-        classifier_select(S, by_cl, p, t_locus, t_iso, unselectable)
+        rescuable = ({s['_ix'] for s in S if protein_rescuable(s, a.rescue_protein_cov, a.rescue_protein_introns)}
+                     if a.rescue_protein_cov is not None else set())
+        classifier_select(S, by_cl, p, t_locus, t_iso, unselectable, rescuable)
 
     def cl_pos(cid):
         m = by_cl[cid]
@@ -1329,7 +1362,11 @@ def main():
         rows += [('fragmented_l50', a.fragmented_l50 if a.fragmented_l50 is not None else ''),
                  ('fragmented', int(fragmented))]
         if clf is not None:
-            rows += [('t_locus', t_locus), ('t_locus_source', t_locus_source), ('t_iso', t_iso)]
+            rows += [('t_locus', t_locus), ('t_locus_source', t_locus_source), ('t_iso', t_iso),
+                     ('rescue_protein_cov', a.rescue_protein_cov if a.rescue_protein_cov is not None else ''),
+                     ('rescue_protein_introns',
+                      a.rescue_protein_introns if a.rescue_protein_cov is not None else ''),
+                     ('rescued_loci', sum(s['why'] == 'primary_protein_rescue' for s in S))]
         else:
             rows += [('min_locus', a.min_locus)]
         with open(a.settings, 'w') as fh:
@@ -1349,6 +1386,8 @@ def main():
         print(f'classifier: {a.classifier} ({len(clf["trees"])} trees, {len(clf["features"])} features) '
               f't_locus={t_locus} t_iso={t_iso} unknown_clade={a.unknown_clade} '
               f'drop_lone_single_exon={",".join(sorted(clf_drop_se)) or None}'
+              + (f' rescue_protein_cov={a.rescue_protein_cov} rescue_protein_introns={a.rescue_protein_introns}'
+                 if a.rescue_protein_cov is not None else '')
               + (f' chain_logit_full={a.chain_logit_full} chain_logit_partial={a.chain_logit_partial}'
                  if chains is not None else ''), file=sys.stderr)
     print('input transcripts with CDS: ' + ', '.join(f'{t}={n_in[t]}' for t in TOOLS), file=sys.stderr)
@@ -1374,7 +1413,8 @@ def main():
               ', '.join(f'{k}={v}' for k, v in sorted(cs.items())) +
               f'; tier>=9 models with the chain in one transcript: {n_full / max(len(hi), 1):.1%}', file=sys.stderr)
     print('tier adjustments: ' + ', '.join(f'{k}={v}' for k, v in sorted(adj.items())), file=sys.stderr)
-    keys = (['primary', 'isoform_classifier', 'isoform_rejected', 'locus_below_min', 'dropped_lone_single_exon']
+    keys = (['primary', 'primary_protein_rescue', 'isoform_classifier', 'isoform_rejected', 'locus_below_min',
+             'dropped_lone_single_exon']
             if clf is not None else
             ['primary', 'isoform_tier', 'isoform_chain', 'isoform_drusilla_td2', 'isoform_rejected', 'locus_below_min'])
     for k in keys:

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import csv
 import math
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -391,7 +392,8 @@ def test_fragmented_assembly_lowers_the_locus_threshold(synth):
     s = read_settings(synth / "frag.settings.tsv")
     assert s == {"selection": "classifier", "assembly_sequences": "20", "assembly_length": "20000",
                  "assembly_n50": "1000", "assembly_l50": "10", "fragmented_l50": "5", "fragmented": "1",
-                 "t_locus": "0.1", "t_locus_source": "fragmented_assembly", "t_iso": "0.3"}
+                 "t_locus": "0.1", "t_locus_source": "fragmented_assembly", "t_iso": "0.3",
+                 "rescue_protein_cov": "", "rescue_protein_introns": "", "rescued_loci": "0"}
 
 
 def test_fragmented_threshold_also_for_unknown_clade_and_gz_genome(synth):
@@ -447,3 +449,180 @@ def test_settings_in_tier_rule_mode_write_min_locus(synth):
     assert "t_locus" not in s and "t_iso" not in s
     # the tier rules do not use the fragmented threshold
     assert s["assembly_l50"] == "10" and s["fragmented"] == "1"
+
+
+# ---------------------------------------------------------------- protein rescue of loci below the locus threshold
+
+def _r(ix, n_exons=2, qcov=0.95, tcov=0.95, pif=1.0):
+    s = _s(ix, ["tiberius"], n_exons)
+    s.update({"dmd_qcov": qcov, "dmd_tcov": tcov, "prot_intron_frac": pif})
+    return s
+
+
+def test_protein_rescuable_thresholds_are_inclusive():
+    assert cg.protein_rescuable(_r(0), 0.9, 0.5)
+    assert cg.protein_rescuable(_r(0, qcov=0.9, tcov=0.9, pif=0.5), 0.9, 0.5)
+    assert not cg.protein_rescuable(_r(0, qcov=0.89), 0.9, 0.5)
+    assert not cg.protein_rescuable(_r(0, tcov=0.89), 0.9, 0.5)
+    assert not cg.protein_rescuable(_r(0, pif=0.49), 0.9, 0.5)
+    assert cg.protein_rescuable(_r(0, qcov=0.0, tcov=0.0, pif=0.0), 0.0, 0.0)      # 0 is a value, not missing
+
+
+def test_protein_rescuable_needs_two_cds_segments():
+    assert not cg.protein_rescuable(_r(0, n_exons=1), 0.9, 0.5)
+    assert cg.protein_rescuable(_r(0, n_exons=2), 0.9, 0.5) and cg.protein_rescuable(_r(0, n_exons=5), 0.9, 0.5)
+
+
+@pytest.mark.parametrize("key", ["dmd_qcov", "dmd_tcov", "prot_intron_frac"])
+@pytest.mark.parametrize("missing", ["", None, "absent"])
+def test_protein_rescuable_missing_evidence_never_qualifies(key, missing):
+    s = _r(0)
+    if missing == "absent":
+        del s[key]
+    else:
+        s[key] = missing
+    assert not cg.protein_rescuable(s, 0.9, 0.5)
+    assert not cg.protein_rescuable(s, 0.0, 0.0)
+
+
+def test_selection_rescues_a_locus_below_the_threshold():
+    S = [_s(0, ["tiberius"]), _s(1, ["vipsania"]), _s(2, ["td2"])]
+    by_cl = {0: S[:]}
+    cg.classifier_select(S, by_cl, [0.20, 0.10, 0.05], 0.25, 0.3, set(), rescuable={1})
+    assert [s["_ix"] for s in by_cl[0]] == [1, 0, 2]
+    assert [(S[i]["rank"], S[i]["keep"], S[i]["why"]) for i in (1, 0, 2)] == [
+        (1, True, "primary_protein_rescue"), (2, False, "isoform_rejected"), (3, False, "isoform_rejected")]
+    # the other members follow the usual isoform rule: P >= t_iso
+    cg.classifier_select(S, {0: S[:]}, [0.24, 0.10, 0.05], 0.25, 0.2, set(), rescuable={1})
+    assert (S[0]["keep"], S[0]["why"]) == (True, "isoform_classifier")
+    assert (S[2]["keep"], S[2]["why"]) == (False, "isoform_rejected")
+
+
+def test_selection_rescue_picks_the_best_ranked_rescuable_member():
+    S = [_s(0, ["tiberius"]), _s(1, ["vipsania"]), _s(2, ["td2"]), _s(3, ["drusilla"])]
+    by_cl = {0: S[:]}
+    cg.classifier_select(S, by_cl, [0.20, 0.10, 0.15, 0.05], 0.25, 0.3, set(), rescuable={1, 2, 3})
+    assert [s["_ix"] for s in by_cl[0]] == [2, 0, 1, 3]
+    assert (S[2]["rank"], S[2]["why"]) == (1, "primary_protein_rescue")
+    assert all(S[i]["why"] == "isoform_rejected" for i in (0, 1, 3)) and [S[i]["rank"] for i in (0, 1, 3)] == [2, 3, 4]
+    # equal P: input order decides
+    cg.classifier_select(S, {0: S[:]}, [0.2, 0.1, 0.1, 0.1], 0.25, 0.3, set(), rescuable={1, 2})
+    assert S[1]["why"] == "primary_protein_rescue" and S[2]["why"] == "isoform_rejected"
+
+
+def test_selection_unselectable_member_is_not_rescued():
+    S = [_s(0, ["tiberius"], 1), _s(1, ["vipsania"]), _s(2, ["td2"])]
+    cg.classifier_select(S, {0: S[:]}, [0.20, 0.15, 0.10], 0.25, 0.3, {1}, rescuable={1})
+    assert (S[1]["keep"], S[1]["why"]) == (False, "dropped_lone_single_exon")
+    assert all(not s["keep"] for s in S) and S[0]["why"] == S[2]["why"] == "locus_below_min"
+    # another rescuable member of the locus is rescued instead
+    cg.classifier_select(S, {0: S[:]}, [0.20, 0.15, 0.10], 0.25, 0.3, {1}, rescuable={1, 2})
+    assert (S[2]["keep"], S[2]["why"], S[2]["rank"]) == (True, "primary_protein_rescue", 1)
+    assert S[1]["why"] == "dropped_lone_single_exon" and S[0]["why"] == "isoform_rejected"
+
+
+def test_selection_open_locus_keeps_reason_primary_and_default_is_unchanged():
+    S = [_s(0, ["tiberius"]), _s(1, ["vipsania"])]
+    cg.classifier_select(S, {0: S[:]}, [0.6, 0.5], 0.25, 0.3, set(), rescuable={1})
+    assert (S[0]["why"], S[0]["rank"]) == ("primary", 1)
+    assert (S[1]["why"], S[1]["rank"]) == ("isoform_classifier", 2)
+    # below the threshold: without a rescuable member (default argument, empty set, other index) nothing changes
+    for kw in ({}, {"rescuable": set()}, {"rescuable": {7}}):
+        cg.classifier_select(S, {0: S[:]}, [0.2, 0.1], 0.25, 0.3, set(), **kw)
+        assert [(s["keep"], s["why"]) for s in S] == [(False, "locus_below_min")] * 2
+    # a rescuable member of another locus does not rescue this one
+    T = [_s(0, ["tiberius"]), _s(1, ["vipsania"])]
+    cg.classifier_select(T, {0: [T[0]], 1: [T[1]]}, [0.2, 0.1], 0.25, 0.3, set(), rescuable={1})
+    assert (T[0]["why"], T[1]["why"]) == ("locus_below_min", "primary_protein_rescue")
+
+
+# end to end: vD (Vipsania alone, two CDS exons, one intron 5301-5400) and tC (single exon) are below the locus
+# threshold (--t-locus 0.99 puts every locus there, whatever protein evidence does to P)
+
+RESCUE = ("--rescue-protein-cov", "0.9", "--rescue-protein-introns", "0.5")
+
+
+def write_diamond(path: Path, rows: list) -> Path:
+    """rows: (query, subject, qstart, qend, sstart, send, qlen, slen) in the 14-column layout ('full')."""
+    with open(path, "w") as fh:
+        for q, sbj, qs, qe, ss, se, ql, sl in rows:
+            fh.write("\t".join(map(str, (q, sbj, 90.0, qe - qs + 1, 0, 0, qs, qe, ss, se, 1e-30, 300.0, ql, sl))) + "\n")
+    return path
+
+
+def write_hints(path: Path, introns: list) -> Path:
+    with open(path, "w") as fh:
+        for a, b in introns:
+            fh.write(f"chr1\tb2h\tintron\t{a}\t{b}\t5\t+\t.\tmult=5;pri=4;src=P\n")
+    return path
+
+
+@pytest.fixture
+def rescue_inputs(synth: Path):
+    """Full-length DIAMOND hit and protein hints for the intron of vD; tC has a hit but cannot be rescued."""
+    dmd = write_diamond(synth / "vip.dmd.tsv", [("vD", "sp1_P1", 1, 270, 1, 280, 280, 290)])
+    dmd_t = write_diamond(synth / "tib.dmd.tsv", [("tC", "sp1_P2", 1, 200, 1, 200, 200, 200)])
+    return ("--diamond-vipsania", str(dmd), "--diamond-tiberius", str(dmd_t), "--diamond-format", "full",
+            "--protein-hints", str(write_hints(synth / "hc.gff", [(5301, 5400)])))
+
+
+def test_rescue_keeps_a_locus_below_the_threshold_end_to_end(synth, rescue_inputs):
+    base = ("--classifier", str(MODEL), "--t-locus", "0.99", *rescue_inputs)
+    rows, kept, err = combine(synth, "off", *base, "--settings", str(synth / "off.tsv"))
+    assert not kept and all(r["reason"] == "locus_below_min" for r in rows.values())
+    s = read_settings(synth / "off.tsv")
+    assert (s["rescue_protein_cov"], s["rescue_protein_introns"], s["rescued_loci"]) == ("", "", "0")
+    assert "rescue_protein_cov" not in err and "primary_protein_rescue: 0" in err
+
+    rows, kept, err = combine(synth, "on", *base, *RESCUE, "--settings", str(synth / "on.tsv"))
+    assert rows["vD"]["reason"] == "primary_protein_rescue" and rows["vD"]["kept"] == "1"
+    assert {r["reason"] for k, r in rows.items() if k != "vD"} == {"locus_below_min"}      # tC: single exon
+    assert len(kept) == 1
+    gtf = (synth / "on.gtf").read_text()
+    assert "5001" in gtf and "5900" in gtf and "1001" not in gtf and "3001" not in gtf
+    s = read_settings(synth / "on.tsv")
+    assert (s["rescue_protein_cov"], s["rescue_protein_introns"], s["rescued_loci"]) == ("0.9", "0.5", "1")
+    assert s["t_locus"] == "0.99" and s["selection"] == "classifier"
+    assert "rescue_protein_cov=0.9 rescue_protein_introns=0.5" in err and "primary_protein_rescue: 1" in err
+    assert "locus_below_min: 3" in err
+
+
+def test_rescue_needs_both_coverages_and_the_introns(synth):
+    hints = write_hints(synth / "hc.gff", [(5301, 5400)])
+    full = write_diamond(synth / "a.tsv", [("vD", "sp1_P1", 1, 270, 1, 280, 280, 290)])
+    short_q = write_diamond(synth / "b.tsv", [("vD", "sp1_P1", 1, 200, 1, 280, 280, 290)])     # qcov 0.71
+    short_t = write_diamond(synth / "c.tsv", [("vD", "sp1_P1", 1, 270, 1, 280, 280, 400)])     # tcov 0.70
+    common = ("--classifier", str(MODEL), "--t-locus", "0.99", "--diamond-format", "full")
+
+    def run(name, dmd, hint_args, *opts):
+        _, kept, err = combine(synth, name, *common, "--diamond-vipsania", str(dmd), *hint_args, *(opts or RESCUE))
+        return kept, err
+    assert len(run("ok", full, ("--protein-hints", str(hints)))[0]) == 1
+    assert not run("sq", short_q, ("--protein-hints", str(hints)))[0]
+    assert not run("st", short_t, ("--protein-hints", str(hints)))[0]
+    assert not run("nh", full, ())[0]                                                   # no protein hints
+    other = write_hints(synth / "other.gff", [(5302, 5399)])                            # hint of another intron
+    assert not run("oh", full, ("--protein-hints", str(other)))[0]
+    # only the coverage given: --rescue-protein-introns defaults to 0.5
+    kept, err = run("def", full, ("--protein-hints", str(hints)), "--rescue-protein-cov", "0.9")
+    assert len(kept) == 1 and "rescue_protein_introns=0.5" in err
+    # the hit covers 270/280 = 0.964 of the model and 280/290 of the protein: 0.98 rejects it
+    assert not run("strict", full, ("--protein-hints", str(hints)), "--rescue-protein-cov", "0.98")[0]
+
+
+def test_rescue_does_nothing_for_an_open_locus_or_without_the_classifier(synth, rescue_inputs):
+    rows, _, err = combine(synth, "open", "--classifier", str(MODEL), *rescue_inputs, *RESCUE,
+                           "--settings", str(synth / "open.tsv"))
+    assert rows["tA"]["reason"] == "primary"
+    n = sum(r["reason"] == "primary_protein_rescue" for r in rows.values())
+    assert read_settings(synth / "open.tsv")["rescued_loci"] == str(n) and f"primary_protein_rescue: {n}" in err
+    # tier rules: the options are accepted and have no effect, no rescue rows
+    rows, _, err = combine(synth, "rules", *rescue_inputs, *RESCUE, "--settings", str(synth / "rules.tsv"))
+    assert all(r["reason"] != "primary_protein_rescue" for r in rows.values())
+    assert "rescue_protein_cov" not in read_settings(synth / "rules.tsv") and "classifier:" not in err
+
+
+def test_base_config_defaults_of_the_protein_rescue():
+    text = (ROOT / "conf" / "base.config").read_text()
+    assert re.search(r"^\s*rescue_protein_cov\s*=\s*0\.9\s*$", text, re.M)
+    assert re.search(r"^\s*rescue_protein_introns\s*=\s*0\.5\s*$", text, re.M)

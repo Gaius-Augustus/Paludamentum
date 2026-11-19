@@ -108,9 +108,13 @@ Steps of the combined HC flow (the default run; the other modes leave out the in
    DIAMOND and miniprot protein evidence; no clade input). Per locus the
    best candidate is the primary if its P reaches the locus threshold
    (0.25, or 0.10 for a fragmented assembly, see
-   [Fragmented assemblies](#fragmented-assemblies)); further candidates are
+   [Fragmented assemblies](#fragmented-assemblies)); a locus below the
+   threshold is still kept if a multi-exon candidate has a full-length
+   protein hit and protein hints for its introns (see
+   [Protein rescue](#protein-rescue)); further candidates are
    isoforms if P reaches 0.30. The `reason`
-   column of the report is `primary`, `isoform_classifier`,
+   column of the report is `primary`, `primary_protein_rescue`,
+   `isoform_classifier`,
    `isoform_rejected`, `locus_below_min` or `dropped_lone_single_exon`, and
    the last column is `p_classifier`. With `combine.classifier = false` the
    tier rules apply (merging, clustering, tiering with the four tool sets,
@@ -131,7 +135,7 @@ that the inputs of the mode provide. The models are clade-agnostic.
 
 | Run | Parameter | File | Features | Thresholds (locus / isoform) |
 | --- | --- | --- | --- | --- |
-| default run and modes `isoseq`, `mixed` | `combine.classifier` | `conf/combiner_classifier_v1.json` | 47: tools, structure, locus context, RNA-Seq intron and coverage evidence, DIAMOND and miniprot protein evidence | 0.25 / 0.30 (locus 0.30 for a clade outside the clade table; 0.10 on a fragmented assembly, see below) |
+| default run and modes `isoseq`, `mixed` | `combine.classifier` | `conf/combiner_classifier_v1.json` | 47: tools, structure, locus context, RNA-Seq intron and coverage evidence, DIAMOND and miniprot protein evidence | 0.25 / 0.30 (locus 0.30 for a clade outside the clade table; 0.10 on a fragmented assembly, see below); protein rescue of loci below the locus threshold, see below |
 | mode `proteins` | `combine.classifier_proteins` | `conf/combiner_classifier_protonly_v1.json` | 41: no RNA-Seq features | 0.20 / 0.30 (locus 0.30 for a clade outside the clade table) |
 | evidence mode without a Tiberius model | `combine.classifier_vipsania` | `conf/combiner_classifier_vipsania_v1.json` | as the default, without the Tiberius gene set | 0.225 / 0.30 |
 | mode `abinitio` with both models | `combine.classifier_abinitio` | `conf/combiner_classifier_abinitio_v1.json` | 18: tools, structure and locus context only | 0.30 / 0.25 |
@@ -172,11 +176,50 @@ assemblies (L50 <= 33) gain little from a lower threshold (at most +0.03 at
 0.15) and lose exact-CDS F1 at 0.10 (-0.01 to -0.07). No benchmark assembly
 has an L50 above 56.
 
+## Protein rescue
+
+The classifier's P estimates an exact match to the reference CDS. A conserved
+gene whose only model is imperfect (typically predicted by one gene finder
+alone, with partial RNA-Seq support) can therefore stay below the locus
+threshold and be missing from the gene set, which shows as lower BUSCO
+completeness. In classifier mode, a locus whose best candidate stays below the
+locus threshold is kept all the same if one of its candidates has
+
+- at least two CDS exons,
+- a best DIAMOND hit that covers at least `combine.rescue_protein_cov` (0.9) of
+  the candidate and of the protein (report columns `dmd_qcov`, `dmd_tcov`), and
+- protein hints for at least `combine.rescue_protein_introns` (0.5) of its
+  introns (report column `prot_intron_frac`).
+
+The candidate with the highest P among those becomes the primary transcript
+(`reason` = `primary_protein_rescue`); the other candidates of the locus follow
+the isoform threshold as usual. Missing evidence never qualifies a candidate.
+Genomes with few introns per gene gain little, because the rule needs a
+multi-exon candidate.
+
+Scope: the same as the fragmented-assembly threshold, the classifier of the
+evidence modes with Tiberius. Not used in mode `proteins`, with the
+Vipsania-only classifier, in the ab initio combination or with the tier rules.
+The rule acts in addition to whichever locus threshold applies (`combine.t_locus`,
+fragmented, unknown clade or the model's). `combine.rescue_protein_cov = null`
+switches it off. The script `combine_genesets.py` has it off by default
+(`--rescue-protein-cov C`, `--rescue-protein-introns F`); the pipeline passes
+both options.
+
+Evidence (Nov 2026, 36 benchmark species, C = 0.9, F = 0.5): BUSCO
+completeness +1.1 points on average (vertebrates +1.5); exact-match gene-level
+F1 -0.3 (sensitivity +0.5, precision -1.2); exon-level F1 +1.7. Without the
+intron condition the rule cost more precision (gene F1 -0.8), because
+single-exon candidates with a full-length hit that overlap no reference gene
+were let in. An intron share of 0.75 kept less of the BUSCO gain (+0.7).
+
 `intermediate/combined.settings.tsv` (`key`, `value`) records what a run
 used: `selection`, `assembly_sequences`, `assembly_length`, `assembly_n50`,
 `assembly_l50`, `fragmented_l50`, `fragmented` (0/1) and, in classifier mode,
 `t_locus`, `t_locus_source` (`t_locus`, `fragmented_assembly`,
-`model_unknown_clade` or `model`) and `t_iso`; with the tier rules
+`model_unknown_clade` or `model`) and `t_iso`, then `rescue_protein_cov` and
+`rescue_protein_introns` (empty when the rescue is off) and `rescued_loci` (the
+number of loci with `primary_protein_rescue`); with the tier rules
 `min_locus` instead.
 
 ## Clade table

@@ -13,6 +13,10 @@ nextflow.enable.dsl=2
 // a model, the tier rules with --min-locus. The genome goes in for the
 // assembly L50: in frag_opts (--fragmented-l50 N --t-locus-fragmented T, from
 // params.combine) a fragmented assembly gets the lower locus threshold. The
+// same string carries the protein rescue (--rescue-protein-cov C
+// --rescue-protein-introns F, from params.combine.rescue_protein_*): a locus
+// below the locus threshold is kept if a multi-exon candidate has a
+// full-length protein hit and protein hints for its introns. The
 // assembly statistics and the thresholds used are written to
 // combined.settings.tsv. All other combine_genesets.py thresholds use the
 // script defaults.
@@ -66,7 +70,8 @@ process COMBINE_GENESETS {
     val  min_locus
     // further classifier options as one string: --unknown-clade, --t-locus X, --t-iso Y (may be empty)
     val  clf_opts
-    // --fragmented-l50 N --t-locus-fragmented T, or empty (no fragmented-assembly threshold)
+    // --fragmented-l50 N --t-locus-fragmented T (fragmented-assembly threshold) and
+    // --rescue-protein-cov C --rescue-protein-introns F (protein rescue), each only where it applies; may be empty
     val  frag_opts
 
   output:

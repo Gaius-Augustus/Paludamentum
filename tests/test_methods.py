@@ -106,6 +106,10 @@ def test_stub_run_combined_rnaseq(tmp_path: Path) -> None:
     # the fragmented-assembly rule of the evidence classifier with Tiberius (defaults: 100 sequences, 0.10 as printed from base.config)
     assert "(0.10 on a fragmented assembly, one whose L50 exceeds 100 sequences;" in methods
     assert "intermediate/combined.settings.tsv" in methods
+    # the protein rescue (defaults of base.config: 0.9 coverage, 0.5 of the introns)
+    assert ("a locus below the threshold was kept all the same if one of its models had at least two CDS exons, "
+            "a best DIAMOND hit covering at least 0.9 of the model and of the protein, and protein hints for at "
+            "least 0.5 of its introns") in methods
 
 
 def test_stub_run_combined_clade_outside_the_classifier(tmp_path: Path) -> None:
@@ -171,6 +175,14 @@ def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:
     methods = check_stub_run(other)
     assert "if its probability reached 0.4," in methods
     assert "fragmented assembly" not in methods and "combined.settings.tsv" not in methods  # t_locus overrides it
+    # the rescue is independent of t_locus; switched off with combine.rescue_protein_cov = null
+    assert "kept all the same" in methods
+    third = tmp_path / "r"
+    third.mkdir()
+    proc, _ = run_pipeline(third, {**base, "combine": {"rescue_protein_cov": None}})
+    assert_ok(proc)
+    methods = check_stub_run(third)
+    assert "if its probability reached 0.25" in methods and "kept all the same" not in methods
 
 
 def test_stub_run_rnaseq_without_tiberius(tmp_path: Path) -> None:
@@ -187,6 +199,7 @@ def test_stub_run_rnaseq_without_tiberius(tmp_path: Path) -> None:
     # thresholds of the model, which also apply to clades outside the HC table (Nematoda)
     assert "if its probability reached 0.225" in methods
     assert "fragmented assembly" not in methods     # the fragmented threshold is for the classifier with Tiberius
+    assert "kept all the same" not in methods       # likewise the protein rescue
     assert "further models of the locus if theirs reached 0.3" in methods
     # Tiberius is named only as the gene set the classifier was trained without, never as a run tool
     for phrase in ("predicted *ab initio* with Tiberius", "(Tiberius, Vipsania", "Tiberius-only", "drop-lone-single-exon"):
@@ -235,6 +248,7 @@ def test_stub_run_proteins_combined(tmp_path: Path) -> None:
     # the protein-only model's thresholds (Vertebrata has classifier_clade vertebrates: no unknown-clade threshold)
     assert "if its probability reached 0.2," in methods
     assert "fragmented assembly" not in methods     # only the classifier with Tiberius and transcript evidence
+    assert "kept all the same" not in methods
     assert "further models of the locus if theirs reached 0.3" in methods
     assert "outside the training clades" not in methods
     assert "reduced to the proteins of 13 species" in methods
