@@ -191,6 +191,9 @@ process PROTEIN_FROM_GFF {
   script:
     """
     # gffread malloc()s on genes with many isoforms; cap to a safe number.
+    # The same script drops malformed transcripts (overlapping CDS parts, start
+    # beyond end; Tiberius writes one now and then), on which gffread 0.12.7
+    # corrupts its heap, and names them in a warning.
     # The proteins go to DIAMOND: the species ranking of PREPROCESS_PROTEINDB
     # and the tables of combine_genesets.py (an isoform beyond the cap has no
     # DIAMOND hit there). GFF3 and GTF (the Drusilla ORFs) are both handled.

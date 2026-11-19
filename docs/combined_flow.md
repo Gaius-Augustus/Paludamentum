@@ -81,7 +81,12 @@ Steps of the combined HC flow (the default run; the other modes leave out the in
    the 14-column outfmt (`qseqid sseqid pident length mismatch gapopen
    qstart qend sstart send evalue bitscore qlen slen`). It reads GFF3 and
    GTF (the Drusilla ORFs) and keeps at most 10 isoforms per gene; an
-   isoform beyond the cap has no DIAMOND hit.
+   isoform beyond the cap has no DIAMOND hit. The same step drops malformed
+   transcripts (CDS parts of one transcript that overlap, or a feature with
+   start beyond end) and names them in a warning on stderr, because gffread
+   0.12.7 corrupts its heap on them. This affects only the protein extraction:
+   the gene set handed to the combiner is unchanged, so such a transcript has
+   no protein and no DIAMOND hit.
 5. `bedtools genomecov -ibam BAM -bg -split | gzip > rna_cov.bg.gz` writes
    the read-depth bedGraph, and `bam2hints --intronsonly` plus
    `filterIntronsFindStrand.pl` writes the intron hints. In mixed mode both

@@ -100,3 +100,76 @@ def test_reads_stdin(tmp_path: Path) -> None:
     proc = cap(2, gtf_three(tmp_path), tmp_path, stdin=True)
     assert proc.returncode == 0, proc.stderr
     assert "g.t3" not in proc.stdout and "g.t1" in proc.stdout and "g.t2" in proc.stdout
+
+
+# --- malformed transcripts: dropped with a warning on stderr -----------------
+
+def gtf_parts(tid: str, cds: list[tuple[int, int]], gid: str = "g", extra: str = "") -> str:
+    a = f'gene_id "{gid}"; transcript_id "{tid}";'
+    out = line("transcript", 1, 1000, a) + extra.replace("ATTRS", a)
+    for s, e in cds:
+        out += line("CDS", s, e, a)
+    return out
+
+
+def gff_parts(tid: str, cds: list[tuple[int, int]]) -> str:
+    out = line("mRNA", 1, 1000, f"ID={tid};Parent=g")
+    for s, e in cds:
+        out += line("CDS", s, e, f"Parent={tid}")
+    return out
+
+
+def test_gtf_overlapping_cds_dropped_with_warning(tmp_path: Path) -> None:
+    good = gtf_parts("h.t1", [(1, 100), (201, 300)], gid="h")
+    bad = gtf_parts("g.bad", [(1, 100), (50, 150)])
+    proc = cap(10, GTF_GENE + bad + good, tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == GTF_GENE + good
+    assert "g.bad" not in proc.stdout
+    assert "dropped 1 malformed transcript(s)" in proc.stderr
+    assert "g.bad" in proc.stderr
+
+
+def test_gtf_inverted_intron_row_dropped(tmp_path: Path) -> None:
+    a = 'gene_id "g"; transcript_id "g.inv";'
+    bad = gtf_parts("g.inv", [(1, 100), (201, 300)], extra=line("intron", 5276, 389, "ATTRS"))
+    assert a in bad
+    good = gtf_parts("g.ok", [(1, 100)])
+    proc = cap(10, GTF_GENE + bad + good, tmp_path)
+    assert proc.stdout == GTF_GENE + good
+    assert "g.inv" in proc.stderr and "g.ok" not in proc.stderr
+
+
+def test_gff3_overlapping_cds_drops_mrna_and_children(tmp_path: Path) -> None:
+    good = gff_parts("t_ok", [(1, 100), (201, 300)])
+    bad = gff_parts("t_bad", [(1, 100), (100, 200)])
+    proc = cap(10, GFF_GENE + bad + good, tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == GFF_GENE + good
+    assert "t_bad" not in proc.stdout
+    assert "t_bad" in proc.stderr
+
+
+def test_adjacent_cds_parts_not_malformed(tmp_path: Path) -> None:
+    text = GTF_GENE + gtf_parts("g.t1", [(1, 100), (101, 200)])
+    proc = cap(10, text, tmp_path)
+    assert proc.stdout == text
+    assert proc.stderr == ""
+
+
+def test_max_picks_among_well_formed(tmp_path: Path) -> None:
+    bad = gtf_parts("g.long", [(1, 500), (400, 900)])
+    short = gtf_parts("g.short", [(1, 50)])
+    proc = cap(1, GTF_GENE + bad + short, tmp_path)
+    assert proc.stdout == GTF_GENE + short
+    assert "g.long" in proc.stderr
+
+
+def test_warning_truncated_after_ten_ids(tmp_path: Path) -> None:
+    text = GTF_GENE + "".join(gtf_parts(f"g.b{i:02d}", [(1, 100), (50, 150)]) for i in range(12))
+    proc = cap(50, text, tmp_path)
+    assert proc.stdout == GTF_GENE
+    err = proc.stderr.strip()
+    assert "dropped 12 malformed transcript(s)" in err
+    assert err.endswith(" ...")
+    assert "g.b09" in err and "g.b10" not in err

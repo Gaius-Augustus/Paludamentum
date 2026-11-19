@@ -10,6 +10,12 @@ isoforms. The proteins go to DIAMOND: the species ranking of
 PREPROCESS_PROTEINDB, and the four tables that combine_genesets.py reads (an
 isoform beyond the cap has no protein there and so no DIAMOND hit).
 
+A malformed transcript is dropped as well, with a warning on stderr: one whose
+CDS parts overlap each other, or with a feature whose start lies beyond its
+end. Tiberius writes such a transcript now and then (23 in 350 vertebrate gene
+sets), and gffread 0.12.7 corrupts its heap on it (`free(): invalid next
+size`), which aborts the task or not depending on the rest of the input.
+
 GFF3 (Tiberius, Vipsania, TD2): the mRNA / transcript features name
 themselves (ID) and their gene (Parent), their children name their
 transcript (Parent). GTF (the Drusilla ORFs): every feature names its
@@ -64,6 +70,8 @@ def main():
 
     tx_parent = {}
     tx_cds_len = defaultdict(int)
+    tx_cds = defaultdict(list)
+    malformed = set()
     for line in all_lines:
         if not line.strip() or line.startswith("#"):
             continue
@@ -77,8 +85,22 @@ def main():
         if gid is not None:
             tx_parent.setdefault(tid, gid)
         tx_cds_len.setdefault(tid, 0)
+        start, end = int(cols[3]), int(cols[4])
+        if start > end:
+            malformed.add(tid)
         if ftype == "CDS":
-            tx_cds_len[tid] += int(cols[4]) - int(cols[3]) + 1
+            tx_cds_len[tid] += end - start + 1
+            tx_cds[tid].append((start, end))
+
+    for tid, parts in tx_cds.items():
+        parts.sort()
+        if any(parts[i][0] <= parts[i - 1][1] for i in range(1, len(parts))):
+            malformed.add(tid)
+    if malformed:
+        ids = sorted(malformed)
+        print(f"cap_isoforms_per_gene.py: dropped {len(ids)} malformed transcript(s) "
+              f"(overlapping CDS parts or start > end): {', '.join(ids[:10])}"
+              + (" ..." if len(ids) > 10 else ""), file=sys.stderr)
 
     by_gene = defaultdict(list)
     for tid, gid in tx_parent.items():
@@ -86,7 +108,8 @@ def main():
 
     keep = set()
     for gid, tids in by_gene.items():
-        tids_sorted = sorted(tids, key=lambda t: (-tx_cds_len[t], t))
+        tids_sorted = sorted((t for t in tids if t not in malformed),
+                             key=lambda t: (-tx_cds_len[t], t))
         keep.update(tids_sorted[: args.max])
 
     for line in all_lines:
