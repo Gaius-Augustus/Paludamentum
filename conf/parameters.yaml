@@ -28,6 +28,17 @@ genome: /path/to/genome.fa
 # rnaseq_varus:
 #   - /path/to/varus_short
 
+# No RNA-Seq data of your own: let the pipeline run pyVARUS, which samples
+# public short reads of the species from NCBI SRA and aligns them. Off unless
+# run is true; needs internet access (docs/parameters.md, "pyVARUS inside the
+# pipeline").
+# varus:
+#   run: true
+#   species: "Schizosaccharomyces pombe"
+#   email: you@example.org       # contact for NCBI Entrez (recommended)
+#   logan: false                 # pre-screen the SRA runs with Logan first
+#   max_batches: 1000            # upper bound of download iterations
+
 # StringTie assembly (GTF) made outside the pipeline, from short reads, Iso-Seq
 # or both: exactly one file, with the cov and TPM attributes. The reads it was
 # made from may come with it (coverage track and intron hints only, nothing is

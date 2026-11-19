@@ -33,6 +33,19 @@ workflow {
     def nVarus      = asList(params.rnaseq_varus).size()
     def nIsoVarus   = asList(params.isoseq_varus).size()
     def hasMixVarus = asList(params.mixed_varus).size() > 0
+    // pyVARUS in this run (varus.run, off by default): samples short RNA-Seq
+    // reads of varus.species from SRA; its BAM is used like a BAM of rnaseq_bam
+    def hasVarusRun = truthy(params.varus?.run)
+    if( hasVarusRun ) {
+      def sp = params.varus?.species?.toString()?.trim()
+      if( !sp )
+        error "varus.run = true needs varus.species, the binomial name of the species (e.g. 'Schizosaccharomyces pombe'): pyVARUS samples its RNA-Seq runs from SRA."
+      if( !(sp ==~ /[A-Za-z][A-Za-z0-9._-]*( [A-Za-z0-9._-]+)+/) )
+        error "varus.species: a binomial species name of letters, digits, '.', '_' and '-' with single spaces (e.g. 'Schizosaccharomyces pombe'), not '${sp}'."
+      def mail = params.varus?.email?.toString()?.trim()
+      if( mail && !(mail ==~ /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/) )
+        error "varus.email: not an e-mail address: '${mail}'."
+    }
     // StringTie assemblies of the user (GTF files or globs), used as they are:
     // stringtie is the one assembly of all reads; rnaseq_stringtie and
     // isoseq_stringtie are the assembly of the short reads and of the Iso-Seq
@@ -58,11 +71,13 @@ workflow {
 
     def MODE = params.mode ? normalizeMode(params.mode) \
       : inferMode(hasPaired, hasSingle, hasIso || hasIsoBam || hasLongAsm || nIsoVarus > 0,
-                  hasBAM || nVarus > 0 || hasStringtie || hasShortAsm, hasProteins)
+                  hasBAM || nVarus > 0 || hasStringtie || hasShortAsm || hasVarusRun, hasProteins)
     // A forced mode without its inputs would end without the main outputs.
     // A StringTie assembly (stringtie) stands for the reads of any transcript mode.
-    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM || nVarus > 0 || hasStringtie || hasShortAsm) )
-      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_varus or rnaseq_sra_*) or a StringTie assembly (rnaseq_stringtie, or stringtie for one assembly of all reads)."
+    if( MODE in ['rnaseq', 'mixed'] && !(hasPaired || hasSingle || hasBAM || nVarus > 0 || hasStringtie || hasShortAsm || hasVarusRun) )
+      error "params.mode '${MODE}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_varus, rnaseq_sra_* or a pyVARUS run with varus.run) or a StringTie assembly (rnaseq_stringtie, or stringtie for one assembly of all reads)."
+    if( hasVarusRun && !(MODE in ['rnaseq', 'mixed']) )
+      log.warn "varus.run is not used in mode '${MODE}': pyVARUS does not run."
     if( MODE in ['isoseq', 'mixed'] && !(hasIso || hasIsoBam || nIsoVarus > 0 || hasStringtie || hasLongAsm) )
       error "params.mode '${MODE}' needs Iso-Seq reads (isoseq, isoseq_bam, isoseq_sra or isoseq_varus) or a StringTie assembly (isoseq_stringtie, or stringtie for one assembly of all reads)."
     if( hasStringtie && MODE in ['abinitio', 'proteins'] )
@@ -151,6 +166,8 @@ workflow {
       error "isoseq_stringtie: one StringTie assembly of all Iso-Seq reads, got ${longAsmFiles.size()} files."
     if( useStringtie && (useShortAsm || useLongAsm) )
       error "stringtie is the one assembly of all reads of the run. Give either stringtie, or the assemblies per read type (rnaseq_stringtie, isoseq_stringtie), not both."
+    if( (useStringtie || useShortAsm) && hasVarusRun )
+      error "varus.run: pyVARUS samples short reads for the pipeline to assemble. Leave out the StringTie assembly of the short reads (stringtie, rnaseq_stringtie), or switch varus.run off."
     if( (useStringtie || useShortAsm || useLongAsm) && (nVarus > 0 || nIsoVarus > 0 || hasMixVarus) )
       error "stringtie: a pyVARUS directory brings its own StringTie assembly. Pass either the StringTie GTF (with the reads or BAMs it was made from) or the pyVARUS directories, not both."
     // Reads or BAMs give the one merged BAM of the coverage track (BAM2COV) and
@@ -160,7 +177,7 @@ workflow {
     // cov of the transcripts sharing an intron as multiplicity, and a coverage
     // track from the exon cov values. Measured on 31 benchmark species against
     // the BAM: -0.4 transcript / -0.2 gene F1 (no RNA evidence: -4.3 / -3.7).
-    def haveShortBam = MODE in ['mixed', 'rnaseq'] && (hasPaired || hasSingle || hasBAM)
+    def haveShortBam = MODE in ['mixed', 'rnaseq'] && (hasPaired || hasSingle || hasBAM || hasVarusRun)
     def haveLongBam  = MODE in ['mixed', 'isoseq'] && (hasIso || hasIsoBam)
     def haveReadsBam = haveShortBam || haveLongBam
     def asmHints = (useStringtie || useShortAsm || useLongAsm) && !haveReadsBam
@@ -210,6 +227,10 @@ workflow {
         orfFinder: transcriptMode ? 'td2' : null,
         odb12: odb12List.size() > 0,
         shortFastq: hasPaired || hasSingle, shortBam: hasBAM, shortVarus: nVarus > 0,
+        // pyVARUS run inside the pipeline (varus.run): its species and the Logan pre-screen
+        varusRun: hasVarusRun && MODE in ['rnaseq', 'mixed'],
+        varusSpecies: hasVarusRun ? params.varus?.species?.toString()?.trim() : null,
+        varusLogan: hasVarusRun && truthy(params.varus?.logan),
         isoFastq: hasIso, isoVarus: nIsoVarus > 0, isoBam: hasIsoBam,
         // assembly of one read type given (rnaseq_stringtie, isoseq_stringtie); both side by side in a mixed run
         shortAsm: useShortAsm, longAsm: useLongAsm, concatAsm: concatAsm,
@@ -279,7 +300,7 @@ workflow {
       if( hasMixVarus ) {
         if( asList(params.mixed_varus).size() > 1 )
           error "mixed_varus takes one directory (the output of varus assemble --short --long), got ${asList(params.mixed_varus).size()}."
-        if( nVarus != 1 || nIsoVarus != 1 || hasPaired || hasSingle || hasBAM || hasIso || hasIsoBam )
+        if( nVarus != 1 || nIsoVarus != 1 || hasPaired || hasSingle || hasBAM || hasIso || hasIsoBam || hasVarusRun )
           error "mixed_varus is the one StringTie assembly of the unified HC flow, made from one short-read and one " +
                 "Iso-Seq pyVARUS BAM. Pass exactly one rnaseq_varus and one isoseq_varus directory (the runs whose " +
                 "BAMs varus assemble used) and no other short-read or Iso-Seq input."
@@ -516,6 +537,7 @@ workflow {
         if( MODE in ['rnaseq', 'mixed'] ) {
           if( hasPaired || hasSingle ) evidence << 'short reads'
           if( hasBAM ) evidence << 'short-read BAM'
+          if( hasVarusRun ) evidence << "short reads sampled from SRA with pyVARUS (${params.varus.species.toString().trim()})"
           if( nVarus > 0 ) evidence << 'pyVARUS short reads'
         }
         if( MODE in ['isoseq', 'mixed'] ) {

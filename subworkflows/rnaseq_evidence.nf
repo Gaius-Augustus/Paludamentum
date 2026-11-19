@@ -8,7 +8,7 @@ include { FILTER_ALIGNMENT as FILTER_PE; FILTER_ALIGNMENT as FILTER_SE } from '.
 include { DOWNLOAD_SRA_PAIRED; DOWNLOAD_SRA_SINGLE } from '../modules/download.nf'
 include { STRINGTIE_ASSEMBLE_RNA } from '../modules/assembly.nf'
 include { EMPTY_FILE } from '../modules/util.nf'
-include { VARUS_INPUT as VARUS_INPUT_RNA; MERGE_INTRON_HINTS as MERGE_INTRON_HINTS_RNA } from '../modules/varus.nf'
+include { VARUS_INPUT as VARUS_INPUT_RNA; MERGE_INTRON_HINTS as MERGE_INTRON_HINTS_RNA; RUN_PYVARUS } from '../modules/varus.nf'
 include { asList; varusInputs; bamCoordinateSorted; truthy } from '../lib_nf/functions.nf'
 
 // Library name of a read file: the file name without the FASTQ suffixes and
@@ -38,7 +38,10 @@ workflow RNASEQ_EVIDENCE {
     def DO_PE = DO_PE_LOCAL || (params_map.rnaseq_sra_paired && params_map.rnaseq_sra_paired.size() > 0)
 
     def DO_BAM = params_map.rnaseq_bam && params_map.rnaseq_bam.size() > 0
-    def DO_READS = DO_SE || DO_PE || DO_BAM
+    // pyVARUS in this run (varus.run, off by default): it samples RNA-Seq reads
+    // of varus.species from SRA and gives one BAM, used like a BAM of rnaseq_bam
+    def DO_VARUS_RUN = truthy(params_map.varus?.run)
+    def DO_READS = DO_SE || DO_PE || DO_BAM || DO_VARUS_RUN
 
     // pyVARUS directories bring their StringTie assembly and intron hints
     def varus = varusInputs(params_map.rnaseq_varus, 'rnaseq_varus', 'shortreads')
@@ -163,6 +166,11 @@ Got: ${pe?.getClass()?.simpleName} -> ${pe}"""
                 unsorted: true
             }
         user_bams = given.sorted.mix(SAMTOOLS_SORT(given.unsorted).bam)
+    }
+    // The BAM of pyVARUS is coordinate-sorted and pools the sampled SRA runs,
+    // which the strand fix tells apart by their read names, as in a user BAM.
+    if( DO_VARUS_RUN ) {
+        user_bams = user_bams.mix(RUN_PYVARUS(CH_GENOME, params_map.varus.species.toString().trim()).bam)
     }
 
     // Library strandedness recovered in every BAM before merging and StringTie

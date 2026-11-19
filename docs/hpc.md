@@ -115,6 +115,7 @@ the run, so the work directory still needs the peak space of the whole run.
 | `bigmem` | high memory task, 100 GB by default (also compleasm and BUSCO on the genome, cmscan) |
 | `download` | downloads of SRA reads, OrthoDB partitions, model weights, BUSCO lineages, Rfam and the NCBI taxonomy; runs on the submitting host, which needs internet access (4 CPUs, or all of the host's CPUs when it has fewer; 8 GB). The BUSCO and Rfam downloads also carry the image label `postprocess`, the NCBI taxonomy (built with ete3 for OMArk) the image label `omark`. |
 | `local_only` | tiny task that runs on the submitting host |
+| `pyvarus` | `RUN_PYVARUS` (only with `varus.run`): the pyVARUS image. The task downloads from SRA **and** aligns, so it needs internet access and runs on the default executor with `threads` CPUs. If your compute nodes have no internet, give it a queue that has (`withName: 'RUN_PYVARUS' { queue = 'internet' }`), or run pyVARUS yourself and pass its BAM (`rnaseq_bam`) |
 
 Tasks get `params.threads` CPUs (48) unless the site config sets
 `process.cpus`, with these exceptions in `base.config`: the single-threaded

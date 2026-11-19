@@ -128,6 +128,9 @@ BLOCK_CLI_KEYS: Dict[str, Tuple[str, str]] = {
     "reference_annotation": ("qc", "reference_annotation"),
     "ncrna": ("ncrna", "run"),
     "fantasia": ("fantasia", "run"),
+    "varus_species": ("varus", "species"),
+    "varus_email": ("varus", "email"),
+    "varus_logan": ("varus", "logan"),
 }
 # Path values of the post-processing blocks, made absolute like PATH_KEYS
 BLOCK_PATH_KEYS = (
@@ -549,6 +552,15 @@ def has_any(params: Dict, keys) -> bool:
     return any(params.get(k) for k in keys)
 
 
+def varus_run(params: Dict) -> bool:
+    """True if pyVARUS is to sample RNA-Seq reads inside the pipeline (varus.run, off by default)."""
+    block = params.get("varus")
+    return isinstance(block, dict) and truthy(block.get("run"))
+
+
+VARUS_SPECIES = re.compile(r"[A-Za-z][A-Za-z0-9._-]*( [A-Za-z0-9._-]+)+")
+
+
 def gene_finder_models(params: Dict) -> Tuple[bool, bool]:
     """(Tiberius model or result given, Vipsania model or result given)."""
     tib = params.get("tiberius") if isinstance(params.get("tiberius"), dict) else {}
@@ -566,7 +578,7 @@ def infer_mode(params: Dict) -> str:
         if mode not in MODES:
             raise SystemExit(f"Unknown mode '{forced}'. Supported: {', '.join(MODES)}.\n{MODE_HELP}")
         return mode
-    short, iso = has_any(params, SHORT_READ_KEYS), has_any(params, ISOSEQ_KEYS)
+    short, iso = has_any(params, SHORT_READ_KEYS) or varus_run(params), has_any(params, ISOSEQ_KEYS)
     if short and iso:
         return "mixed"
     if iso:
@@ -581,9 +593,21 @@ def check_mode(params: Dict) -> str:
     The same rules stop main.nf before any task; here they stop the launcher before Nextflow starts."""
     mode = infer_mode(params)
     proteins = has_any(params, ("proteins", "odb12Partitions"))
-    short, iso = has_any(params, SHORT_READ_KEYS), has_any(params, ISOSEQ_KEYS)
+    short, iso = has_any(params, SHORT_READ_KEYS) or varus_run(params), has_any(params, ISOSEQ_KEYS)
     tib, vip = gene_finder_models(params)
     problems: List[str] = []
+    if varus_run(params):
+        species = str((params.get("varus") or {}).get("species") or "").strip()
+        if not species:
+            problems.append("varus.run needs varus.species (--varus_species), the binomial name of the species whose "
+                            "RNA-Seq runs pyVARUS samples from SRA, e.g. 'Schizosaccharomyces pombe'.")
+        elif not VARUS_SPECIES.fullmatch(species):
+            problems.append(f"varus.species: a binomial species name such as 'Schizosaccharomyces pombe', not '{species}'.")
+        if params.get("stringtie") or params.get("rnaseq_stringtie"):
+            problems.append("varus.run samples short reads for the pipeline to assemble: leave out the StringTie assembly "
+                            "of the short reads (stringtie, rnaseq_stringtie), or switch varus.run off.")
+        if mode not in ("rnaseq", "mixed"):
+            print(f"[WARN] varus.run is not used in mode '{mode}': pyVARUS does not run.")
     if mode in ("rnaseq", "isoseq", "mixed"):
         if not proteins:
             problems.append("RNA-Seq or Iso-Seq evidence without proteins is not a supported mode: the combined "
@@ -591,8 +615,8 @@ def check_mode(params: Dict) -> str:
                             "reads out for an ab initio run.")
         if mode in ("rnaseq", "mixed") and not short:
             problems.append(f"mode '{mode}' needs short reads (rnaseq_paired, rnaseq_single, rnaseq_bam, rnaseq_sra_*, "
-                            "rnaseq_varus) or a StringTie assembly (rnaseq_stringtie, or stringtie for one assembly "
-                            "of all reads).")
+                            "rnaseq_varus, or a pyVARUS run with --varus_species) or a StringTie assembly "
+                            "(rnaseq_stringtie, or stringtie for one assembly of all reads).")
         if mode in ("isoseq", "mixed") and not (iso or params.get("stringtie")):
             problems.append(f"mode '{mode}' needs Iso-Seq reads (isoseq, isoseq_bam, isoseq_sra, isoseq_varus) or a "
                             "StringTie assembly (isoseq_stringtie, or stringtie for one assembly of all reads).")
@@ -742,6 +766,9 @@ def merge_run_params(args, genefinder: str | None = None, root: str | Path | Non
     if not params.get("genome"):
         raise SystemExit("A genome is required: --genome, or 'genome' in the params file.")
 
+    # --varus_species asks for a pyVARUS run; in a params file varus.run does (off by default)
+    if getattr(args, "varus_species", None):
+        params["varus"]["run"] = True
     # one model given in a run with evidence: add the matching model of the other gene finder
     if getattr(args, "no_auto_model", False):
         params["auto_model"] = False

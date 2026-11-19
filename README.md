@@ -25,6 +25,7 @@ predictions of the deep learning gene finders
 - [Quick start](#quick-start)
 - [Inputs](#inputs)
   - [Existing StringTie assemblies](#existing-stringtie-assemblies)
+  - [RNA-Seq from SRA with pyVARUS](#rna-seq-from-sra-with-pyvarus)
 - [Outputs](#outputs)
 - [Gene finders](#gene-finders)
   - [Matching models](#matching-models)
@@ -167,7 +168,9 @@ Paths must not contain spaces. All parameters are documented in
 
 Proteins can also come from OrthoDB (`--odb12Partitions`), and RNA-Seq reads
 as single-end files, BAM files, SRA accessions or an existing StringTie
-assembly, see [Inputs](#inputs).
+assembly, see [Inputs](#inputs). Without RNA-Seq data of your own, pyVARUS
+can sample public reads of the species, see
+[RNA-Seq from SRA with pyVARUS](#rna-seq-from-sra-with-pyvarus).
 
 `--nf_config` takes a path or the name of a config in `conf/`
 (`local`, `slurm_generic`, ...); `local` sizes the tasks to the machine it
@@ -198,6 +201,7 @@ or replace steps of the run. Every input can be given on the command line
 | `rnaseq_stringtie` | StringTie assembly (GTF) of the short reads, one file; instead of the reads, or with the reads it was made from, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
 | `stringtie` | one StringTie assembly (GTF) of all reads of the run, made outside the pipeline, exactly one file; instead of reads, or with the reads it was made from, see [Existing StringTie assemblies](#existing-stringtie-assemblies) |
 | `chains` | GTF/GFF3 files of full-length read transcripts (for example the `stringtie -L` assembly of long reads) for `combine_genesets.py`; made automatically in mixed mode, see [Long-read transcripts](docs/parameters.md#long-read-transcripts-chains) |
+| `varus.run`, `varus.species` (`--varus_species`) | run pyVARUS inside the pipeline: short RNA-Seq reads of the species are sampled from SRA and aligned; off unless asked for, see [RNA-Seq from SRA with pyVARUS](#rna-seq-from-sra-with-pyvarus) |
 | `rnaseq_varus`, `isoseq_varus`, `mixed_varus` | [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) output directories, which bring their StringTie assembly and intron hints but no BAM, so there is no coverage track; see [docs/parameters.md](docs/parameters.md#pyvarus-output-directories) |
 | `isoseq` | Iso-Seq FASTQ files |
 | `isoseq_bam` | aligned Iso-Seq reads (for example `minimap2 -ax splice:hq -uf`); they skip the alignment |
@@ -262,6 +266,41 @@ Notes:
   exon `cov` values (`intermediate/assembly_introns.gff`,
   `intermediate/assembly_cov.bg.gz`; the introns also enter `hintsfile.gff`).
 
+### RNA-Seq from SRA with pyVARUS
+
+If you have no RNA-Seq data of your own, the pipeline can fetch public data:
+[pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) looks up the RNA-Seq
+runs of the species in NCBI's Sequence Read Archive, and downloads and aligns
+samples of them until further reads add little coverage. This only happens
+when you ask for it, with the name of the species:
+
+```bash
+paludamentum --nf_config slurm_generic --genome genome.fa --model_cfg fungi --model Fungi \
+    --proteins proteins.faa --varus_species "Schizosaccharomyces pombe"
+```
+
+```yaml
+varus:
+  run: true
+  species: "Schizosaccharomyces pombe"
+```
+
+The sampled reads are then used like any other RNA-Seq input of the default
+run, and can be combined with your own reads or BAM files. Notes:
+
+- The task (`RUN_PYVARUS`) needs internet access and the CPUs and memory of
+  an alignment task. It runs on the default executor, not on the submitting
+  host; see [docs/hpc.md](docs/hpc.md#process-labels) if your compute nodes
+  have no internet.
+- The run stops with a message if SRA has no RNA-Seq run of the species, or
+  none that aligns to the genome.
+- `<outdir>/varus/` holds the list of runs, the statistics and the two files
+  from which `varus replay` rebuilds the alignments
+  (`VARUS.manifest.tsv`, `VARUS.splicedb.log.gz`). The BAM itself is kept in
+  the output directory only with `keep_downloads: true`.
+- All options are listed in
+  [docs/parameters.md](docs/parameters.md#pyvarus-inside-the-pipeline).
+
 ## Outputs
 
 All files are written to `outdir` (default `<genefinder>_results`). The final
@@ -287,6 +326,7 @@ gene set is `paludamentum.gff3`, in every mode.
 | `intermediate/rna_cov.bg.gz` | read-depth bedGraph of the merged BAM (`bedtools genomecov -bg -split`, gzipped) |
 | `intermediate/paludamentum_sanity_filtered.gff3` | the annotation after the sanity filter, before the UTRs |
 | `hintsfile.gff` | protein, RNA-Seq and Iso-Seq hints (concatenated, for gene support) |
+| `varus/` | with `varus.run`: the SRA runs that pyVARUS sampled, its statistics, and the files to rebuild its alignments |
 | `sra_downloads/` | reads downloaded from SRA, with `keep_downloads: true` only |
 | `params.yaml` | the merged parameters of this run, written by the launcher |
 | `citations.md` | references of the gene finder and the tools that this run used, see [Citation](#citation) |
@@ -589,6 +629,7 @@ before you use it in a publication.
 - **SAMtools** (processing of alignments). Danecek P, Bonfield JK, Liddle J, Marshall J, Ohan V, Pollard MO, Whitwham A, Keane T, McCarthy SA, Davies RM, Li H. Twelve years of SAMtools and BCFtools. GigaScience. 2021;10(2):giab008. [doi:10.1093/gigascience/giab008](https://doi.org/10.1093/gigascience/giab008)
 - **AUGUSTUS (bam2hints)** (intron hints from read alignments). Stanke M, Diekhans M, Baertsch R, Haussler D. Using native and syntenically mapped cDNA alignments to improve *de novo* gene finding. Bioinformatics. 2008;24(5):637-644. [doi:10.1093/bioinformatics/btn013](https://doi.org/10.1093/bioinformatics/btn013)
 - **VARUS** (sampled and aligned reads of the pyVARUS input). Stanke M, Bruhn W, Becker F, Hoff KJ. VARUS: sampling complementary RNA reads from the sequence read archive. BMC Bioinformatics. 2019;20(1):558. [doi:10.1186/s12859-019-3182-x](https://doi.org/10.1186/s12859-019-3182-x)
+- **Logan** (pre-screen of the SRA runs by pyVARUS (varus.logan)). Chikhi R, Lemane T, Loll-Krippleber R, et al. Logan: Planetary-Scale Genome Assembly Surveys Life’s Diversity. bioRxiv. 2025. [doi:10.1101/2024.07.30.605881](https://doi.org/10.1101/2024.07.30.605881)
 - **StringTie** (transcript assembly). Kovaka S, Zimin AV, Pertea GM, Razaghi R, Salzberg SL, Pertea M. Transcriptome assembly from long-read RNA-seq alignments with StringTie2. Genome Biology. 2019;20(1):278. [doi:10.1186/s13059-019-1910-1](https://doi.org/10.1186/s13059-019-1910-1)
 - **GffRead and GffCompare** (format conversion, protein sequences, comparison with a reference annotation). Pertea G, Pertea M. GFF Utilities: GffRead and GffCompare. F1000Research. 2020;9:304. [doi:10.12688/f1000research.23297.2](https://doi.org/10.12688/f1000research.23297.2)
 

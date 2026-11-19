@@ -11,7 +11,8 @@ import argparse
 from typing import Sequence
 
 from . import __version__
-from .launcher import GENEFINDER_CLI, MODE_HELP, MODES, describe_run, merge_run_params, run_nextflow_pipeline
+from .launcher import (GENEFINDER_CLI, MODE_HELP, MODES, describe_run, infer_mode, merge_run_params,
+                       run_nextflow_pipeline, varus_run)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,6 +32,9 @@ def build_parser() -> argparse.ArgumentParser:
             '--rnaseq_paired "rnaseq/*_{1,2}.fastq.gz"\n'
             "  The same from a params file:\n"
             "    paludamentum --params_yaml params.yaml --nf_config slurm_generic\n"
+            "  Default run without RNA-Seq data of your own (pyVARUS samples public reads from SRA):\n"
+            "    paludamentum --nf_config slurm_generic --genome genome.fa --model Fungi --proteins proteins.faa "
+            '--varus_species "Schizosaccharomyces pombe"\n'
             "Alternative modes:\n"
             "  rnaseq with a StringTie assembly instead of reads:\n"
             "    paludamentum --nf_config local --genome genome.fa --model_cfg angiosperms --model Streptophyta "
@@ -99,6 +103,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="pyVARUS output directory(ies) of short-read runs, instead of their BAM.")
     inputs.add_argument("--rnaseq_sra_single", nargs="*", default=[], help="RNA-Seq single-end SRA accession(s).")
     inputs.add_argument("--rnaseq_sra_paired", nargs="*", default=[], help="RNA-Seq paired-end SRA accession(s).")
+    inputs.add_argument("--varus_species",
+                        help='Run pyVARUS inside the pipeline: sample short RNA-Seq reads of this species '
+                             '("Genus species") from NCBI SRA and use them as the RNA-Seq evidence. Off unless '
+                             "given (varus.run and varus.species in the params file). Needs internet access.")
+    inputs.add_argument("--varus_email", help="Contact e-mail for NCBI Entrez in the pyVARUS run (varus.email).")
+    inputs.add_argument("--varus_logan", action="store_true",
+                        help="pyVARUS pre-screens the candidate SRA runs with Logan first (varus.logan).")
     inputs.add_argument("--isoseq", nargs="*", default=[], help="Iso-Seq FASTQ file(s).")
     inputs.add_argument("--isoseq_bam", nargs="*", default=[],
                         help="Aligned Iso-Seq read BAM file(s) (e.g. minimap2 -ax splice:hq); they skip the alignment.")
@@ -177,6 +188,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     # combination of inputs stops in merge_run_params (check_mode) with a message
     genefinder, params = merge_run_params(args)
     print(f"[INFO] {describe_run(params)}")
+    if varus_run(params) and infer_mode(params) in ("rnaseq", "mixed"):
+        print(f"[INFO] pyVARUS samples RNA-Seq reads of '{params['varus'].get('species')}' from NCBI SRA in this run "
+              "(process RUN_PYVARUS; its node needs internet access)")
     qc = params.get("qc") if isinstance(params.get("qc"), dict) else {}
     if not qc.get("busco_lineage"):
         print("[INFO] Completeness assessment off (no busco_lineage)")
