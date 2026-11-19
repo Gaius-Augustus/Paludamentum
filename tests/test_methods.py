@@ -100,9 +100,12 @@ def test_stub_run_combined_rnaseq(tmp_path: Path) -> None:
     # default selection: the classifier; the stub models' clade (Vipsania model Fungi) has classifier_clade
     # fungi in the HC table, so the t_locus of the classifier model (0.25) applies, not the unknown-clade one
     assert "gradient-boosted tree classifier" in methods and "reached a tier" not in methods
-    assert "if its probability reached 0.25," in methods
+    assert "if its probability reached 0.25 (0.10 on a fragmented assembly, " in methods
     assert "outside the training clades" not in methods
     assert "further models of the locus if theirs reached 0.3" in methods
+    # the fragmented-assembly rule of the evidence classifier with Tiberius (defaults: 100 sequences, 0.10 as printed from base.config)
+    assert "(0.10 on a fragmented assembly, one whose L50 exceeds 100 sequences;" in methods
+    assert "intermediate/combined.settings.tsv" in methods
 
 
 def test_stub_run_combined_clade_outside_the_classifier(tmp_path: Path) -> None:
@@ -124,7 +127,7 @@ def test_stub_run_combined_tiberius_mesangiospermae(tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
     methods = check_stub_run(tmp_path)
-    assert "if its probability reached 0.25," in methods
+    assert "if its probability reached 0.25 (0.10 on a fragmented assembly, " in methods
     assert "outside the training clades" not in methods
 
 
@@ -135,7 +138,7 @@ def test_stub_run_combined_standard_thresholds_clade(tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
     methods = check_stub_run(tmp_path)
-    assert "if its probability reached 0.25," in methods
+    assert "if its probability reached 0.25 (0.10 on a fragmented assembly, " in methods
     assert "outside the training clades" not in methods
     assert "standard_thresholds" in proc.stdout
 
@@ -149,7 +152,7 @@ def test_stub_run_combined_tiberius_bacillariophyta(tmp_path: Path) -> None:
     proc, _ = run_pipeline(tmp_path, params)
     assert_ok(proc)
     methods = check_stub_run(tmp_path)
-    assert "if its probability reached 0.25," in methods
+    assert "if its probability reached 0.25 (0.10 on a fragmented assembly, " in methods
     assert "outside the training clades" not in methods
 
 
@@ -167,6 +170,7 @@ def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:
     assert_ok(proc)
     methods = check_stub_run(other)
     assert "if its probability reached 0.4," in methods
+    assert "fragmented assembly" not in methods and "combined.settings.tsv" not in methods  # t_locus overrides it
 
 
 def test_stub_run_rnaseq_without_tiberius(tmp_path: Path) -> None:
@@ -182,6 +186,7 @@ def test_stub_run_rnaseq_without_tiberius(tmp_path: Path) -> None:
     assert "RNA and protein features" in methods
     # thresholds of the model, which also apply to clades outside the HC table (Nematoda)
     assert "if its probability reached 0.225" in methods
+    assert "fragmented assembly" not in methods     # the fragmented threshold is for the classifier with Tiberius
     assert "further models of the locus if theirs reached 0.3" in methods
     # Tiberius is named only as the gene set the classifier was trained without, never as a run tool
     for phrase in ("predicted *ab initio* with Tiberius", "(Tiberius, Vipsania", "Tiberius-only", "drop-lone-single-exon"):
@@ -229,6 +234,7 @@ def test_stub_run_proteins_combined(tmp_path: Path) -> None:
         assert phrase not in methods, phrase
     # the protein-only model's thresholds (Vertebrata has classifier_clade vertebrates: no unknown-clade threshold)
     assert "if its probability reached 0.2," in methods
+    assert "fragmented assembly" not in methods     # only the classifier with Tiberius and transcript evidence
     assert "further models of the locus if theirs reached 0.3" in methods
     assert "outside the training clades" not in methods
     assert "reduced to the proteins of 13 species" in methods

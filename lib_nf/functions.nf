@@ -137,6 +137,18 @@ def classifierUnknownClade(clade) {
     return !(clade.entry?.classifier_clade) && !truthy(clade.entry?.standard_thresholds)
 }
 
+// The fragmented-assembly threshold of combine_genesets.py as options
+// (--fragmented-l50 N --t-locus-fragmented T), or '' when it does not apply:
+// not the classifier of the evidence modes with Tiberius (applies = false),
+// combine.t_locus set (it overrides every model threshold), or either of
+// combine.fragmented_l50 / combine.t_locus_fragmented null.
+def fragmentedOpts(Map p, boolean applies) {
+    def c = p.combine ?: [:]
+    if( !applies || c.t_locus != null || c.fragmented_l50 == null || c.t_locus_fragmented == null )
+        return ''
+    return "--fragmented-l50 ${c.fragmented_l50 as Integer} --t-locus-fragmented ${c.t_locus_fragmented}"
+}
+
 // Drusilla model (key 'model'): params.drusilla.model, else drusilla_model,
 // the one model of all clades since Drusilla 0.3. The clade does not choose it.
 def drusillaSetting(p, String key) {

@@ -374,6 +374,9 @@ def methodsHighConfidence(Map ctx, Map run) {
              (rnaEvidence ? 'RNA and ' : '') + 'protein features the probability that the CDS of a model is ' +
              "correct: the most probable model of a locus was kept if its probability reached ${run.clfTLocus}" +
              (run.clfUnknownClade ? ' (the threshold for clades outside the training clades of the classifier)' : '') +
+             (run.clfTLocusFragmented != null ?
+                 " (${run.clfTLocusFragmented} on a fragmented assembly, one whose L50 exceeds " +
+                 "${run.clfFragmentedL50} sequences; `intermediate/combined.settings.tsv` gives the L50 and the threshold of this run)" : '') +
              ", and further models of the locus if theirs reached ${run.clfTIso}" +
              (insect ? '; single-exon Tiberius-only models without an identical miniprot model were never selected ' +
                        '(insect run, `--drop-lone-single-exon tiberius`)' : '') + '. ' :

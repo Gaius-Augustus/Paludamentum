@@ -39,7 +39,12 @@ model predicts P(structure = reference CDS) per candidate from the report featur
 context, RNA and protein evidence; no clade input), and per locus the best candidate becomes primary if its
 P reaches t_locus, further candidates are isoforms if their P reaches t_iso. The thresholds come from the
 model file (--unknown-clade: its more conservative locus threshold for clades outside the training clades;
---t-locus / --t-iso override). --drop-lone-single-exon still applies: those structures are never selected.
+--t-locus / --t-iso override). On a fragmented assembly (--genome given and its L50, the number of the longest
+sequences that hold half of its length, above --fragmented-l50) the locus threshold is --t-locus-fragmented
+instead of the model's (also with --unknown-clade; --t-locus still overrides): on such assemblies many genes
+have only partial or imperfect models, P(structure = reference CDS) stays low for all candidates of the locus
+and the locus would be lost, while a contiguous assembly gains nothing from the lower threshold.
+--drop-lone-single-exon still applies: those structures are never selected.
 Full-length transcripts (--chains) were not available for the training species, so they enter as a correction
 of P: the log-odds of a structure whose CDS chain lies in one full-length transcript move by
 --chain-logit-full, those of a 'partial' structure by --chain-logit-partial (calibrated on H. sapiens).
@@ -57,6 +62,7 @@ Usage (recommended):
 """
 import argparse
 import bisect
+import gzip
 import json
 import math
 import re
@@ -908,6 +914,43 @@ def chain_adjust(p, support, w_full, w_partial):
     return 1.0 / (1.0 + math.exp(-(math.log(q / (1 - q)) + w)))
 
 
+def assembly_stats(path):
+    """Number of sequences, length, N50 and L50 (the number of the longest sequences holding half the length)
+    of a FASTA file (.gz ok)."""
+    lengths, n = [], None
+    with (gzip.open(path, 'rt') if path.endswith('.gz') else open(path)) as fh:
+        for line in fh:
+            if line.startswith('>'):
+                if n is not None:
+                    lengths.append(n)
+                n = 0
+            elif n is not None:
+                n += len(line.strip())
+    if n is not None:
+        lengths.append(n)
+    lengths.sort(reverse=True)
+    total, cum, n50, l50 = sum(lengths), 0, 0, 0
+    for i, x in enumerate(lengths, 1):
+        cum += x
+        if 2 * cum >= total:
+            n50, l50 = x, i
+            break
+    return {'n_seqs': len(lengths), 'length': total, 'n50': n50, 'l50': l50}
+
+
+def select_t_locus(clf, t_locus=None, unknown_clade=False, t_locus_fragmented=None):
+    """The locus threshold and where it comes from: --t-locus, else the threshold for a fragmented assembly
+    (t_locus_fragmented, given only when the assembly is fragmented), else the model's for clades outside its
+    training clades (--unknown-clade), else the model's."""
+    if t_locus is not None:
+        return float(t_locus), 't_locus'
+    if t_locus_fragmented is not None:
+        return float(t_locus_fragmented), 'fragmented_assembly'
+    if unknown_clade:
+        return float(clf.get('t_locus_unknown_clade', clf['t_locus'])), 'model_unknown_clade'
+    return float(clf['t_locus']), 'model'
+
+
 def classifier_select(S, by_cl, p, t_locus, t_iso, unselectable):
     """Per locus: candidates ordered by P (ties: input order); the first is primary if its P >= t_locus, the
     others are isoforms if P >= t_iso. Structures in `unselectable` (indices into S) are never selected and
@@ -1100,6 +1143,14 @@ def main():
                    help='the clade is outside the training clades of the model: use its conservative locus threshold')
     g.add_argument('--t-locus', type=float, help='locus threshold on P, overrides the model file')
     g.add_argument('--t-iso', type=float, help='isoform threshold on P, overrides the model file')
+    g.add_argument('--genome', metavar='FASTA', help='genome FASTA (.gz ok), for the assembly L50 of --fragmented-l50')
+    g.add_argument('--fragmented-l50', type=int, metavar='N',
+                   help='with --genome: an assembly whose L50 exceeds N sequences is fragmented and gets '
+                        '--t-locus-fragmented as its locus threshold')
+    g.add_argument('--t-locus-fragmented', type=float, metavar='T',
+                   help='locus threshold on P for a fragmented assembly (see --fragmented-l50)')
+    g.add_argument('--settings', metavar='TSV',
+                   help='write the assembly statistics and the thresholds the selection used (key, value)')
     g.add_argument('--chain-logit-full', type=float, default=CHAIN_LOGIT_FULL, metavar='W',
                    help='with --chains: add W to the log-odds of P for a structure whose CDS chain lies in one '
                         f'full-length transcript [{CHAIN_LOGIT_FULL}]')
@@ -1210,10 +1261,18 @@ def main():
         decide(members, **cfg)
 
     t_locus = t_iso = None
+    asm = assembly_stats(a.genome) if a.genome else None
+    fragmented = (asm is not None and a.fragmented_l50 is not None and a.t_locus_fragmented is not None
+                  and asm['l50'] > a.fragmented_l50)
+    t_locus_source = None
     if clf is not None:
-        t_locus = a.t_locus if a.t_locus is not None else \
-            float(clf.get('t_locus_unknown_clade', clf['t_locus']) if a.unknown_clade else clf['t_locus'])
+        t_locus, t_locus_source = select_t_locus(clf, a.t_locus, a.unknown_clade,
+                                                 a.t_locus_fragmented if fragmented else None)
         t_iso = a.t_iso if a.t_iso is not None else float(clf['t_iso'])
+        if asm is not None:
+            print(f'assembly: {asm["n_seqs"]} sequences, {asm["length"]} bp, L50 {asm["l50"]}, N50 {asm["n50"]} bp'
+                  + (f'; fragmented (L50 > {a.fragmented_l50}): t_locus {t_locus}' if fragmented else ''),
+                  file=sys.stderr)
         unselectable = {s['_ix'] for s in S
                         if clf_drop_se and len(s['tools']) == 1 and next(iter(s['tools'])) in clf_drop_se
                         and len(s['segs']) == 1 and not (s.get('mp_train_match') == 1 or s.get('mp_rep_match') == 1)}
@@ -1261,6 +1320,20 @@ def main():
             for s in S:
                 row = report_row(s) + ([round(s['p_clf'], 4)] if clf is not None else [])
                 rp.write('\t'.join(map(str, row)) + '\n')
+
+    if a.settings:
+        rows = [('selection', 'classifier' if clf is not None else 'tier_rules')]
+        if asm is not None:
+            rows += [('assembly_sequences', asm['n_seqs']), ('assembly_length', asm['length']),
+                     ('assembly_n50', asm['n50']), ('assembly_l50', asm['l50'])]
+        rows += [('fragmented_l50', a.fragmented_l50 if a.fragmented_l50 is not None else ''),
+                 ('fragmented', int(fragmented))]
+        if clf is not None:
+            rows += [('t_locus', t_locus), ('t_locus_source', t_locus_source), ('t_iso', t_iso)]
+        else:
+            rows += [('min_locus', a.min_locus)]
+        with open(a.settings, 'w') as fh:
+            fh.write('key\tvalue\n' + ''.join(f'{k}\t{v}\n' for k, v in rows))
 
     adj = defaultdict(int)
     for s in S:
