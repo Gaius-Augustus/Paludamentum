@@ -80,7 +80,7 @@ process RUN_PYVARUS {
   tag "${species}"
   label 'pyvarus'
   // hisat2-build needs about 8 x the genome FASTA in memory (pyVARUS, measured on wheat)
-  memory { ((long) Math.ceil(Math.max(32.0, 9 * genome.size() / 1e9 + 8) * task.attempt)) + ' GB' }
+  memory { "${Math.max(32, Math.ceil(9 * genome.size() / 1e9 + 8) as int) * task.attempt} GB" }
   time '72h'
 
   publishDir "${params.outdir}/varus", mode: 'copy', overwrite: true,

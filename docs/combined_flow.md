@@ -28,6 +28,10 @@ table. Step 5 is described in [postprocessing.md](postprocessing.md).
    reads is made (`stringtie`, `stringtie -L` or `stringtie --mix`). An
    existing StringTie assembly (`--stringtie`) is used instead, see
    [Existing StringTie assemblies](../README.md#existing-stringtie-assemblies).
+   Each read type can also come as BAM files (`rnaseq_bam`, `isoseq_bam`)
+   or as its own assembly (`rnaseq_stringtie`, `isoseq_stringtie`); a mixed
+   run with a given assembly uses the short-read and the Iso-Seq assembly
+   side by side, see [parameters.md](parameters.md#stringtie-assemblies).
 4. **Combined high-confidence genes.** Two ORF callers run on the StringTie
    assembly: TD2 (with `TD2.LongOrfs`, `TD2.Predict`, then two auxiliary
    DIAMOND passes and `revise_pep.py` for the partial-ORF rescue; the

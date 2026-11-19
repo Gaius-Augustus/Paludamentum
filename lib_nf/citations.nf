@@ -182,7 +182,7 @@ def evidenceCitationKeys(Map run) {
     // pyVARUS (varus.run) aligns the reads it samples with HISAT2
     if( shortReads && (run.shortFastq || run.varusRun) ) keys << 'hisat2'
     if( longReads && run.isoFastq ) keys << 'minimap2'
-    def aligned = (shortReads && (run.shortFastq || run.shortBam || run.varusRun)) || (longReads && run.isoFastq)
+    def aligned = (shortReads && (run.shortFastq || run.shortBam || run.varusRun)) || (longReads && (run.isoFastq || run.isoBam))
     if( aligned ) keys << 'samtools' << 'augustus'
     // bedtools genomecov writes the coverage track of the merged BAM (transcript modes with alignments)
     if( aligned && transcripts ) keys << 'bedtools'

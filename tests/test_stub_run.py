@@ -571,3 +571,35 @@ def test_pyvarus_run_needs_a_species(tmp_path: Path, varus, message) -> None:
     proc, _ = run_pipeline(tmp_path, {**BOTH_FINDERS, **PROTEINS, "varus": varus})
     assert proc.returncode != 0
     assert message in proc.stdout + proc.stderr
+
+
+def test_pyvarus_run_with_an_isoseq_bam_is_assembled_together(tmp_path: Path) -> None:
+    """pyVARUS short reads and Iso-Seq alignments: a mixed run with one stringtie --mix assembly; the pyVARUS BAM
+    is strand-fixed and not assembled on its own."""
+    iso_bam = tmp_path / "iso.bam"
+    iso_bam.write_bytes(b"")                      # no SO:coordinate header: sorted by the pipeline
+    proc, published = run_pipeline(tmp_path, {**BOTH_FINDERS, **PROTEINS, **VARUS_RUN, "isoseq_bam": [str(iso_bam)]})
+    assert_ok(proc)
+    assert "Running mode: mixed" in proc.stdout
+    for name in ("RUN_PYVARUS", "STRAND_FIX_BAM", "STRINGTIE_ASSEMBLE_MIX", "BAM2HINTS_RNA", "BAM2HINTS_ISO"):
+        assert name in proc.stdout, name
+    assert "STRINGTIE_ASSEMBLE_RNA" not in proc.stdout and "CONCAT_ASSEMBLIES" not in proc.stdout
+    assert final_files("paludamentum") <= published
+
+
+def test_pyvarus_run_with_an_isoseq_assembly_is_used_side_by_side(tmp_path: Path) -> None:
+    proc, published = run_pipeline(tmp_path, {**BOTH_FINDERS, **PROTEINS, **VARUS_RUN,
+                                              "isoseq_stringtie": fake_stringtie_gtf(tmp_path, "long.gtf")})
+    assert_ok(proc)
+    assert "Running mode: mixed" in proc.stdout
+    for name in ("RUN_PYVARUS", "STRINGTIE_ASSEMBLE_RNA", "CONCAT_ASSEMBLIES", "ASSEMBLY_HINTS", "BAM2COV"):
+        assert name in proc.stdout, name
+    assert "STRINGTIE_ASSEMBLE_MIX" not in proc.stdout
+    assert final_files("paludamentum") <= published
+
+
+def test_pyvarus_run_with_a_short_read_assembly_is_refused(tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, {**BOTH_FINDERS, **PROTEINS, **VARUS_RUN,
+                                      "rnaseq_stringtie": fake_stringtie_gtf(tmp_path, "short.gtf")})
+    assert proc.returncode != 0
+    assert "varus.run: pyVARUS samples short reads for the pipeline to assemble" in proc.stdout + proc.stderr

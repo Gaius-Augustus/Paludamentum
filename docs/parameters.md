@@ -161,6 +161,14 @@ list of BAM files. They skip the HISAT2 step. A BAM whose header does not say
 Like the HISAT2 BAMs, user BAMs go through the strand fix (`strand_fix`); the
 run ids are taken from the read names (`strand_fix_run_regex`).
 
+### Aligned Iso-Seq reads (BAM)
+Already aligned Iso-Seq reads go to `isoseq_bam` as a list of BAM files
+(spliced alignments, as `minimap2 -ax splice:hq -uf` writes them). They skip
+minimap2 and the alignment rate filter. A BAM whose header does not say
+`SO:coordinate` is sorted first. They are merged with the BAMs of `isoseq`
+and `isoseq_sra`, and StringTie (`-L`) and `bam2hints` read the merged BAM.
+With short-read input of any kind the run is a mixed run.
+
 ### pyVARUS output directories
 [pyVARUS](https://github.com/Gaius-Augustus/pyVARUS) writes `stringtie.gtf`
 and `hints.gff` next to `VARUS.bam`, made as the pipeline makes them from a
@@ -205,6 +213,18 @@ mixed_varus:  /path/to/varus_mixed
 Then pass no other short reads or Iso-Seq. `mixed_varus` is used only in
 mixed mode. `varus replay` rebuilds a BAM deleted by
 `--drop-bam`.
+
+A mixed run can also use what a pyVARUS run produced without `mixed_varus`,
+and then combine it with reads, BAM files or SRA accessions of the other
+read type. Pass the files, not the directory:
+
+- the BAM (`varus run --keep-bam`, or rebuilt with `varus replay`) as
+  `rnaseq_bam` or `isoseq_bam`: the pipeline assembles both read types
+  together, or
+- the assembly `stringtie.gtf` as `rnaseq_stringtie` or `isoseq_stringtie`:
+  it is used side by side with the assembly of the other read type, and its
+  intron hints are derived from the assembly (not taken from `hints.gff`),
+  see [StringTie assemblies](#stringtie-assemblies).
 
 ### pyVARUS inside the pipeline
 The pipeline can run pyVARUS itself, so that a run needs no RNA-Seq data of
@@ -264,6 +284,45 @@ the coverage track and the intron hints.
 ```yaml
 stringtie: /path/to/stringtie.gtf
 ```
+
+One assembly per read type goes to `rnaseq_stringtie` (the assembly of the
+short reads) and `isoseq_stringtie` (the `stringtie -L` assembly of the
+Iso-Seq reads): one GTF each, with the same requirements as `stringtie`.
+Each stands for the reads of its type when the mode is inferred, and each
+can come with the reads, BAM files or SRA accessions it was made from, which
+are then aligned for the BAM only. They cannot be combined with `stringtie`
+or with pyVARUS directories.
+
+```yaml
+rnaseq_stringtie: /path/to/short_reads.gtf
+isoseq_stringtie: /path/to/isoseq_L.gtf
+```
+
+In a mixed run (`rnaseq_*` and `isoseq_*` inputs together) the one assembly
+of the run is made as follows:
+
+| Short reads | Iso-Seq reads | The one assembly |
+| --- | --- | --- |
+| FASTQ, SRA, BAM | FASTQ, SRA, BAM | `stringtie --mix` of the two merged BAMs (as before) |
+| `rnaseq_stringtie` | `isoseq_stringtie` | the two given assemblies side by side |
+| FASTQ, SRA, BAM | `isoseq_stringtie` | the `stringtie` assembly of the short-read BAM and the given one, side by side |
+| `rnaseq_stringtie` | FASTQ, SRA, BAM | the given one and the `stringtie -L` assembly of the Iso-Seq BAM, side by side |
+
+"Side by side" is `CONCAT_ASSEMBLIES` (`bin/concat_assemblies.py`): both
+GTFs in one file, gene and transcript ids prefixed with `sr.` and `lr.`, all
+attributes kept (`intermediate/stringtie_short_and_long.gtf`). It is not
+`stringtie --merge`, which drops `cov` and `TPM`. A transcript in both
+assemblies is there twice; the ORF callers find its CDS twice, and
+`combine_genesets.py` merges identical CDS structures. The effect of this
+transcript set on the accuracy, against `stringtie --mix` of both BAMs, has
+not been measured: give both read types as reads or BAM files when you can.
+
+The intron hints of a read type come from its BAM; a read type that is given
+as an assembly alone gets them from that assembly (`ASSEMBLY_HINTS`). The
+coverage track is that of the BAMs of the run, or, without any BAM, that of
+the one assembly. In a mixed run the Iso-Seq assembly (given, or made from
+the Iso-Seq BAM) is the set of full-length transcripts (`chains`) unless
+`chains` is set.
 
 `stringtie` counts as short reads when the mode is inferred, so proteins and
 an assembly give the mode `rnaseq`; a forced `isoseq` or `mixed` accepts it

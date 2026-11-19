@@ -6,7 +6,7 @@
 | Tiberius | `docker://gaiusaugustus/tiberius:<version>` | `Dockerfile` in the Tiberius repository |
 | Vipsania | `docker://gaiusaugustus/vipsania:<version>` | `Dockerfile` in the Vipsania repository |
 | Drusilla ORFs (step 4 of the combined HC flow) | `docker://gaiusaugustus/drusilla:<version>` | `docker/Dockerfile` in the Drusilla repository |
-| pyVARUS (`RUN_PYVARUS`, only with `varus.run`) | `docker://gaiusaugustus/pyvarus:v2.1.2` | `docker/Dockerfile` in the pyVARUS repository |
+| pyVARUS (`RUN_PYVARUS`, only with `varus.run`) | `docker://gaiusaugustus/pyvarus:v2.1.3` | `docker/Dockerfile` in the pyVARUS repository |
 | post-processing: compleasm, GffCompare, tRNAscan-SE, Infernal, pybarrnap, gene set statistics, report | `docker://gaiusaugustus/paludamentum-postprocess:0.1.2` | [docker/postprocess/Dockerfile](../docker/postprocess/Dockerfile) |
 | BUSCO | `docker://ezlabgva/busco:v6.1.0_cv2` | the BUSCO project |
 | FEELnc (lncRNA) | `docker://quay.io/biocontainers/feelnc:0.2--pl526_0` | BioContainers |
