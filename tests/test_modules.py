@@ -173,3 +173,36 @@ def test_protein_from_gff_forwards_the_internal_stop_warning():
     assert re.search(r"^\s*debug true\s*$", body, re.MULTILINE), body
     assert "check_internal_stops.py" in body, body
     assert (ROOT / "bin" / "check_internal_stops.py").is_file()
+
+
+# ---- drusilla.filter_transcripts: Drusilla gets all StringTie transcripts by default ------------------------------
+
+
+def test_base_config_defaults_of_the_drusilla_transcript_filter():
+    text = (ROOT / "conf" / "base.config").read_text()
+    assert re.search(r"^\s*filter_transcripts\s*=\s*false\s*$", text, re.M)
+    # drop_unstranded is an option of the filter and stays off
+    assert re.search(r"^\s*drop_unstranded\s*=\s*false\s*$", text, re.M)
+
+
+def test_parameters_template_lists_filter_transcripts_with_its_default():
+    text = (ROOT / "conf" / "parameters.yaml").read_text()
+    assert re.search(r"^#\s+filter_transcripts: false\b", text, re.M)
+    # and it is a key of the commented drusilla block, like drop_unstranded
+    assert re.search(r"^#\s+drop_unstranded: false\b", text, re.M)
+
+
+def test_filter_stringtie_is_called_only_with_the_filter_switch():
+    """FILTER_STRINGTIE has one call site, guarded by drusilla.filter_transcripts; without it DRUSILLA_ANNOTATE
+    reads the merged StringTie assembly."""
+    text = (ROOT / "subworkflows" / "hc_combined.nf").read_text()
+    code = "\n".join(line for line in text.splitlines() if not line.strip().startswith("//"))
+    assert len(re.findall(r"FILTER_STRINGTIE\(", code)) == 1, code
+    assert re.search(r"def filterTx\s*=\s*truthy\(d\.filter_transcripts\)", code)
+    assert re.search(r"def dru_in\s*=\s*filterTx\s*\?\s*FILTER_STRINGTIE\(merged_asm\.gtf\)\.gtf\s*:\s*merged_asm\.gtf", code)
+    assert re.search(r"DRUSILLA_ANNOTATE\(dru_in,", code)
+
+
+def test_parameter_docs_list_filter_transcripts_with_its_default():
+    text = (ROOT / "docs" / "parameters.md").read_text()
+    assert re.search(r"^\| `drusilla\.filter_transcripts` \| `false` \|", text, re.M)

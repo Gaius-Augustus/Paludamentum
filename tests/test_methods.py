@@ -310,3 +310,40 @@ def test_stub_run_ab_initio_vipsania(tmp_path: Path) -> None:
     assert "in mode `abinitio`" in methods
     assert "Vipsania" in methods
     assert "miniprot" not in methods and "Tiberius" not in methods
+
+
+DRUSILLA_ALL = "Drusilla predicted the ORFs of the assembled transcripts"
+DRUSILLA_FILTERED = "For Drusilla, assembled transcripts were pre-filtered by length, StringTie coverage and TPM; "
+
+
+def test_stub_run_methods_drusilla_gets_all_transcripts_by_default(tmp_path: Path) -> None:
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert DRUSILLA_ALL in methods and "pre-filtered" not in methods
+    assert "scanning both strands of transcripts without an assembled strand" in methods
+    assert "and isoforms whose CDS was a subsequence of another were collapsed." in methods
+
+
+def test_stub_run_methods_drusilla_filter_transcripts(tmp_path: Path) -> None:
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"],
+              "drusilla": {"filter_transcripts": True}}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert DRUSILLA_FILTERED + "Drusilla predicted their ORFs" in methods and DRUSILLA_ALL not in methods
+    assert "scanning both strands of transcripts without an assembled strand" in methods
+
+
+@pytest.mark.parametrize("drusilla,both_strands", [
+    ({"filter_transcripts": True, "drop_unstranded": True}, False),   # the filter drops them
+    ({"drop_unstranded": True}, True),                                  # no filter: no effect, both strands stay
+])
+def test_stub_run_methods_drop_unstranded_needs_the_filter(drusilla: dict, both_strands: bool, tmp_path: Path) -> None:
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"],
+              "drusilla": drusilla}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    methods = check_stub_run(tmp_path)
+    assert ("scanning both strands of transcripts without an assembled strand" in methods) == both_strands

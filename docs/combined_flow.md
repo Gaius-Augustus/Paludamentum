@@ -36,8 +36,9 @@ table. Step 5 is described in [postprocessing.md](postprocessing.md).
    assembly: TD2 (with `TD2.LongOrfs`, `TD2.Predict`, then two auxiliary
    DIAMOND passes and `revise_pep.py` for the partial-ORF rescue; the
    revised ORFs are mapped back to the genome with
-   `cdna_alignment_orf_to_genome_orf.pl`) and Drusilla (StringTie pre-filter
-   and `drusilla annotate` with the Drusilla model of all clades, see
+   `cdna_alignment_orf_to_genome_orf.pl`) and Drusilla (`drusilla annotate` on all
+   transcripts, the same input as TD2, with the Drusilla model of all clades;
+   an optional length, coverage and TPM filter is `drusilla.filter_transcripts`, see
    [drusilla_flow.md](drusilla_flow.md)). DIAMOND runs on the proteins of
    all four gene sets (Tiberius, Vipsania, revised TD2, Drusilla).
    `bedtools genomecov -bg -split` writes a read-depth bedGraph, and

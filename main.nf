@@ -258,9 +258,11 @@ workflow {
         minAlignmentRate: params.min_alignment_rate ?: 80,
         // the strand fix runs on the BAMs that StringTie assembles (not with a given assembly)
         strandFix: !hasStringtie && !useShortAsm && (params.strand_fix == null || truthy(params.strand_fix)),
-        // both strands of '.' transcripts only matter when FILTER_STRINGTIE keeps them
+        // the transcript filter in front of Drusilla (off by default: Drusilla gets all transcripts)
+        drusillaFilter: truthy(params.drusilla?.filter_transcripts),
+        // both strands of '.' transcripts only matter when the filter does not drop them
         drusillaBothStrands: truthy(params.drusilla?.unstranded_both_strands) &&
-            !truthy(params.drusilla?.drop_unstranded),
+            !(truthy(params.drusilla?.filter_transcripts) && truthy(params.drusilla?.drop_unstranded)),
         drusillaFlank: Math.max((params.drusilla?.flank_bp ?: 0) as Integer, (params.drusilla?.flank_3p_bp ?: 0) as Integer),
         drusillaOrfsPerTx: params.drusilla?.orfs_per_tx,
         stringtieFiles: stringtieFiles.size(), mixVarus: MODE == 'mixed' && transcriptMode && hasMixVarus,

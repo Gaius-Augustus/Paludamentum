@@ -3,7 +3,8 @@
 Drusilla is one of the two ORF callers of step 4 of the pipeline (see the
 [overview](../README.md#what-the-pipeline-does)); the other is TD2. In every
 evidence run (`rnaseq`, `isoseq`, `mixed`), Drusilla predicts the ORFs on
-the StringTie assembly, and `combine_genesets.py` integrates its ORFs with
+all transcripts of the StringTie assembly (the input of TD2 too; an optional
+filter is described [below](#transcript-filter)), and `combine_genesets.py` integrates its ORFs with
 the Tiberius, Vipsania and TD2 gene sets (by default selecting the
 structures with a learned classifier, with the tier rules as fallback, see
 [combined_flow.md](combined_flow.md)). The dedicated "Drusilla flow"
@@ -28,7 +29,9 @@ replaces the per-model filtering it used to do.
    `intermediate/strand_fix/<bam>.strand_runs.tsv`. Iso-Seq BAMs are not
    changed, and pyVARUS directories bring no BAM, so the strand fix cannot
    run on them.
-2. **`FILTER_STRINGTIE`**: the StringTie assembly is filtered by length,
+2. **`FILTER_STRINGTIE`** (optional, off by default; runs only with
+   `filter_transcripts: true`, otherwise Drusilla gets all transcripts of the
+   StringTie assembly, as TD2 does): the assembly is filtered by length,
    coverage and TPM: default `min_length: 300`, `min_cov: 3`, `min_tpm: 1`
    (and `min_tpm_long: 0.5` for transcripts of at least `long_length: 3000`
    nt). Transcripts with strand `.` (no spliced reads, almost all
@@ -49,7 +52,8 @@ replaces the per-model filtering it used to do.
    cache instead (`drusilla models download <model>` with
    `DRUSILLA_CACHE_DIR` set to it fills it once).
 4. **`DRUSILLA_ANNOTATE`**: `drusilla annotate` predicts the ORFs of the
-   kept transcripts. A flank of 500 bp of genome is added on both sides of
+   transcripts (all of them by default, the kept ones with
+   `filter_transcripts: true`). A flank of 500 bp of genome is added on both sides of
    every transcript, so ORFs truncated at the 5' or 3' end of a transcript
    are completed into it; they carry the GTF attribute
    `completion "5p|3p|5p3p"`. The subsequence collapse of `annotate` is off
@@ -74,13 +78,14 @@ drusilla:
   batch_size: null         # null = Drusilla sizes the batch from the GPU memory
   shards: 1                # parallel Drusilla processes; e.g. 24 on a 48-core CPU node
   min_coding_length: 200   # minimal CDS length of a Drusilla ORF
-  min_length: 300          # StringTie pre-filter
-  min_cov: 3
-  min_tpm: 1
-  long_length: 3000
-  min_tpm_long: 0.5
-  drop_unstranded: false   # true = drop transcripts with strand '.' (no spliced reads)
-  unstranded_both_strands: true   # scan both strands of '.' transcripts (needs drop_unstranded: false)
+  filter_transcripts: false # true = filter the StringTie transcripts before Drusilla (options below)
+  min_length: 300          # filter option
+  min_cov: 3               # filter option
+  min_tpm: 1               # filter option
+  long_length: 3000        # filter option
+  min_tpm_long: 0.5        # filter option
+  drop_unstranded: false   # filter option: true = drop transcripts with strand '.' (no spliced reads)
+  unstranded_both_strands: true   # scan both strands of '.' transcripts
   flank_bp: 500            # bp of genomic context per transcript side, ORF completion into it; null/0 = off
   flank_3p_bp: null        # 3' side alone (enough on its own); null = flank_bp (500)
   flank_min_tx_frac: null  # minimal fraction of an ORF inside the transcript; null = Drusilla's default (0.5)
@@ -101,13 +106,16 @@ default, the third is off:
 
 | Param | Drusilla flag | Effect |
 | --- | --- | --- |
-| `drop_unstranded: false`, `unstranded_both_strands: true` (default) | `--unstranded-both-strands` | Transcripts with strand `.` are kept and scanned on both strands. The reverse complement is scanned as `<tid>__rc`, and the orientation with the longer ORF is kept. |
+| `unstranded_both_strands: true` (default) | `--unstranded-both-strands` | Transcripts with strand `.` are kept and scanned on both strands. The reverse complement is scanned as `<tid>__rc`, and the orientation with the longer ORF is kept. |
 | `flank_bp: 500`, `flank_3p_bp`, `flank_min_tx_frac` (default) | `--flank-bp N --flank-3p-bp M --flank-keep [--flank-min-tx-frac F]` | Genomic context of `flank_bp` bp is added on both sides of every transcript (`flank_3p_bp` sets the 3' side alone, default `flank_bp`), so ORFs cut off at a transcript end are completed into it and get the attribute `completion "5p\|3p\|5p3p"`. ORFs with less than `flank_min_tx_frac` (default 0.5) of their CDS inside the transcript are dropped. |
 | `orfs_per_tx: K` (default `null` = 1) | `--orfs-per-tx K` | Up to `K` ORFs per transcript, longest first (`0` = all), for fused transcripts. |
 
-`unstranded_both_strands` only acts on transcripts that reach Drusilla, so
-it needs `drop_unstranded: false`. With `drop_unstranded: true` the run logs
-a warning and the option has no effect. The flank options are passed when
+`unstranded_both_strands` only acts on transcripts that reach Drusilla. In
+the default run (no filter) every strand `.` transcript does, and the option
+needs no other setting. With `filter_transcripts: true` and
+`drop_unstranded: true` the run logs a warning and the option has no effect.
+`drop_unstranded` is an option of the filter; without
+`filter_transcripts: true` it is ignored with a warning. The flank options are passed when
 `flank_bp` or `flank_3p_bp` is greater than 0. All three need Drusilla 0.3.0,
 the image the pipeline runs; it also takes the assembly as `--assembly-gtf`.
 
@@ -131,10 +139,25 @@ To turn the defaults off (Drusilla 0.1 behavior):
 
 ```yaml
 drusilla:
+  filter_transcripts: true
   drop_unstranded: true
   unstranded_both_strands: false
   flank_bp: 0
 ```
+
+## Transcript filter
+
+By default Drusilla predicts ORFs on all transcripts of the StringTie
+assembly, the same input as TD2. `filter_transcripts: true` runs
+`FILTER_STRINGTIE` first, which was the behavior until Nov 2026. Measured on
+20 Nov 2026 on the 37 benchmark species (related-species proteins, released
+classifier): the final gene sets with Drusilla on all transcripts were as
+accurate as with the filter (gene-level F1 +0.06, sensitivity +0.13,
+precision -0.03; transcript-level F1 +0.10; BUSCO completeness +0.02; no
+species lost more than 0.04 gene F1). Drusilla alone loses precision without
+the filter (gene level 73.0 to 68.7, sensitivity 54.7 to 56.3), but the
+combiner absorbs that. Drusilla on all transcripts took a median of 4.3 min
+per species on one GPU.
 
 Drusilla runs on a GPU (label `gpu`) in the Drusilla image. Without a GPU,
 send `DRUSILLA_ANNOTATE` to CPU nodes in your site config and set `shards`:

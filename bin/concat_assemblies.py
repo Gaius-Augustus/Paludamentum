@@ -8,8 +8,8 @@ kept side by side: this script writes the features of both files into one GTF
 and prefixes the gene and transcript ids with `sr.` (short reads) and `lr.`
 (long reads), because both StringTie runs number their genes from STRG.1.
 Everything else is kept as it is, in particular the cov, FPKM and TPM
-attributes that the StringTie pre-filter of Drusilla reads; `stringtie --merge`
-would drop them (CONCAT_ASSEMBLIES in modules/assembly.nf).
+attributes that the optional transcript filter of Drusilla
+(drusilla.filter_transcripts) reads; `stringtie --merge` would drop them (CONCAT_ASSEMBLIES in modules/assembly.nf).
 
 A transcript that both assemblies contain is in the output twice. The ORF
 callers then find the same CDS twice, and combine_genesets.py merges

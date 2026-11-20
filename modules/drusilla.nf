@@ -2,8 +2,10 @@ nextflow.enable.dsl=2
 
 include { drusillaSetting; truthy } from '../lib_nf/functions.nf'
 
-// Processes of the Drusilla flow: the StringTie pre-filter, model download,
-// the ORF annotation and the subsequence collapse. The LightGBM filter and
+// Processes of the Drusilla flow: the optional StringTie transcript filter
+// (FILTER_STRINGTIE, only with drusilla.filter_transcripts: true; it reads the
+// cov and TPM attributes), model download, the ORF annotation and the
+// subsequence collapse. By default Drusilla annotates all transcripts. The LightGBM filter and
 // the hint rescue of the previous pipeline are gone (replaced by the unified
 // combine_genesets integration in subworkflows/hc_combined.nf).
 

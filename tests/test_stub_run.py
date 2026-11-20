@@ -604,3 +604,90 @@ def test_pyvarus_run_with_a_short_read_assembly_is_refused(tmp_path: Path) -> No
                                       "rnaseq_stringtie": fake_stringtie_gtf(tmp_path, "short.gtf")})
     assert proc.returncode != 0
     assert "varus.run: pyVARUS samples short reads for the pipeline to assemble" in proc.stdout + proc.stderr
+
+
+# ---- drusilla.filter_transcripts: Drusilla gets all StringTie transcripts unless the filter is on ---------
+
+
+def task_names(tmp_path: Path) -> list[str]:
+    """Process names (last component) of the tasks in the trace file of run_pipeline."""
+    rows = (tmp_path / "trace.txt").read_text().splitlines()
+    column = rows[0].split("\t").index("name")
+    return [row.split("\t")[column].split()[0].split(":")[-1] for row in rows[1:]]
+
+
+def staged_inputs(tmp_path: Path, process: str) -> set[str]:
+    """File names staged into the (first) task directory of a process, from the hash column of the trace."""
+    rows = (tmp_path / "trace.txt").read_text().splitlines()
+    header = rows[0].split("\t")
+    for row in rows[1:]:
+        cells = row.split("\t")
+        if cells[header.index("name")].split()[0].split(":")[-1] == process:
+            prefix, rest = cells[header.index("hash")].split("/")
+            (task_dir,) = (tmp_path / "work" / prefix).glob(rest + "*")
+            return {p.name for p in task_dir.iterdir() if not p.name.startswith(".")}
+    raise AssertionError(f"no {process} task in the trace")
+
+
+def test_default_drusilla_gets_the_whole_stringtie_assembly(tmp_path: Path) -> None:
+    """Default (drusilla.filter_transcripts false): no FILTER_STRINGTIE task, DRUSILLA_ANNOTATE reads the
+    merged StringTie assembly (stringtie.gtf), the same input as TD2."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    names = task_names(tmp_path)
+    assert "FILTER_STRINGTIE" not in names, names
+    assert "DRUSILLA_ANNOTATE" in names and "COLLAPSE_ORFS" in names, names
+    staged = staged_inputs(tmp_path, "DRUSILLA_ANNOTATE")
+    assert "stringtie.gtf" in staged and "stringtie.filtered.gtf" not in staged, staged
+    assert "intermediate/drusilla_orfs.gtf" in published
+
+
+def test_filter_transcripts_runs_the_filter_in_front_of_drusilla(tmp_path: Path) -> None:
+    """drusilla.filter_transcripts: true: FILTER_STRINGTIE runs once and its output is the input of
+    DRUSILLA_ANNOTATE."""
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"],
+              "drusilla": {"filter_transcripts": True}}
+    proc, published = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    names = task_names(tmp_path)
+    assert names.count("FILTER_STRINGTIE") == 1, names
+    staged = staged_inputs(tmp_path, "DRUSILLA_ANNOTATE")
+    assert "stringtie.filtered.gtf" in staged and "stringtie.gtf" not in staged, staged
+    assert "intermediate/drusilla_orfs.gtf" in published
+
+
+def test_drop_unstranded_without_the_filter_only_warns(tmp_path: Path) -> None:
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"],
+              "drusilla": {"drop_unstranded": True}}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    out = proc.stdout + proc.stderr
+    assert "drusilla.drop_unstranded has no effect without drusilla.filter_transcripts" in out, out[-2000:]
+    assert "FILTER_STRINGTIE" not in task_names(tmp_path)
+
+
+def test_unstranded_both_strands_warning_needs_the_filter(tmp_path: Path) -> None:
+    """The warning about unstranded_both_strands with drop_unstranded is raised only when the filter is on."""
+    base = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"]}
+    message = "drusilla.unstranded_both_strands has no effect while drusilla.drop_unstranded is true"
+    proc, _ = run_pipeline(tmp_path, {**base, "drusilla": {"filter_transcripts": True, "drop_unstranded": True}})
+    assert_ok(proc)
+    assert message in proc.stdout + proc.stderr
+    assert "drusilla.drop_unstranded has no effect without" not in proc.stdout + proc.stderr
+    other = tmp_path / "nofilter"
+    other.mkdir()
+    proc, _ = run_pipeline(other, {**base, "drusilla": {"drop_unstranded": True}})
+    assert_ok(proc)
+    assert message not in proc.stdout + proc.stderr
+
+
+def test_existing_drusilla_result_skips_the_filter_and_drusilla(tmp_path: Path) -> None:
+    result = tmp_path / "old_drusilla.gtf"
+    result.write_text("##gff-version 3\n")
+    params = {"tiberius": BOTH_FINDERS["tiberius"], "vipsania": BOTH_FINDERS["vipsania"], **EVIDENCE["rnaseq"],
+              "drusilla": {"result": str(result), "filter_transcripts": True}}
+    proc, _ = run_pipeline(tmp_path, params)
+    assert_ok(proc)
+    names = task_names(tmp_path)
+    assert "FILTER_STRINGTIE" not in names and "DRUSILLA_ANNOTATE" not in names, names

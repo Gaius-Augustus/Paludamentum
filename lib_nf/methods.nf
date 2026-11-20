@@ -329,8 +329,10 @@ def methodsHighConfidence(Map ctx, Map run) {
             if( nOrfs == 0 )     dru << 'reporting every ORF of a transcript'
             else if( nOrfs > 1 ) dru << "reporting up to ${numText(nOrfs)} ORFs per transcript"
         }
-        s << 'For Drusilla, assembled transcripts were pre-filtered by length, StringTie coverage and TPM; Drusilla ' +
-             'predicted their ORFs' + (dru ? " (${joinAnd(dru)})" : '') +
+        s << (run.drusillaFilter ?
+                 'For Drusilla, assembled transcripts were pre-filtered by length, StringTie coverage and TPM; Drusilla ' +
+                 'predicted their ORFs' :
+                 'Drusilla predicted the ORFs of the assembled transcripts') + (dru ? " (${joinAnd(dru)})" : '') +
              ', and isoforms whose CDS was a subsequence of another were collapsed.'
         if( run.chains )
             s << (run.chains == 'given' ? 'The given full-length transcripts' :

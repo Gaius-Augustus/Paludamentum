@@ -249,8 +249,8 @@ Notes:
   are an error, and so is `stringtie` together with one of the other two.
   The GTF must come from `stringtie` on the
   reads (with `cov` and `TPM` attributes), not from `stringtie --merge`
-  (which drops them). Drusilla's StringTie pre-filter reads these
-  attributes.
+  (which drops them). The optional transcript filter of Drusilla
+  (`drusilla.filter_transcripts`) reads these attributes.
 - The reads, BAMs and Iso-Seq reads that the assembly was made from may
   come with it. They are mapped and merged into one BAM only; nothing is
   assembled. The BAM gives the coverage track (`bedtools genomecov`) and
@@ -569,7 +569,7 @@ Running without containers, and other setups for experts, are described in
 | [docs/parameters.md](docs/parameters.md) | all parameters: inputs, gene finder blocks, Drusilla block, combine_genesets, mode |
 | [docs/vipsania.md](docs/vipsania.md) | Vipsania as gene finder: models, finetuning, offline nodes |
 | [docs/combined_flow.md](docs/combined_flow.md) | the evidence and integration steps in technical detail: tools, options, `combine_genesets.py`, selection models, clade table |
-| [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla as one of the two ORF callers: StringTie pre-filter, parameters |
+| [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla as one of the two ORF callers: ORFs on all StringTie transcripts, optional transcript filter, parameters |
 | [docs/postprocessing.md](docs/postprocessing.md) | post-processing and quality control: sanity filter, UTRs, GFF3 contract, completeness, ncRNA, GO terms, report |
 | [docs/containers.md](docs/containers.md) | container images and how they are pinned |
 | [docs/hpc.md](docs/hpc.md) | Nextflow config for your cluster, process labels |

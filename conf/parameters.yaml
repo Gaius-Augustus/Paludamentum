@@ -180,9 +180,10 @@ vipsania:
 #   model: drusilla_model        # default: the one Drusilla model of all clades
 #   shards: 1                    # parallel Drusilla processes on CPU nodes, e.g. 24 with 48 CPUs
 #   cache_dir: null              # Drusilla model cache, for a model that is not bundled (the default is)
-#   result: /abs/path/orfs.filtered.gtf  # existing Drusilla ORFs: Drusilla does not run
-#   drop_unstranded: false       # default; true drops transcripts with strand '.' before Drusilla
-#   unstranded_both_strands: true    # default; scan both strands of '.' transcripts (needs drop_unstranded: false)
+#   result: /abs/path/drusilla_orfs.gtf  # existing Drusilla ORFs: Drusilla does not run
+#   filter_transcripts: false    # default: Drusilla gets all StringTie transcripts; true = pre-filter by length, coverage, TPM
+#   drop_unstranded: false       # with filter_transcripts: true drops transcripts with strand '.' before Drusilla
+#   unstranded_both_strands: true    # default; scan both strands of '.' transcripts
 #   flank_bp: 500                # default; genomic context on both sides, ORFs completed into it; 0 = off
 #   orfs_per_tx: null            # null = one ORF per transcript; 0 = all (fused transcripts)
 

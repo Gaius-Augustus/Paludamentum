@@ -139,17 +139,24 @@ workflow HC_COMBINED {
         // ---- the one StringTie assembly as GTF and GFF3 (merged only if there are several)
         def merged_asm = STRINGTIE_MERGE(asm_gtf.collect())
 
-        // ---- Drusilla ORFs on the filtered StringTie assembly
+        // ---- Drusilla ORFs on the StringTie assembly: all transcripts, as TD2 gets them. With
+        // drusilla.filter_transcripts the transcripts are first filtered by length, coverage and
+        // TPM (FILTER_STRINGTIE, the default until Nov 2026; on the 37 benchmark species the gene
+        // sets without the filter were as accurate: gene F1 +0.06, BUSCO unchanged).
         def dru
         if( d.result ) {
             if( !file(d.result).exists() )
                 error "params.drusilla.result is set, but the file does not exist: ${d.result}"
             dru = [gtf: channel.fromPath(d.result, checkIfExists: true).toList()]
         } else {
-            if( truthy(d.unstranded_both_strands) && truthy(d.drop_unstranded) )
+            def filterTx = truthy(d.filter_transcripts)
+            if( filterTx && truthy(d.unstranded_both_strands) && truthy(d.drop_unstranded) )
                 log.warn "drusilla.unstranded_both_strands has no effect while drusilla.drop_unstranded is true: " +
                          "FILTER_STRINGTIE drops every transcript with strand '.' before Drusilla runs."
-            def filt = FILTER_STRINGTIE(merged_asm.gtf)
+            if( !filterTx && truthy(d.drop_unstranded) )
+                log.warn "drusilla.drop_unstranded has no effect without drusilla.filter_transcripts: " +
+                         "it is an option of the transcript filter."
+            def dru_in = filterTx ? FILTER_STRINGTIE(merged_asm.gtf).gtf : merged_asm.gtf
             def drusillaModel = channel.value([])
             def useModel = false
             if( !d.weights && !d.cache_dir ) {
@@ -160,7 +167,7 @@ workflow HC_COMBINED {
                     useModel = true
                 }
             }
-            def dru_raw = DRUSILLA_ANNOTATE(filt.gtf, CH_GENOME, useModel, drusillaModel)
+            def dru_raw = DRUSILLA_ANNOTATE(dru_in, CH_GENOME, useModel, drusillaModel)
             dru        = COLLAPSE_ORFS(dru_raw.gtf)
         }
 

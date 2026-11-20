@@ -419,22 +419,24 @@ use `genefinder: vipsania`). All Vipsania-specific parameters are in
 
 Drusilla is one of the two ORF callers of the combined HC flow (step 4),
 alongside TD2 (see [drusilla_flow.md](drusilla_flow.md)). The parameters
-below configure the Drusilla model, the StringTie pre-filter and the
-Drusilla GPU task.
+below configure the Drusilla model, the optional transcript filter and the
+Drusilla GPU task. By default Drusilla predicts ORFs on all transcripts of
+the StringTie assembly, the same input as TD2.
 
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `drusilla.model` | `drusilla_model` | Released Drusilla model (`drusilla models list`). The default is the bundled model of all clades (one CNN-BiLSTM, trained on 425 species of vertebrates, insects, embryophyta, fungi, diatoms and chlorophyta). It is bundled with Drusilla and in its image. The per-clade models `vertebrates` and `insects` of earlier versions are no longer released (Drusilla 0.3.0). |
-| `drusilla.result` | none | Existing Drusilla ORFs GTF: used as the Drusilla gene set instead of running `FILTER_STRINGTIE`, `DRUSILLA_ANNOTATE` and `COLLAPSE_ORFS`. The file is passed to `combine_genesets.py` as the `drusilla` input. |
+| `drusilla.result` | none | Existing Drusilla ORFs GTF: used as the Drusilla gene set instead of running `DRUSILLA_ANNOTATE` and `COLLAPSE_ORFS` (and `FILTER_STRINGTIE`, if `filter_transcripts` is on). The file is passed to `combine_genesets.py` as the `drusilla` input. |
 | `drusilla.weights`, `drusilla.config` | none | A local `.weights.h5` file and its architecture YAML instead of a released model. |
 | `drusilla.cache_dir` | none | Drusilla model cache (`DRUSILLA_CACHE_DIR`) for a model that is not bundled, filled by `drusilla models download <model>`. The default model needs none. Without it the archive of such a model's `weights_url` in `drusilla/model_cfg/` is downloaded once on the submitting host (label `download`), checked against its `weights_sha256` and staged into the Drusilla task. |
 | `drusilla.batch_size` | automatic | Drusilla batch size. |
 | `drusilla.shards` | `1` | Parallel Drusilla processes, each on a part of the transcripts. For CPU nodes, where one process uses only one to two cores (e.g. 24 with 48 CPUs). |
 | `drusilla.min_coding_length` | `200` | Minimal CDS length of a Drusilla ORF. |
-| `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | StringTie pre-filter: transcript length, coverage and TPM. |
-| `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Relaxed TPM for transcripts of at least `long_length` nt. |
-| `drusilla.drop_unstranded` | `false` | StringTie pre-filter: `true` drops transcripts with strand `.`; `false` (or `null`) keeps them. |
-| `drusilla.unstranded_both_strands` | `true` | `--unstranded-both-strands`: also scan the reverse complement (`<tid>__rc`) of transcripts with strand `.` and keep the orientation with the longer ORF. Needs `drop_unstranded: false`; otherwise the run warns and the option has no effect. |
+| `drusilla.filter_transcripts` | `false` | `true` filters the StringTie transcripts by length, coverage and TPM (`FILTER_STRINGTIE`) before Drusilla; `false` gives Drusilla all transcripts, as TD2 gets them. |
+| `drusilla.min_length`, `min_cov`, `min_tpm` | `300`, `3`, `1` | Options of the filter (only with `filter_transcripts: true`): transcript length, coverage and TPM. |
+| `drusilla.long_length`, `min_tpm_long` | `3000`, `0.5` | Options of the filter: relaxed TPM for transcripts of at least `long_length` nt. |
+| `drusilla.drop_unstranded` | `false` | Option of the filter: `true` drops transcripts with strand `.`; `false` (or `null`) keeps them. Without `filter_transcripts: true` it is ignored with a warning. |
+| `drusilla.unstranded_both_strands` | `true` | `--unstranded-both-strands`: also scan the reverse complement (`<tid>__rc`) of transcripts with strand `.` and keep the orientation with the longer ORF. Has no effect with `filter_transcripts: true` and `drop_unstranded: true` (the run warns), because no such transcript reaches Drusilla. |
 | `drusilla.flank_bp` | `500` | Genomic context in bp on both sides of every transcript, with ORF completion into it (`--flank-bp N --flank-3p-bp M --flank-keep`). ORFs truncated at a transcript end carry the attribute `completion "5p\|3p\|5p3p"`. `null` or `0` = off. |
 | `drusilla.flank_3p_bp` | `flank_bp` (`500`) | Context on the 3' side alone (`--flank-3p-bp`); enough on its own to turn the completion on. |
 | `drusilla.flank_min_tx_frac` | Drusilla default (`0.5`) | `--flank-min-tx-frac`: minimal fraction of the CDS of an ORF inside the transcript; ORFs below it are dropped. Only passed with `flank_bp` or `flank_3p_bp`. |

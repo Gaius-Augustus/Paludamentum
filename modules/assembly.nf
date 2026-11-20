@@ -72,8 +72,8 @@ process STRINGTIE_ASSEMBLE_ISO {
 
 // The one StringTie assembly as GTF and as GFF3 (gtf_to_alignment_gff3.pl,
 // for TD_REVISED_TO_GENOME). A single input is passed through as it is:
-// `stringtie --merge` drops the cov and TPM attributes that FILTER_STRINGTIE
-// reads (it stops without them), drops transcripts below TPM 1 (its -T
+// `stringtie --merge` drops the cov and TPM attributes that the optional
+// FILTER_STRINGTIE (drusilla.filter_transcripts) reads (it stops without them), drops transcripts below TPM 1 (its -T
 // default) and renames the transcripts (MSTRG). Several inputs are merged
 // (stringtie --merge, merge_annotations.py when that fails).
 process STRINGTIE_MERGE {
@@ -148,7 +148,7 @@ process STRINGTIE_ASSEMBLE_MIX {
 // both come as alignments, so that `stringtie --mix` cannot assemble them
 // together: one of them, or both, came as an assembly (rnaseq_stringtie,
 // isoseq_stringtie). `stringtie --merge` is not used: it drops the cov and TPM
-// attributes that FILTER_STRINGTIE reads.
+// attributes that the optional FILTER_STRINGTIE (drusilla.filter_transcripts) reads.
 process CONCAT_ASSEMBLIES {
   label 'container'
   publishDir "${params.outdir}/intermediate", mode: 'copy', overwrite: true
