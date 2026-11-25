@@ -52,6 +52,7 @@ paludamentum --genefinder vipsania --nf_config slurm_generic --genome genome.fa 
 | `vipsania.result` | none | Existing Vipsania prediction (`--result`): the GFF3 or GTF of `vipsania annotate`, or the `intermediate/vipsania_ab_initio.gff3` of an earlier run (not `paludamentum.gff3`, which is the sanity-filtered final annotation). It is used instead of running Vipsania, in every mode. `vipsania.model` is then optional; `Vertebrata` or `Insecta` selects the [Drusilla flow](drusilla_flow.md). |
 | `vipsania.finetune` | `false` | Finetune the model on the target genome before annotating. |
 | `vipsania.finetune_epochs`, `finetune_B`, `finetune_lr` | Vipsania defaults | Forwarded to `vipsania annotate`. |
+| `vipsania.train_config`, `train_epochs`, `train_steps`, `train_min_contig` | `configs/base_10M.json`, `300`, `800`, `20000` | Training from scratch on the genome, with `translation_table` other than 1 only; see [translation_table.md](translation_table.md#vipsania). |
 | `vipsania.batch_size` | automatic | `-B`. Automatic sizing needs `nvidia-smi`; set it on CPU-only nodes. |
 | `vipsania.context` | Vipsania default | `-T`, genome context length. |
 | `vipsania.min_split_size` | `20000000` | Minimal size in bp of a genome chunk. |

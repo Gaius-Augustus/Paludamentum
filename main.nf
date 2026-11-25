@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { PROTEIN_FROM_GFF } from './modules/genefinder.nf'
 include { MERGE_BAMS as MERGE_BAMS_ALL } from './modules/rnaseq.nf'
-include { inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; gtfFiles; varusInputs; hcClade; classifierUnknownClade; fragmentedOpts; rescueOpts; truthy } from './lib_nf/functions.nf'
+include { translationTable; inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; gtfFiles; varusInputs; hcClade; classifierUnknownClade; fragmentedOpts; rescueOpts; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { methodsText } from './lib_nf/methods.nf'
 
@@ -105,8 +105,21 @@ workflow {
     // abinitio with both gene finders given runs it without any evidence (the
     // ab initio combination, classifier_abinitio); with one gene finder it
     // publishes that prediction as before.
+    // Genetic code of the genome. With another table than 1, Vipsania is
+    // trained from scratch on the genome (no vipsania.model is needed) and
+    // Tiberius, which has table-1 models only, does not run.
+    def TABLE = translationTable(params)
+    if( TABLE != 1 ) {
+      log.info "Translation table: ${TABLE} (TD2 -G, Drusilla frame recoding, miniprot -T, Vipsania trained on the genome)"
+      if( params.tiberius?.model_cfg )
+        error "params.translation_table ${TABLE}: Tiberius has no model for this genetic code. Leave tiberius.model_cfg out: " +
+              "Vipsania, trained from scratch on the genome, is the ab initio gene finder."
+      if( params.vipsania?.model && !params.vipsania?.result )
+        log.warn "params.translation_table ${TABLE}: vipsania.model '${params.vipsania.model}' is not run. Vipsania is trained from " +
+                 "scratch on the genome; the model name only selects the clade settings of conf/hc_genes.yaml."
+    }
     def tibGiven = (params.tiberius?.model_cfg || params.tiberius?.result) as boolean
-    def vipGiven = (params.vipsania?.model || params.vipsania?.result) as boolean
+    def vipGiven = (params.vipsania?.model || params.vipsania?.result || TABLE != 1) as boolean
     def abBoth = MODE == 'abinitio' && tibGiven && vipGiven
     def combinedMode = transcriptMode || MODE == 'proteins' || abBoth
     log.info "Running mode: ${MODE}"
@@ -122,7 +135,7 @@ workflow {
     // alone ends below Vipsania alone (no agreement signal, no ORF callers).
     def runTiberius = combinedMode && tibGiven
     if( combinedMode ) {
-      if( !params.vipsania?.model && !params.vipsania?.result )
+      if( !vipGiven )
         error "params.vipsania.model is required (Vipsania runs in every evidence mode and in mode proteins)."
       if( !runTiberius && MODE == 'proteins' )
         error "params.mode 'proteins' needs a Tiberius model (tiberius.model_cfg or tiberius.result): with Vipsania " +
@@ -248,7 +261,8 @@ workflow {
         model: gfModel, clade: clade.name,
         tiberiusResult: params.tiberius?.result ? file(params.tiberius.result.toString()).name : null,
         vipsaniaResult: params.vipsania?.result ? file(params.vipsania.result.toString()).name : null,
-        finetune: truthy(params.vipsania?.finetune),
+        finetune: truthy(params.vipsania?.finetune) && TABLE == 1,
+        translationTable: TABLE,
         proteinFiles: proteinsList.size(), odb12Partitions: odb12List,
         proteinTopSpecies: proteinTopSpecies as int,
         scoringMatrix: params.scoring_matrix ? file(params.scoring_matrix.toString()).name : null,

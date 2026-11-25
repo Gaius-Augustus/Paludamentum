@@ -137,6 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Force the pipeline mode instead of inferring it from the inputs (see the modes above); "
                              "a forced mode whose inputs are missing stops the run.")
     inputs.add_argument("--scoring_matrix", help="Scoring matrix CSV for miniprot-boundary-scorer.")
+    inputs.add_argument("--translation_table", type=int,
+                        help="NCBI translation table of the nuclear genome (default 1; 6, 10, 15, 29, 30). "
+                             "Another table than 1: Vipsania is trained from scratch on the genome (no --model), "
+                             "Tiberius does not run, and TD2, Drusilla, miniprot and the protein files read the table.")
 
     finder = parser.add_argument_group("Gene finder (both)")
     finder.add_argument("--result", help="Existing Tiberius or Vipsania prediction (GFF3 or GTF) to use instead of running the gene "

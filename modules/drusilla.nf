@@ -1,6 +1,6 @@
 nextflow.enable.dsl=2
 
-include { drusillaSetting; truthy } from '../lib_nf/functions.nf'
+include { drusillaSetting; truthy; translationTable } from '../lib_nf/functions.nf'
 
 // Processes of the Drusilla flow: the optional StringTie transcript filter
 // (FILTER_STRINGTIE, only with drusilla.filter_transcripts: true; it reads the
@@ -128,6 +128,12 @@ process DRUSILLA_ANNOTATE {
       if( params.drusilla.flank_min_tx_frac != null ) extra += " --flank-min-tx-frac ${params.drusilla.flank_min_tx_frac}"
   }
   if( params.drusilla.orfs_per_tx != null )           extra += " --orfs-per-tx ${params.drusilla.orfs_per_tx}"
+  // Another genetic code than the standard one: Drusilla scans every
+  // transcript once per reading frame (frame recoding; Drusilla branch
+  // translation-table, not in the image drusilla:0.3.0), three times the run
+  // time and memory of a table-1 run.
+  def table = translationTable(params)
+  if( table != 1 )                                    extra += " --translation-table ${table}"
   // shards > 1: the transcripts are split by gene into this many parts, each
   // annotated by its own process. On CPUs one process uses only 1-2 cores.
   // gffread indexes the genome once before they start: each shard's gffread

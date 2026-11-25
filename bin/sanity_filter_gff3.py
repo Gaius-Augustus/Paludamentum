@@ -38,8 +38,8 @@ from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gff3_lib import (STOP_CODONS, UTR_TYPES, Annotation, GFF3Error, Transcript, contained,  # noqa: E402
-                      phase_of, read_fasta, read_gff3, spliced_cds, subseq, translate, write_gff3)
+from gff3_lib import (UTR_TYPES, Annotation, GFF3Error, Transcript, codon_table, contained,  # noqa: E402
+                      phase_of, read_fasta, read_gff3, spliced_cds, stop_codons, subseq, translate, write_gff3)
 from normalize_gff3 import normalize  # noqa: E402
 
 REMOVE_REASONS = ("no_cds", "cds_length_mod3", "cds_structure", "cds_outside_exon", "internal_stop")
@@ -64,7 +64,7 @@ def structure_problem(tx: Transcript) -> Optional[str]:
     return None
 
 
-def stop_extension(tx: Transcript, genome: Dict[str, str]) -> Optional[Tuple[int, int]]:
+def stop_extension(tx: Transcript, genome: Dict[str, str], table: int = 1) -> Optional[Tuple[int, int]]:
     """
     Genomic interval of the stop codon that follows a CDS without one, or None.
     When another exon follows the one that holds the CDS end, all three bases
@@ -95,7 +95,7 @@ def stop_extension(tx: Transcript, genome: Dict[str, str]) -> Optional[Tuple[int
         split = followed and any(e.start > start for e in holder)
     if split:
         return None
-    return (start, end) if subseq(genome, tx.feature.seqid, start, end, strand) in STOP_CODONS else None
+    return (start, end) if subseq(genome, tx.feature.seqid, start, end, strand) in stop_codons(table) else None
 
 
 def extend_stop(tx: Transcript, interval: Tuple[int, int]) -> None:
@@ -128,7 +128,7 @@ def extend_stop(tx: Transcript, interval: Tuple[int, int]) -> None:
     tx.children = kept
 
 
-def check(tx: Transcript, genome: Dict[str, str], keep: bool) -> Tuple[Optional[str], List[str]]:
+def check(tx: Transcript, genome: Dict[str, str], keep: bool, table: int = 1) -> Tuple[Optional[str], List[str]]:
     """(removal reason or None, notes) of one transcript; extends the stop codon unless keep."""
     reason = structure_problem(tx)
     if reason:
@@ -136,12 +136,12 @@ def check(tx: Transcript, genome: Dict[str, str], keep: bool) -> Tuple[Optional[
     if tx.feature.seqid not in genome:
         raise GFF3Error(f"sequence {tx.feature.seqid} of transcript {tx.id} is not in the genome")
     seq = spliced_cds(tx, genome)
-    protein = translate(seq)
+    protein = translate(seq, table)
     if "*" in protein[:-1]:
         return "internal_stop", []
     notes = []
     if not protein.endswith("*"):
-        interval = stop_extension(tx, genome)
+        interval = stop_extension(tx, genome, table)
         if interval:
             notes.append("extended_stop")
             if not keep:
@@ -153,13 +153,14 @@ def check(tx: Transcript, genome: Dict[str, str], keep: bool) -> Tuple[Optional[
     return None, notes
 
 
-def sanity_filter(ann: Annotation, genome: Dict[str, str], keep: bool = False) -> List[Tuple[str, str, str, str]]:
+def sanity_filter(ann: Annotation, genome: Dict[str, str], keep: bool = False,
+                  table: int = 1) -> List[Tuple[str, str, str, str]]:
     """Filter in place; returns the report rows (gene_id, transcript_id, action, reason)."""
     rows = []
     for gene in ann.genes:
         kept = []
         for tx in gene.transcripts:
-            reason, notes = check(tx, genome, keep)
+            reason, notes = check(tx, genome, keep, table)
             if reason:
                 rows.append((gene.id, tx.id, "flagged" if keep else "removed", reason))
                 if keep:
@@ -196,13 +197,17 @@ def main(argv=None) -> int:
     parser.add_argument("--out", required=True, help="filtered and normalised GFF3")
     parser.add_argument("--report", required=True, help="TSV of the removed and noted transcripts")
     parser.add_argument("--keep", action="store_true", help="report only; remove and extend nothing")
+    parser.add_argument("--translation-table", type=int, default=1,
+                        help="NCBI translation table of the genome (default 1): its stop codons are the internal "
+                             "stops and the stop codon a CDS is extended by")
     args = parser.parse_args(argv)
     try:
+        codon_table(args.translation_table)   # an unsupported table stops here
         ann = read_gff3(args.gff3)
         n_genes = len(ann.genes)
         n_tx = sum(len(g.transcripts) for g in ann.genes)
         genome = read_fasta(args.genome, {g.feature.seqid for g in ann.genes})
-        rows = sanity_filter(ann, genome, args.keep)
+        rows = sanity_filter(ann, genome, args.keep, args.translation_table)
         write_report(args.report, rows, n_genes, n_tx, ann, args.keep)
         normalize(ann)
     except GFF3Error as exc:

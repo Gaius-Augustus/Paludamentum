@@ -98,8 +98,10 @@ TOP_LEVEL_CLI_KEYS = (
     "threads", "outdir", "genome", "proteins", "odb12Partitions",
     "rnaseq_single", "rnaseq_paired", "rnaseq_bam", "rnaseq_varus",
     "rnaseq_sra_single", "rnaseq_sra_paired", "isoseq", "isoseq_bam", "isoseq_sra", "isoseq_varus", "mixed_varus",
-    "stringtie", "rnaseq_stringtie", "isoseq_stringtie", "chains", "mode", "scoring_matrix",
+    "stringtie", "rnaseq_stringtie", "isoseq_stringtie", "chains", "mode", "scoring_matrix", "translation_table",
 )
+# NCBI translation tables every step handles (lib_nf/functions.nf translationTables).
+TRANSLATION_TABLES = (1, 6, 10, 15, 29, 30)
 # Post-processing keys of the command line are nested: see BLOCK_CLI_KEYS.
 GENEFINDER_CLI_KEYS: Dict[str, Tuple[str, ...]] = {
     "tiberius": ("model_cfg", "model_dir", "result", "min_split_size", "max_files", "max_parallel", "batch_size",
@@ -449,6 +451,10 @@ def infer_genefinder(args, loaded: Dict) -> str:
         return enabled[0]
     if getattr(args, "model", None) and not getattr(args, "model_cfg", None):
         return "vipsania"
+    # another genetic code than the standard one: Vipsania, trained on the genome
+    table = getattr(args, "translation_table", None) or loaded.get("translation_table")
+    if table is not None and str(table).strip() != "1" and not getattr(args, "model_cfg", None):
+        return "vipsania"
     return "tiberius"
 
 
@@ -561,11 +567,26 @@ def varus_run(params: Dict) -> bool:
 VARUS_SPECIES = re.compile(r"[A-Za-z][A-Za-z0-9._-]*( [A-Za-z0-9._-]+)+")
 
 
+def translation_table(params: Dict) -> int:
+    """params.translation_table (default 1), or SystemExit for a table the pipeline does not handle."""
+    raw = params.get("translation_table")
+    try:
+        table = 1 if raw is None else int(str(raw).strip())
+    except ValueError:
+        table = None
+    if table not in TRANSLATION_TABLES:
+        raise SystemExit(f"translation_table: '{raw}' is not supported. Supported NCBI translation tables: "
+                         f"{', '.join(str(t) for t in TRANSLATION_TABLES)}.")
+    return table
+
+
 def gene_finder_models(params: Dict) -> Tuple[bool, bool]:
-    """(Tiberius model or result given, Vipsania model or result given)."""
+    """(Tiberius model or result given, Vipsania model or result given). With another translation table
+    than 1, Vipsania needs no model: it is trained from scratch on the genome."""
     tib = params.get("tiberius") if isinstance(params.get("tiberius"), dict) else {}
     vip = params.get("vipsania") if isinstance(params.get("vipsania"), dict) else {}
-    return bool(tib.get("model_cfg") or tib.get("result")), bool(vip.get("model") or vip.get("result"))
+    return (bool(tib.get("model_cfg") or tib.get("result")),
+            bool(vip.get("model") or vip.get("result") or translation_table(params) != 1))
 
 
 def infer_mode(params: Dict) -> str:
@@ -596,6 +617,11 @@ def check_mode(params: Dict) -> str:
     short, iso = has_any(params, SHORT_READ_KEYS) or varus_run(params), has_any(params, ISOSEQ_KEYS)
     tib, vip = gene_finder_models(params)
     problems: List[str] = []
+    table = translation_table(params)
+    if table != 1 and (params.get("tiberius") or {}).get("model_cfg"):
+        problems.append(f"translation_table {table}: Tiberius has no model for this genetic code. Leave "
+                        "tiberius.model_cfg (--model_cfg) out: Vipsania, trained from scratch on the genome, is the "
+                        "ab initio gene finder.")
     if varus_run(params):
         species = str((params.get("varus") or {}).get("species") or "").strip()
         if not species:
@@ -683,6 +709,8 @@ def complete_models(params: Dict, root: str | Path | None = None) -> List[str]:
     (``result``) of the missing gene finder. Returns the messages for the log.
     """
     if params.get("auto_model") is False or infer_mode(params) == "abinitio":
+        return []
+    if translation_table(params) != 1:   # no Tiberius model, and Vipsania is trained on the genome
         return []
     tib, vip = params["tiberius"], params["vipsania"]
     tib_given = bool(tib.get("model_cfg") or tib.get("result"))
@@ -797,7 +825,7 @@ def merge_run_params(args, genefinder: str | None = None, root: str | Path | Non
         if genefinder == "tiberius" and not cfg.get("model_cfg"):
             raise SystemExit("Tiberius needs a model configuration: --model_cfg, or tiberius.model_cfg in the params file, "
                              f"or an existing prediction: --result.\n{MODE_HELP}")
-        elif genefinder == "vipsania" and not cfg.get("model"):
+        elif genefinder == "vipsania" and not cfg.get("model") and translation_table(params) == 1:
             raise SystemExit("Vipsania needs a model: --model, or vipsania.model in the params file, "
                              f"or an existing prediction: --result.\n{MODE_HELP}")
 

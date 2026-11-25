@@ -400,4 +400,4 @@ TSEBRA (`bin/merge_annotations.py` is the merge), AGAT (the normaliser
 replaces it), the BUSCO rescue `best_by_compleasm` (deferred: only the
 Drusilla flow drops *ab initio* genes; to be decided with the completeness
 numbers of the Drusilla and TransDecoder flows), repeat masking (a step before
-the prediction), translation tables other than 1.
+the prediction).

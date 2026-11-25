@@ -2,6 +2,8 @@
 // extraction) and the Tiberius run. Vipsania processes are in vipsania.nf.
 // `prefix` is the name of the gene finder; it names the published files.
 
+include { proteinsCommand } from '../lib_nf/functions.nf'
+
 process RUN_TIBERIUS {
     // Runs in the Tiberius image (label 'tiberius'), not the evidence image
     label 'gpu', 'tiberius', 'bigmem'
@@ -200,9 +202,7 @@ process PROTEIN_FROM_GFF {
     # -S writes internal stops as *: DIAMOND rejects the . that gffread writes by default.
     # Wrong CDS phases then pass DIAMOND without an error, so many stops are reported.
     cap_isoforms_per_gene.py --max 10 ${ab_initio} > ab_initio.capped.gff3
-    ${params.tools.gffread} ab_initio.capped.gff3 \\
-        -g ${genome} \\
-        -y ${prefix}_proteins.fa -S
+    ${proteinsCommand(params, 'ab_initio.capped.gff3', genome, "${prefix}_proteins.fa")}
     check_internal_stops.py ${prefix}_proteins.fa ${prefix}
     """
 

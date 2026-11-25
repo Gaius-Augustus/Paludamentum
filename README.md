@@ -568,6 +568,7 @@ Running without containers, and other setups for experts, are described in
 | --- | --- |
 | [docs/parameters.md](docs/parameters.md) | all parameters: inputs, gene finder blocks, Drusilla block, combine_genesets, mode |
 | [docs/vipsania.md](docs/vipsania.md) | Vipsania as gene finder: models, finetuning, offline nodes |
+| [docs/translation_table.md](docs/translation_table.md) | genomes with another genetic code than the standard one (`translation_table`), for example ciliates |
 | [docs/combined_flow.md](docs/combined_flow.md) | the evidence and integration steps in technical detail: tools, options, `combine_genesets.py`, selection models, clade table |
 | [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla as one of the two ORF callers: ORFs on all StringTie transcripts, optional transcript filter, parameters |
 | [docs/postprocessing.md](docs/postprocessing.md) | post-processing and quality control: sanity filter, UTRs, GFF3 contract, completeness, ncRNA, GO terms, report |

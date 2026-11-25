@@ -1,5 +1,7 @@
 nextflow.enable.dsl=2
 
+include { translationTable } from '../lib_nf/functions.nf'
+
 process MINIPROT_ALIGN {
   label 'container', 'bigmem'
 
@@ -15,9 +17,11 @@ process MINIPROT_ALIGN {
   // miniprot_boundary_scorer, its only reader, and is never written to disk;
   // pipefail (conf/base.config) fails the task if miniprot fails
   script:
+  def table = translationTable(params)
+  def gcode = table == 1 ? '' : " -T ${table}"
   """
   mkdir -p miniprot
-  ${params.tools.miniprot} -t ${task.cpus} --aln ${genome} ${proteins} \
+  ${params.tools.miniprot} -t ${task.cpus}${gcode} --aln ${genome} ${proteins} \
     | ${params.tools.miniprot_boundary_scorer} \
         -s ${score_matrix} \
         -o miniprot/miniprot_parsed.gff

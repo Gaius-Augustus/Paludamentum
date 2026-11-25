@@ -4,6 +4,9 @@ nextflow.enable.dsl=2
 // transcript-coordinate ORFs that the TD2 partial-ORF rescue (SHORTEN /
 // CDS_CLASSIFY_AND_REVISE) refines, then TD_REVISED_TO_GENOME maps the
 // result to the genome.
+
+include { translationTable } from '../lib_nf/functions.nf'
+
 process TD_ALL {
   label 'container'
   input:
@@ -16,6 +19,10 @@ process TD_ALL {
     path "transdecoder/*.transdecoder_dir",                   emit: longdir
 
   script:
+  // -G: the genetic code of the ORF search (TD2.LongOrfs). TD2.Predict takes
+  // the option and PSAURON scores with the standard code (TD2 1.1.0).
+  def table = translationTable(params)
+  def gcode = table == 1 ? '' : " -G ${table}"
   """
   mkdir -p transdecoder
 
@@ -25,8 +32,8 @@ process TD_ALL {
   # 2) + 3) TD2 writes the final files to the working directory; renamed to
   # the TransDecoder names for the downstream steps.
   cd transdecoder
-  ${params.tools.td2_longorfs} -t transcripts.fasta -O transcripts.fasta.transdecoder_dir -@ ${task.cpus}
-  ${params.tools.td2_predict}  -t transcripts.fasta -O transcripts.fasta.transdecoder_dir ${params.td2_predict_args ?: ''}
+  ${params.tools.td2_longorfs} -t transcripts.fasta -O transcripts.fasta.transdecoder_dir -@ ${task.cpus}${gcode}
+  ${params.tools.td2_predict}  -t transcripts.fasta -O transcripts.fasta.transdecoder_dir${gcode} ${params.td2_predict_args ?: ''}
   for ext in pep cds gff3 bed; do mv transcripts.fasta.TD2.\$ext transcripts.fasta.transdecoder.\$ext; done
 
   # TD2 writes minus-strand ORF ranges as <start>-<end> with start > end;
