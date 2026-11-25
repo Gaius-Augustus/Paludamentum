@@ -90,7 +90,7 @@ transcripts), exact match of the CDS structure:
 
 | ORF caller | ORFs | Exact | Precision | Sensitivity |
 | --- | ---: | ---: | ---: | ---: |
-| Drusilla, frame recoding | 25,358 | 12,845 | 0.507 | 0.476 |
+| Drusilla, `--translation-table 6` | 24,513 | 12,912 | 0.527 | 0.478 |
 | TD2, `-G 6` | 33,542 | 11,711 | 0.349 | 0.434 |
 | Longest ORF from ATG to TGA | 26,443 | 11,721 | 0.443 | 0.434 |
 | Drusilla without `--translation-table` (reference transcripts) | 1,401 | 31 | 0.022 | 0.001 |
