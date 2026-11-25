@@ -30,6 +30,38 @@ def buscoLineage(value) {
     return lineage.contains('_odb') ? lineage : "${lineage}_odb12"
 }
 
+// The parameters of POSTPROCESS, checked by main.nf before the first channel
+// exists: an error raised while the workflow is built ends the run with its
+// channels empty, and the ifEmpty check of the evidence subworkflows ("every
+// library was dropped") then replaces the message.
+def checkPostprocessParams(params) {
+    if( truthy(params.qc.omark) ) {
+        if( !params.qc.omamer_db ) error "qc.omark = true needs the OMAmer database: qc.omamer_db (e.g. LUCA.h5 of https://omabrowser.org/All/)."
+        def db = file(params.qc.omamer_db.toString())
+        if( !db.exists() ) error "qc.omamer_db: no such file: ${db}"
+    }
+    if( params.qc.reference_annotation ) {
+        def reference = file(params.qc.reference_annotation.toString())
+        if( !reference.exists() ) error "qc.reference_annotation: no such file: ${reference}"
+    }
+    if( truthy(params.ncrna.run) && params.ncrna.rfam_dir ) {
+        def rfamDir = file(params.ncrna.rfam_dir.toString())
+        if( !['Rfam.cm', 'Rfam.clanin'].every { f -> rfamDir.resolve(f).exists() } )
+            error "ncrna.rfam_dir: no Rfam.cm and Rfam.clanin in ${rfamDir}; leave ncrna.rfam_dir unset to download Rfam 15.1."
+    }
+    if( truthy(params.fantasia.run) ) {
+        ['hf_cache_dir', 'lookup_dir'].each { key ->
+            if( !params.fantasia[key] ) error "fantasia.run = true needs fantasia.${key} (see docs/postprocessing.md)."
+            if( !file(params.fantasia[key].toString()).isDirectory() ) error "fantasia.${key}: not a directory: ${params.fantasia[key]}"
+        }
+        if( !(params.fantasia.device in ['cuda', 'cpu']) )
+            error "fantasia.device: cuda or cpu, not '${params.fantasia.device}'."
+        def perTask = params.fantasia.proteins_per_task
+        if( perTask != null && !(perTask.toString().isInteger() && (perTask as int) >= 0) )
+            error "fantasia.proteins_per_task: a whole number >= 0, not '${perTask}'."
+    }
+}
+
 // A cache directory of downloaded databases: the given path, else
 // ~/.cache/paludamentum/<name>. Created, so that tasks can stage it.
 def cacheDir(value, String name) {
@@ -131,9 +163,7 @@ workflow POSTPROCESS {
 
     // ---- OMArk and gffcompare
     if( truthy(params.qc.omark) ) {
-        if( !params.qc.omamer_db ) error "qc.omark = true needs the OMAmer database: qc.omamer_db (e.g. LUCA.h5 of https://omabrowser.org/All/)."
         def db = file(params.qc.omamer_db.toString())
-        if( !db.exists() ) error "qc.omamer_db: no such file: ${db}"
         // the NCBI taxonomy as ete3's taxa.sqlite in the cache directory, built
         // once on the submitting host from taxdump.tar.gz (downloaded unless present)
         def taxaDir = cacheDir(params.qc.ete_taxa_path, 'ncbi_taxonomy')
@@ -145,7 +175,6 @@ workflow POSTPROCESS {
     }
     if( params.qc.reference_annotation ) {
         def reference = file(params.qc.reference_annotation.toString())
-        if( !reference.exists() ) error "qc.reference_annotation: no such file: ${reference}"
         def cmp = GFFCOMPARE(final_gtf, reference)
         qc_files = qc_files.mix(cmp.stats)
         versions = versions.mix(cmp.versions)
@@ -157,8 +186,6 @@ workflow POSTPROCESS {
     if( truthy(params.ncrna.run) ) {
         def rfamDir = cacheDir(params.ncrna.rfam_dir, 'rfam')
         def rfamReady = ['Rfam.cm', 'Rfam.clanin'].every { f -> rfamDir.resolve(f).exists() }
-        if( params.ncrna.rfam_dir && !rfamReady )
-            error "ncrna.rfam_dir: no Rfam.cm and Rfam.clanin in ${rfamDir}; leave ncrna.rfam_dir unset to download Rfam 15.1."
         def rfam = rfamReady ? channel.value(rfamDir) : DOWNLOAD_RFAM(rfamDir).done.map { _d -> rfamDir }
         def rrna = BARRNAP(stem, genome)
         def trna = TRNASCAN(stem, genome)
@@ -181,12 +208,6 @@ workflow POSTPROCESS {
     def fantasia_files = channel.empty()
     def go_files = channel.empty()
     if( truthy(params.fantasia.run) ) {
-        ['hf_cache_dir', 'lookup_dir'].each { key ->
-            if( !params.fantasia[key] ) error "fantasia.run = true needs fantasia.${key} (see docs/postprocessing.md)."
-            if( !file(params.fantasia[key].toString()).isDirectory() ) error "fantasia.${key}: not a directory: ${params.fantasia[key]}"
-        }
-        if( !(params.fantasia.device in ['cuda', 'cpu']) )
-            error "fantasia.device: cuda or cpu, not '${params.fantasia.device}'."
         // probes the GPU at the start of the run; without it a missing GPU
         // killed the run only hours in, in FANTASIA_ANNOTATE, and report.html
         // was never written. fantasia.device = cpu needs no GPU.
@@ -196,8 +217,6 @@ workflow POSTPROCESS {
         // proteome no longer runs a day in one job), one task on the GPU
         def perTask = params.fantasia.proteins_per_task
         if( perTask == null ) perTask = params.fantasia.device == 'cpu' ? 2000 : 0
-        if( !(perTask.toString().isInteger() && (perTask as int) >= 0) )
-            error "fantasia.proteins_per_task: a whole number >= 0, not '${perTask}'."
         def chunks = (perTask as int) > 0
             ? proteins.splitFasta(by: perTask as int, file: true).toList()
                       .flatMap { files -> (0..<files.size()).collect { i -> [i + 1, files[i]] } }

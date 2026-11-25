@@ -1,5 +1,7 @@
 nextflow.enable.dsl=2
 
+include { translationTable } from '../lib_nf/functions.nf'
+
 // Completeness of the genome and of the final proteome (docs/postprocessing.md):
 // compleasm and BUSCO with one lineage (params.qc.busco_lineage). Both read
 // the lineage from one cache directory (params.qc.busco_download_path,
@@ -100,9 +102,15 @@ process COMPLEASM_GENOME {
   script:
   def name = lineage.tokenize('_')[0]
   def odb  = lineage.tokenize('_')[1]
+  def table = translationTable(params)
+  // another genetic code: miniprot -T through a wrapper (bin/miniprot_table_wrapper.sh)
+  def wrap = table == 1 ? '' :
+      "miniprot_table_wrapper.sh ${table} \$PWD/miniprot_table \"\$(dirname \"\$(command -v ${params.tools.compleasm})\")\""
+  def miniprot = table == 1 ? '' : ' --miniprot_execute_path \$PWD/miniprot_table/miniprot'
   """
+  ${wrap}
   compleasm_wrapper.py "\$(command -v ${params.tools.compleasm})" run -a ${genome} -o compleasm_genome -t ${task.cpus} \\
-      -l ${name} --odb ${odb} -L ${cache}/lineages
+      -l ${name} --odb ${odb} -L ${cache}/lineages${miniprot}
   # miniprot alignments and hmmsearch output are large; only the summary is kept
   rm -rf compleasm_genome/*/hmmer_output compleasm_genome/*/miniprot_output.gff
   printf 'compleasm\\t%s\\t%s\\n' "\$(${params.tools.compleasm} --version 2>&1 | awk '{print \$NF}')" "${task.container ?: 'none'}" > versions.tsv
@@ -157,7 +165,13 @@ process BUSCO_GENOME {
     path "versions.tsv", emit: versions
 
   script:
+  def table = translationTable(params)
+  // another genetic code: BUSCO's miniprot with -T, through a wrapper at the
+  // head of PATH (bin/miniprot_table_wrapper.sh)
+  def wrap = table == 1 ? '' :
+      "miniprot_table_wrapper.sh ${table} \$PWD/miniprot_table && export PATH=\$PWD/miniprot_table:\$PATH"
   """
+  ${wrap}
   ${params.tools.busco} -i ${genome} -o genome --out_path . -l ${lineage} -m genome -c ${task.cpus} \\
       --download_path ${cache} --offline
   cp genome/short_summary*.txt busco_genome_short_summary.txt

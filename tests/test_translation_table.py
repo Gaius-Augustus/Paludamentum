@@ -240,3 +240,49 @@ def test_no_protein_file_is_written_by_gffread_alone():
         for line in module.read_text().splitlines():
             if "gffread" in line and " -y " in line:
                 pytest.fail(f"{module.name}: {line.strip()}")
+
+
+# ---- compleasm and BUSCO in genome mode: miniprot -T through a wrapper --------
+
+
+def fake_miniprot(directory: Path, with_table: bool) -> Path:
+    directory.mkdir()
+    tool = directory / "miniprot"
+    usage = "    -T INT       NCBI translation table" if with_table else "    -t INT       threads"
+    tool.write_text(f'#!/bin/sh\nif [ $# -eq 0 ]; then echo "{usage}" >&2; exit 1; fi\necho "$@"\n')
+    tool.chmod(0o755)
+    return tool
+
+
+def run_wrapper_script(tmp_path: Path, path: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["bash", str(ROOT / "bin" / "miniprot_table_wrapper.sh"), "6", str(tmp_path / "w"), *args],
+                          env={"PATH": path}, capture_output=True, text=True)
+
+
+def test_miniprot_table_wrapper_adds_the_table(tmp_path: Path) -> None:
+    fake_miniprot(tmp_path / "tools", with_table=True)
+    proc = run_wrapper_script(tmp_path, f"{tmp_path / 'tools'}:/usr/bin:/bin")
+    assert proc.returncode == 0, proc.stderr
+    out = subprocess.run([str(tmp_path / "w" / "miniprot"), "--trans", "g.fa", "p.fa"], capture_output=True, text=True)
+    assert out.stdout.strip() == "-T 6 --trans g.fa p.fa"
+
+
+def test_miniprot_table_wrapper_finds_miniprot_beside_compleasm(tmp_path: Path) -> None:
+    fake_miniprot(tmp_path / "kit", with_table=True)
+    proc = run_wrapper_script(tmp_path, "/usr/bin:/bin", str(tmp_path / "kit"))
+    assert proc.returncode == 0, proc.stderr
+    assert str(tmp_path / "kit" / "miniprot") in (tmp_path / "w" / "miniprot").read_text()
+
+
+def test_miniprot_table_wrapper_refuses_a_miniprot_without_the_option(tmp_path: Path) -> None:
+    fake_miniprot(tmp_path / "tools", with_table=False)
+    proc = run_wrapper_script(tmp_path, f"{tmp_path / 'tools'}:/usr/bin:/bin")
+    assert proc.returncode != 0
+    assert "has no option -T" in proc.stderr
+    assert not (tmp_path / "w" / "miniprot").exists()
+
+
+def test_completeness_of_the_genome_passes_the_table() -> None:
+    text = (ROOT / "modules" / "completeness.nf").read_text()
+    assert text.count("miniprot_table_wrapper.sh ${table}") == 2
+    assert "--miniprot_execute_path" in text

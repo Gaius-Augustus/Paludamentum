@@ -160,7 +160,7 @@ process DRUSILLA_ANNOTATE {
               match(\$9, /gene_id "[^"]+"/); g = substr(\$9, RSTART, RLENGTH)
               if (!(g in shard)) shard[g] = k++ % n
               print > ("shard_" shard[g] ".gtf") }' ${gtf}
-      gffread -g ${genome} -w /dev/null shard_0.gtf
+      ${params.tools.gffread} -g ${genome} -w /dev/null shard_0.gtf
       pids=""
       for f in shard_*.gtf; do
           i=\${f#shard_}; i=\${i%.gtf}

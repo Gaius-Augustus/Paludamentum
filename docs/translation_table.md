@@ -40,10 +40,24 @@ Tiberius and is not.
 | miniprot | `miniprot --aln` | `-T <table>` |
 | Proteins of gene sets and of the final annotation | `gffread -y -S` | `bin/translate_gff.py`, the same records translated with the table |
 | Sanity filter | internal TAA, TAG, TGA remove a transcript | the stop codons of the table do; a CDS without stop codon is extended by a stop codon of the table |
+| compleasm and BUSCO, genome mode | miniprot of the tool | the same miniprot with `-T`, through `bin/miniprot_table_wrapper.sh` |
 
-Not adapted: BUSCO and compleasm in genome mode search the genome with the
-standard code, so their genome completeness is too low for such a genome. The
-completeness of the predicted proteins is not affected. The selection models
+compleasm and BUSCO have no option for the genetic code. In genome mode both
+find their genes with miniprot and take the protein sequences from its
+translation, so the wrapper (given to compleasm with
+`--miniprot_execute_path`, put at the head of `PATH` for BUSCO) is enough. It
+stops the task when the miniprot of the image has no `-T` (before miniprot
+0.13). The completeness of the predicted proteins needs no change.
+
+On *Tetrahymena thermophila* (table 6, GCF_000189635.1) with `alveolata_odb12`
+(99 BUSCOs), complete BUSCOs in genome mode:
+
+| Tool | Table 1 | `translation_table: 6` |
+| --- | ---: | ---: |
+| BUSCO 6.1.0 (miniprot 0.18) | 86.9 % | 99.0 % |
+| compleasm 0.2.9 | 97.0 % | 99.0 % |
+
+Not adapted: the selection models
 of `combine_genesets.py` were trained on genomes of the standard code.
 
 ## Vipsania

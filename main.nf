@@ -16,7 +16,7 @@ include { AB_INITIO } from './subworkflows/ab_initio.nf'
 include { HC_COMBINED } from './subworkflows/hc_combined.nf'
 include { STRINGTIE_ASSEMBLE_MIX; STRINGTIE_ASSEMBLE_ISO as STRINGTIE_ASSEMBLE_CHAINS; ASSEMBLY_HINTS; CONCAT_ASSEMBLIES } from './modules/assembly.nf'
 include { VARUS_INPUT as VARUS_INPUT_MIX } from './modules/varus.nf'
-include { POSTPROCESS; buscoLineage } from './subworkflows/postprocess.nf'
+include { POSTPROCESS; buscoLineage; checkPostprocessParams } from './subworkflows/postprocess.nf'
 
 workflow {
   main:
@@ -109,6 +109,7 @@ workflow {
     // trained from scratch on the genome (no vipsania.model is needed) and
     // Tiberius, which has table-1 models only, does not run.
     def TABLE = translationTable(params)
+    checkPostprocessParams(params)
     if( TABLE != 1 ) {
       log.info "Translation table: ${TABLE} (TD2 -G, Drusilla frame recoding, miniprot -T, Vipsania trained on the genome)"
       if( params.tiberius?.model_cfg )
