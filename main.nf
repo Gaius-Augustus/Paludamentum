@@ -118,6 +118,12 @@ workflow {
       if( params.vipsania?.model && !params.vipsania?.result )
         log.warn "params.translation_table ${TABLE}: vipsania.model '${params.vipsania.model}' is not run. Vipsania is trained from " +
                  "scratch on the genome; the model name only selects the clade settings of conf/hc_genes.yaml."
+    } else if( params.vipsania?.model && params.vipsania.model.toString().toLowerCase().contains('alveolata') ) {
+      // Most ciliates (Alveolata) do not use the standard code; apicomplexans
+      // and dinoflagellates do, so the table is not set from the clade.
+      log.warn "vipsania.model '${params.vipsania.model}' with translation_table 1 (the standard code). Most ciliates use " +
+               "another one (Tetrahymena, Paramecium: 6; Euplotes: 10; see docs/translation_table.md). If this genome " +
+               "is one of them, set translation_table and leave vipsania.model out."
     }
     def tibGiven = (params.tiberius?.model_cfg || params.tiberius?.result) as boolean
     def vipGiven = (params.vipsania?.model || params.vipsania?.result || TABLE != 1) as boolean

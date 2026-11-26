@@ -35,6 +35,7 @@ predictions of the deep learning gene finders
   - [Protein-only runs](#protein-only-runs)
   - [Ab initio runs](#ab-initio-runs)
   - [Species without a Tiberius model](#species-without-a-tiberius-model)
+  - [Genomes with another genetic code](#genomes-with-another-genetic-code)
   - [Combinations that do not run](#combinations-that-do-not-run)
 - [Containers and HPC](#containers-and-hpc)
 - [Documentation](#documentation)
@@ -534,6 +535,30 @@ paludamentum --nf_config local --genome genome.fa --model Nematoda --proteins pr
 
 This flow needs transcript evidence: mode `proteins` does not run without a
 Tiberius model.
+
+The Vipsania models use the standard genetic code. For ciliates and other
+genomes with another code, set `--translation_table` instead of `--model`,
+see [Genomes with another genetic code](#genomes-with-another-genetic-code).
+
+### Genomes with another genetic code
+
+The default is the standard genetic code (NCBI table 1). For a nuclear genome
+with another code, for example most ciliates, set its NCBI translation table
+(supported: 6, 10, 15, 29, 30) and give no gene finder model:
+
+```bash
+paludamentum --nf_config local --genome genome.fa --translation_table 6 --proteins proteins.faa --rnaseq_bam rnaseq.bam
+```
+
+Vipsania is then trained from scratch on the genome (one GPU task) and
+Tiberius does not run. TD2, Drusilla, miniprot, the sanity filter, the
+protein files and the completeness checks use the table. The modes with
+transcript evidence and mode `abinitio` are supported, mode `proteins` is not.
+The pipeline does not derive the table from the clade: a run without
+`translation_table` uses table 1. Until the next Drusilla release is pinned,
+runs with transcript evidence need a Drusilla image built from its
+`translation-table` branch. Details, the tables and their organisms are in
+[docs/translation_table.md](docs/translation_table.md).
 
 ### Combinations that do not run
 
