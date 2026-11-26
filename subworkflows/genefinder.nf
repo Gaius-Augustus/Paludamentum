@@ -9,10 +9,10 @@ nextflow.enable.dsl=2
 // The version line of the gene finder (versions) is that of its first task;
 // all tasks run the same image. A reused result (<tool>.result) has none.
 
-include { truthy; tiberiusModelValue } from '../lib_nf/functions.nf'
+include { truthy; tiberiusModelValue; translationTable } from '../lib_nf/functions.nf'
 include { RUN_TIBERIUS; DOWNLOAD_TIBERIUS_WEIGHTS; SPLIT_GENOME; MERGE_GENEFINDER;
           MERGE_GENEFINDER_EVI } from '../modules/genefinder.nf'
-include { DOWNLOAD_VIPSANIA_MODEL; RUN_VIPSANIA } from '../modules/vipsania.nf'
+include { DOWNLOAD_VIPSANIA_MODEL; RUN_VIPSANIA; TRAIN_VIPSANIA; RUN_VIPSANIA_TRAINED } from '../modules/vipsania.nf'
 
 workflow GENEFINDER {
 
@@ -31,12 +31,19 @@ workflow GENEFINDER {
     if( cfg.result && !file(cfg.result).exists() )
         error "params.${tool}.result is set, but the file does not exist: ${cfg.result}"
     def useResult = cfg.result as boolean
-    def finetune  = tool == 'vipsania' && truthy(cfg.finetune)
+    // Another genetic code than the standard one: Tiberius has no model for
+    // it, and Vipsania is trained from scratch on the genome (TRAIN_VIPSANIA)
+    // instead of running a pretrained model.
+    def table = translationTable(params_map)
+    if( table != 1 && tool == 'tiberius' && !useResult )
+        error "Tiberius has no model for translation table ${table}: leave tiberius.model_cfg out (Vipsania is trained on the genome)."
+    def scratch   = tool == 'vipsania' && table != 1 && !useResult
+    def finetune  = tool == 'vipsania' && truthy(cfg.finetune) && !scratch
 
     // One split of the genome, for the gene finder tasks and for cmscan
     // (ncrna.run); a reused result and Vipsania finetuning read no chunks.
     def genome_chunks = channel.empty()
-    if( (!useResult && !finetune) || truthy(params_map.ncrna?.run) ) {
+    if( (!useResult && !finetune && !scratch) || truthy(params_map.ncrna?.run) ) {
         genome_chunks = SPLIT_GENOME(
             CH_GENOME,
             cfg.min_split_size ?: 20000000,
@@ -46,7 +53,7 @@ workflow GENEFINDER {
 
     // Vipsania model files as a value channel: a local directory, or a download.
     def models = channel.empty()
-    if( tool == 'vipsania' && !useResult ) {
+    if( tool == 'vipsania' && !useResult && !scratch ) {
         if( !cfg.model ) error "params.vipsania.model is required (clade name or model id)."
         if( cfg.model_dir ) {
             if( !file(cfg.model_dir).isDirectory() ) error "params.vipsania.model_dir is not a directory: ${cfg.model_dir}"
@@ -59,6 +66,13 @@ workflow GENEFINDER {
     if( useResult ) {
         // reuse an existing prediction instead of running the gene finder
         predictions = channel.fromPath(cfg.result, checkIfExists: true).toList()
+
+    } else if( scratch ) {
+        // One training and one annotation of the whole genome (value inputs).
+        def trained = TRAIN_VIPSANIA(CH_GENOME, table)
+        def run = RUN_VIPSANIA_TRAINED(CH_GENOME, trained.ckpt, trained.model_id, table)
+        predictions = run.gtf.toList()
+        versions_ch = run.versions
 
     } else if( finetune ) {
         // Vipsania finetunes on the FASTA it annotates, so the genome is not split.

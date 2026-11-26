@@ -100,6 +100,8 @@ def methodsGeneFinder(Map ctx, Map run, String version) {
         }
         if( run.vipsaniaResult )
             s << "An existing Vipsania ${cite(ctx, ['vipsania'])} prediction (`${run.vipsaniaResult}`) was reused."
+        else if( run.translationTable && run.translationTable != 1 )
+            s << "*Ab initio* predictions were made with Vipsania ${cite(ctx, ['vipsania'])}, with a model trained from scratch on the target genome for translation table ${run.translationTable} (`vipsania train --translation_table ${run.translationTable}`); the genome was then annotated as a whole."
         else {
             s << "A second set of *ab initio* predictions was made with Vipsania ${cite(ctx, ['vipsania'])}" +
                  (vipModel ? " using the pretrained model ${vipModel}" : '') + '.'
@@ -125,6 +127,8 @@ def methodsGeneFinder(Map ctx, Map run, String version) {
         def clades = model && !run.model.toString().startsWith('mammalia') ? " ${cite(ctx, ['tiberius_clades'])}" : ''
         s << "Genes were predicted *ab initio* with Tiberius ${cite(ctx, ['tiberius'])}" +
              (model ? " using the model ${model}${clades}${cladeTxt}" : '') + '.'
+    } else if( run.translationTable && run.translationTable != 1 ) {
+        s << "Genes were predicted *ab initio* with Vipsania ${cite(ctx, ['vipsania'])}, with a model trained from scratch on the target genome for translation table ${run.translationTable} (`vipsania train --translation_table ${run.translationTable}`); the genome was then annotated as a whole."
     } else {
         s << "Genes were predicted *ab initio* with Vipsania ${cite(ctx, ['vipsania'])}" +
              (model ? " using the pretrained model ${model}${cladeTxt}" : '') + '.'
@@ -163,7 +167,8 @@ def methodsProteins(Map ctx, Map run) {
              "1e-5, and the ${top} species with the most best hits (identity at least 30 %, query coverage at least " +
              '50 %) were kept.'
     def matrix = run.scoringMatrix ? " with the scoring matrix `${run.scoringMatrix}`" : ''
-    s << "The proteins were aligned to the genome with miniprot ${cite(ctx, ['miniprot'])}, and the alignments " +
+    def gcode = run.translationTable && run.translationTable != 1 ? " (`-T ${run.translationTable}`)" : ''
+    s << "The proteins were aligned to the genome with miniprot ${cite(ctx, ['miniprot'])}${gcode}, and the alignments " +
          "were scored with miniprot-boundary-scorer${matrix}. miniprothint ${cite(ctx, ['galba'])} filtered the " +
          'scored alignments (`--topNperSeed 10 --minScoreFraction 0.5`) and derived high-confidence hints from them, ' +
          'and intron and CDS-part hints were made from its alignments with `aln2hints.pl`.'
@@ -314,6 +319,12 @@ def methodsHighConfidence(Map ctx, Map run) {
         s << "High-confidence (HC) genes were derived from two ORF callers on the StringTie transcript assembly: " +
              "TD2 ${td2} (which scores candidate ORFs with PSAURON ${psa}" +
              (run.td2PredictArgs ? ", `TD2.Predict ${run.td2PredictArgs}`" : '') + ") and Drusilla ${dr}."
+        if( run.translationTable && run.translationTable != 1 )
+            s << "Both read the genome in translation table ${run.translationTable}: TD2 searched ORFs with " +
+                 "`-G ${run.translationTable}` (PSAURON scores with the standard code), and Drusilla, whose model " +
+                 "was trained on genomes of the standard code, scanned every transcript once per reading frame " +
+                 "with the reassigned stop codons of that frame replaced by a standard codon of the same amino acid " +
+                 "(`--translation-table ${run.translationTable}`), keeping the ORFs in the frame of their copy."
         s << "For TD2, 5' partial and internal ORFs were also trimmed to their first methionine, both versions were " +
              "searched against the protein database with DIAMOND ${dmd} blastp (five targets per query), and " +
              'the comparison of their hits decided whether an ORF was revised to the trimmed, complete start; the ' +

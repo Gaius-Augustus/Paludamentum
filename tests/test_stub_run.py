@@ -691,3 +691,49 @@ def test_existing_drusilla_result_skips_the_filter_and_drusilla(tmp_path: Path) 
     assert_ok(proc)
     names = task_names(tmp_path)
     assert "FILTER_STRINGTIE" not in names and "DRUSILLA_ANNOTATE" not in names, names
+
+
+# ---- another genetic code than the standard one (docs/translation_table.md) ----
+
+
+def test_translation_table_6_trains_vipsania_and_runs_no_tiberius(tmp_path: Path) -> None:
+    """An evidence run with translation_table 6 needs no model: Vipsania is trained on the genome and annotates
+    it, Tiberius does not run, and the ORF callers and the protein evidence run as in every evidence mode."""
+    proc, published = run_pipeline(tmp_path, {**PROTEINS, **SHORT_READS, "translation_table": 6})
+    assert_ok(proc)
+    assert "Translation table: 6" in proc.stdout
+    assert "Gene finders: vipsania" in proc.stdout
+    for p in ("TRAIN_VIPSANIA", "RUN_VIPSANIA_TRAINED", "TD_ALL", "DRUSILLA_ANNOTATE", "MINIPROT_ALIGN",
+              "COMBINE_GENESETS"):
+        assert p in proc.stdout, f"{p} not in: {proc.stdout[-2000:]}"
+    for p in ("RUN_TIBERIUS", "DOWNLOAD_VIPSANIA_MODEL", "SPLIT_GENOME"):
+        assert p not in proc.stdout, f"{p} ran with translation_table 6: {proc.stdout[-2000:]}"
+    assert final_files("paludamentum") <= published, f"missing {final_files('paludamentum') - published}"
+    assert {"intermediate/vipsania/vipsania_train.log", "intermediate/vipsania/train_set.tsv"} <= published
+
+
+def test_translation_table_6_abinitio_is_vipsania_trained_on_the_genome(tmp_path: Path) -> None:
+    proc, published = run_pipeline(tmp_path, {"vipsania": {"run": True}, "translation_table": 6})
+    assert_ok(proc)
+    assert "TRAIN_VIPSANIA" in proc.stdout and "RUN_VIPSANIA_TRAINED" in proc.stdout
+    assert "RUN_TIBERIUS" not in proc.stdout
+    assert final_files("paludamentum") <= published, f"missing {final_files('paludamentum') - published}"
+
+
+def test_translation_table_6_reuses_a_given_vipsania_result(tmp_path: Path) -> None:
+    result = tmp_path / "vipsania.gtf"
+    result.write_text("")
+    proc, _ = run_pipeline(tmp_path, {**PROTEINS, **SHORT_READS, "translation_table": 6,
+                                      "vipsania": {"result": str(result)}})
+    assert_ok(proc)
+    assert "TRAIN_VIPSANIA" not in proc.stdout and "RUN_VIPSANIA" not in proc.stdout
+
+
+@pytest.mark.parametrize("params, message", [
+    ({"translation_table": 6, "tiberius": BOTH_FINDERS["tiberius"]}, "Tiberius has no model for this genetic code"),
+    ({"translation_table": 11}, "params.translation_table: '11' is not supported"),
+])
+def test_translation_table_bad_settings_stop_the_run(params, message, tmp_path: Path) -> None:
+    proc, _ = run_pipeline(tmp_path, {**PROTEINS, **SHORT_READS, **params})
+    assert proc.returncode != 0
+    assert message in proc.stdout + proc.stderr

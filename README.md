@@ -35,6 +35,7 @@ predictions of the deep learning gene finders
   - [Protein-only runs](#protein-only-runs)
   - [Ab initio runs](#ab-initio-runs)
   - [Species without a Tiberius model](#species-without-a-tiberius-model)
+  - [Genomes with another genetic code](#genomes-with-another-genetic-code)
   - [Combinations that do not run](#combinations-that-do-not-run)
 - [Containers and HPC](#containers-and-hpc)
 - [Documentation](#documentation)
@@ -535,6 +536,30 @@ paludamentum --nf_config local --genome genome.fa --model Nematoda --proteins pr
 This flow needs transcript evidence: mode `proteins` does not run without a
 Tiberius model.
 
+The Vipsania models use the standard genetic code. For ciliates and other
+genomes with another code, set `--translation_table` instead of `--model`,
+see [Genomes with another genetic code](#genomes-with-another-genetic-code).
+
+### Genomes with another genetic code
+
+The default is the standard genetic code (NCBI table 1). For a nuclear genome
+with another code, for example most ciliates, set its NCBI translation table
+(supported: 6, 10, 15, 29, 30) and give no gene finder model:
+
+```bash
+paludamentum --nf_config local --genome genome.fa --translation_table 6 --proteins proteins.faa --rnaseq_bam rnaseq.bam
+```
+
+Vipsania is then trained from scratch on the genome (one GPU task) and
+Tiberius does not run. TD2, Drusilla, miniprot, the sanity filter, the
+protein files and the completeness checks use the table. The modes with
+transcript evidence and mode `abinitio` are supported, mode `proteins` is not.
+The pipeline does not derive the table from the clade: a run without
+`translation_table` uses table 1. Until the next Drusilla release is pinned,
+runs with transcript evidence need a Drusilla image built from its
+`translation-table` branch. Details, the tables and their organisms are in
+[docs/translation_table.md](docs/translation_table.md).
+
 ### Combinations that do not run
 
 The launcher (and `main.nf`) stops these before anything runs, with a
@@ -568,6 +593,7 @@ Running without containers, and other setups for experts, are described in
 | --- | --- |
 | [docs/parameters.md](docs/parameters.md) | all parameters: inputs, gene finder blocks, Drusilla block, combine_genesets, mode |
 | [docs/vipsania.md](docs/vipsania.md) | Vipsania as gene finder: models, finetuning, offline nodes |
+| [docs/translation_table.md](docs/translation_table.md) | genomes with another genetic code than the standard one (`translation_table`), for example ciliates |
 | [docs/combined_flow.md](docs/combined_flow.md) | the evidence and integration steps in technical detail: tools, options, `combine_genesets.py`, selection models, clade table |
 | [docs/drusilla_flow.md](docs/drusilla_flow.md) | Drusilla as one of the two ORF callers: ORFs on all StringTie transcripts, optional transcript filter, parameters |
 | [docs/postprocessing.md](docs/postprocessing.md) | post-processing and quality control: sanity filter, UTRs, GFF3 contract, completeness, ncRNA, GO terms, report |

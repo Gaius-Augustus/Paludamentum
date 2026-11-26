@@ -45,6 +45,30 @@ _BASES = "TCAG"
 _AMINO = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG"
 CODON_TABLE = {a + b + c: _AMINO[16 * i + 4 * j + k]
                for i, a in enumerate(_BASES) for j, b in enumerate(_BASES) for k, c in enumerate(_BASES)}
+# NCBI translation tables of eukaryotic nuclear genomes that reassign stop
+# codons of the standard code (table 1): the stop codons that code for an
+# amino acid. These
+# are the tables every step of the pipeline handles (params.translation_table).
+REASSIGNED_STOPS = {
+    1: {},
+    6: {"TAA": "Q", "TAG": "Q"},
+    10: {"TGA": "C"},
+    15: {"TAG": "Q"},
+    29: {"TAA": "Y", "TAG": "Y"},
+    30: {"TAA": "E", "TAG": "E"},
+}
+
+
+def codon_table(table: int = 1) -> Dict[str, str]:
+    """Codon -> amino acid ('*' for a stop codon) of an NCBI translation table."""
+    if table not in REASSIGNED_STOPS:
+        raise GFF3Error(f"translation table {table} is not supported "
+                        f"(supported: {', '.join(str(t) for t in sorted(REASSIGNED_STOPS))})")
+    return {**CODON_TABLE, **REASSIGNED_STOPS[table]}
+
+
+def stop_codons(table: int = 1) -> set:
+    return {codon for codon, amino in codon_table(table).items() if amino == "*"}
 
 
 class GFF3Error(Exception):
@@ -429,8 +453,9 @@ def spliced_cds(tx: Transcript, genome: Dict[str, str]) -> str:
     return seq[phase_of(cds[0]):] if cds else ""
 
 
-def translate(seq: str) -> str:
-    return "".join(CODON_TABLE.get(seq[i:i + 3], "X") for i in range(0, len(seq) - len(seq) % 3, 3))
+def translate(seq: str, table: int = 1) -> str:
+    codons = CODON_TABLE if table == 1 else codon_table(table)
+    return "".join(codons.get(seq[i:i + 3], "X") for i in range(0, len(seq) - len(seq) % 3, 3))
 
 
 # ---------------------------------------------------------------- writing

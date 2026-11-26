@@ -19,6 +19,31 @@ def truthy(v) {
     return v?.toString()?.trim()?.toLowerCase() in ['true', '1', 'yes', 'y', 'on']
 }
 
+// NCBI translation table of the nuclear genome (params.translation_table,
+// default 1). The tables listed are those every step handles: TD2 (-G),
+// Drusilla (--translation-table), miniprot (-T), Vipsania (trained from
+// scratch with --translation_table), the sanity filter and the protein
+// translation (bin/gff3_lib.py REASSIGNED_STOPS holds the same list).
+def translationTables() {
+    return [1, 6, 10, 15, 29, 30]
+}
+
+def translationTable(p) {
+    def raw = p.translation_table == null ? '1' : p.translation_table.toString().trim()
+    if( !raw.isInteger() || !((raw as Integer) in translationTables()) )
+        error "params.translation_table: '${raw}' is not supported. Supported NCBI translation tables: ${translationTables().join(', ')}."
+    return raw as Integer
+}
+
+// Command that writes the proteins of a GFF3/GTF: gffread with the standard
+// code, bin/translate_gff.py (the same records) with any other table.
+def proteinsCommand(p, gff, genome, out) {
+    def table = translationTable(p)
+    return table == 1 ?
+        "${p.tools.gffread} ${gff} -g ${genome} -y ${out} -S" :
+        "translate_gff.py --gff ${gff} --genome ${genome} --translation-table ${table} --out ${out}"
+}
+
 // Name of the selected gene finder for ab initio / proteins mode: params.genefinder,
 // else the block with run=true. Falls back to 'tiberius'.
 def resolveGenefinder(p) {

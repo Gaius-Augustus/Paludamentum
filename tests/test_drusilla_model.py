@@ -68,6 +68,7 @@ CONFIG = """process {
 singularity.enabled = false
 docker.enabled      = false
 params.outdir = '%s'
+params.tools = [gffread: 'gffread']
 params.drusilla = [shards: %d, flank_bp: 0, unstranded_both_strands: false%s]
 """
 
