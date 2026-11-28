@@ -67,7 +67,9 @@ run of the [Quick start](#quick-start).
    database and merged into candidate genes per locus. A trained model
    scores every candidate by its support from the gene finders, the proteins
    and the reads, and the best candidates of each locus (the gene and its
-   isoforms) form the gene set.
+   isoforms) form the gene set. Candidates that share no coding sequence
+   with a selected gene are scored again as a gene of their own, so that
+   neighbouring genes joined by one long model stay separate genes.
 5. **Post-processing and quality control.** Gene models with a broken coding
    sequence are removed, UTRs are added from the transcripts, and the gene
    set is written as GFF3 and GTF with its protein and coding sequences.
@@ -320,7 +322,7 @@ gene set is `paludamentum.gff3`, in every mode.
 | `ncrna/` | rRNA, tRNA, Rfam and lncRNA annotations (`ncrna.run`) |
 | `intermediate/combined.gff3` | output of `combine_genesets.py` before the sanity filter |
 | `intermediate/combined.report.tsv` | per-structure report of combine_genesets (tools, tier, decision, features; last column `p_classifier`, the classifier probability of the structure, in classifier mode) |
-| `intermediate/combined.settings.tsv` | assembly statistics (sequences, length, N50, L50), fragmented flag and the locus and isoform thresholds the combine step used, with the source of the locus threshold, and the settings and the number of loci of the protein rescue |
+| `intermediate/combined.settings.tsv` | assembly statistics (sequences, length, N50, L50), fragmented flag and the locus and isoform thresholds the combine step used, with the source of the locus threshold, and the settings and the number of loci of the protein rescue, and the locus split setting and its number of split-off genes |
 | `intermediate/tiberius_ab_initio.gff3`, `intermediate/vipsania_ab_initio.gff3` | *ab initio* predictions of each gene finder, before the integration; the files to give to `--result` of a later run |
 | `intermediate/drusilla_orfs.gtf` | Drusilla ORFs on the StringTie assembly |
 | `intermediate/td2.gff3` | revised TD2 ORFs mapped to the genome |

@@ -393,7 +393,8 @@ def test_fragmented_assembly_lowers_the_locus_threshold(synth):
     assert s == {"selection": "classifier", "assembly_sequences": "20", "assembly_length": "20000",
                  "assembly_n50": "1000", "assembly_l50": "10", "fragmented_l50": "5", "fragmented": "1",
                  "t_locus": "0.1", "t_locus_source": "fragmented_assembly", "t_iso": "0.3",
-                 "rescue_protein_cov": "", "rescue_protein_introns": "", "rescued_loci": "0"}
+                 "rescue_protein_cov": "", "rescue_protein_introns": "", "rescued_loci": "0",
+                 "split_loci": "cds", "split_genes": "0"}
 
 
 def test_fragmented_threshold_also_for_unknown_clade_and_gz_genome(synth):
@@ -620,6 +621,183 @@ def test_rescue_does_nothing_for_an_open_locus_or_without_the_classifier(synth, 
     rows, _, err = combine(synth, "rules", *rescue_inputs, *RESCUE, "--settings", str(synth / "rules.tsv"))
     assert all(r["reason"] != "primary_protein_rescue" for r in rows.values())
     assert "rescue_protein_cov" not in read_settings(synth / "rules.tsv") and "classifier:" not in err
+
+
+# ---------------------------------------------------------------- --split-loci
+
+def _seg(ix, a, b, tools=("tiberius",)):
+    """structure with one CDS span a..b (two segments)"""
+    return {"_ix": ix, "tools": set(tools), "segs": ((a, a + 10), (b - 10, b)), "rank": 0, "keep": False, "why": ""}
+
+
+def test_split_selects_disjoint_members_as_genes_of_their_own():
+    # 0: long model over 100..900 (fusion), 1: 100..300, 2: 600..900; 0 overlaps both, 1 and 2 are disjoint
+    S = [_seg(0, 100, 900, ["vipsania"]), _seg(1, 100, 300), _seg(2, 600, 900)]
+    p = [0.2, 0.8, 0.6]
+    cg.classifier_select(S, {0: S[:]}, p, 0.25, 0.3, set())
+    assert [(s["keep"], s["why"]) for s in S] == [(False, "isoform_rejected"), (True, "primary"),
+                                                  (True, "isoform_classifier")]
+    cg.classifier_select(S, {0: S[:]}, p, 0.25, 0.3, set(), split=True)
+    assert [(s["keep"], s["why"]) for s in S] == [(False, "isoform_rejected"), (True, "primary"),
+                                                  (True, "primary_split")]
+    assert (S[1]["sub"], S[2]["sub"]) == (0, 1) and (S[1]["rank"], S[2]["rank"]) == (1, 3)
+
+
+def test_split_keeps_a_long_primary_as_one_gene():
+    # the long model is the best one: everything overlaps it, nothing is split off
+    S = [_seg(0, 100, 900, ["vipsania"]), _seg(1, 100, 300), _seg(2, 600, 900)]
+    cg.classifier_select(S, {0: S[:]}, [0.9, 0.8, 0.2], 0.25, 0.3, set(), split=True)
+    assert [(s["keep"], s["why"]) for s in S] == [(True, "primary"), (True, "isoform_classifier"),
+                                                  (False, "isoform_rejected")]
+    assert {s["sub"] for s in S if s["keep"]} == {0}
+
+
+def test_split_disjoint_member_below_the_threshold_is_dropped():
+    S = [_seg(0, 100, 300), _seg(1, 600, 900)]
+    cg.classifier_select(S, {0: S[:]}, [0.8, 0.2], 0.25, 0.1, set(), split=True)
+    # without the split it would be an isoform (P >= t_iso 0.1); as a locus of its own it is below t_locus
+    assert [(s["keep"], s["why"]) for s in S] == [(True, "primary"), (False, "locus_below_min")]
+    cg.classifier_select(S, {0: S[:]}, [0.8, 0.2], 0.25, 0.1, set())
+    assert (S[1]["keep"], S[1]["why"]) == (True, "isoform_classifier")
+
+
+def test_split_member_overlapping_only_an_isoform_stays_with_the_gene():
+    # 0 primary 100..300; 1 isoform 200..700 (overlaps 0); 2 at 600..900 overlaps the isoform, not the primary:
+    # an isoform of the same gene as without the split (P >= t_iso), never a gene of its own
+    S = [_seg(0, 100, 300), _seg(1, 200, 700), _seg(2, 600, 900)]
+    cg.classifier_select(S, {0: S[:]}, [0.9, 0.5, 0.8], 0.25, 0.3, set(), split=True)
+    assert [(s["keep"], s["why"]) for s in S] == [(True, "primary"), (True, "isoform_classifier"),
+                                                  (True, "isoform_classifier")]
+    assert {s["sub"] for s in S} == {0}
+    cg.classifier_select(S, {0: S[:]}, [0.9, 0.5, 0.28], 0.25, 0.3, set(), split=True)
+    assert (S[2]["keep"], S[2]["why"]) == (False, "isoform_rejected")
+    cg.classifier_select(S, {0: S[:]}, [0.9, 0.5, 0.8], 0.25, 0.3, {2}, split=True)
+    assert (S[2]["keep"], S[2]["why"]) == (False, "dropped_lone_single_exon")
+
+
+def test_split_rescue_and_unselectable_members():
+    # first gene below the threshold, rescued; the disjoint second gene is open; an unselectable one is dropped
+    S = [_seg(0, 100, 300), _seg(1, 100, 250), _seg(2, 600, 900), _seg(3, 1000, 1200)]
+    cg.classifier_select(S, {0: S[:]}, [0.2, 0.1, 0.7, 0.9], 0.25, 0.3, {3}, rescuable={1}, split=True)
+    assert (S[2]["why"], S[2]["sub"]) == ("primary", 0)                     # the best open candidate comes first
+    assert (S[1]["keep"], S[1]["why"], S[1]["sub"]) == (True, "primary_protein_rescue", 1)
+    assert (S[0]["keep"], S[0]["why"]) == (False, "isoform_rejected")
+    assert (S[3]["keep"], S[3]["why"]) == (False, "dropped_lone_single_exon")
+    # nothing open and nothing rescuable: the whole cluster is below the threshold
+    cg.classifier_select(S, {0: S[:]}, [0.2, 0.1, 0.1, 0.9], 0.25, 0.3, {3}, split=True)
+    assert [s["why"] for s in S] == ["locus_below_min"] * 3 + ["dropped_lone_single_exon"]
+
+
+@pytest.fixture
+def fusion(tmp_path: Path) -> Path:
+    """A Vipsania model fused over two genes (A and D) puts A, the single-exon C between them and D into one
+    cluster; D is also predicted on its own by Tiberius and Vipsania."""
+    A = [(1001, 1300), (1401, 1600)]
+    C = [(3001, 3600)]
+    D = [(5001, 5300), (5401, 5900)]
+    write_gtf(tmp_path / "tiberius.gtf", "Tiberius", [("tA", A, "+"), ("tC", C, "+"), ("tD", D, "+")])
+    write_gtf(tmp_path / "vipsania.gtf", "Vipsania", [("vA", A, "+"), ("vD", D, "+"), ("vF", A + D, "+")])
+    write_gtf(tmp_path / "drusilla.gtf", "Drusilla", [("dA", A, "+")])
+    write_gtf(tmp_path / "td2.gtf", "TD2", [("xA", A, "+")])
+    return tmp_path
+
+
+def test_split_loci_end_to_end(fusion):
+    base = ("--classifier", str(MODEL), "--t-locus", "0", "--t-iso", "1.01")
+    rows, kept, err = combine(fusion, "nosplit", *base, "--split-loci", "none", "--settings", str(fusion / "nosplit.tsv"))
+    assert len({r["cluster"] for r in rows.values()}) == 1 and kept == {"g1.t1"}
+    assert "split_loci" not in read_settings(fusion / "nosplit.tsv") and "primary_split" not in err
+    rows, kept, err = combine(fusion, "split", *base, "--split-loci", "span", "--settings", str(fusion / "split.tsv"))
+    assert kept == {"g1.t1", "g2.t1", "g3.t1"}
+    # one of the three genes is the cluster's first gene (the most probable), the others are split off
+    assert sorted(rows[k]["reason"] for k in ("tA", "tC", "tD")) == ["primary", "primary_split", "primary_split"]
+    assert rows["vF"]["reason"] == "isoform_rejected"
+    s = read_settings(fusion / "split.tsv")
+    assert (s["split_loci"], s["split_genes"]) == ("span", "2")
+    assert "split_loci=span" in err and "primary_split: 2" in err
+    # genes in genome order: A, C, D
+    genes = [line.split("\t")[3] for line in (fusion / "split.gtf").read_text().splitlines()
+             if line.split("\t")[2] == "gene"]
+    assert genes == ["1001", "3001", "5001"]
+
+
+def test_cds_overlap_needs_shared_coding_bases():
+    a = {"segs": ((100, 200), (500, 600))}
+    nested = {"segs": ((250, 400),)}                 # inside the intron of a: spans overlap, no shared base
+    assert cg.spans_overlap(a, nested) and not cg.cds_overlap(a, nested)
+    assert cg.cds_overlap(a, {"segs": ((150, 160),)}) and cg.cds_overlap(a, {"segs": ((300, 500),)})
+    assert cg.cds_overlap(a, {"segs": ((600, 700),)}) and not cg.cds_overlap(a, {"segs": ((601, 700),)})
+    assert cg.cds_overlap(a, {"segs": ((50, 99), (210, 260), (590, 610))})
+
+
+def test_split_cds_separates_a_gene_nested_in_an_intron():
+    # primary 100..900 with an intron 301..599; 1 lies in the intron; 2 shares the first exon (an isoform)
+    prim = {"_ix": 0, "tools": {"tiberius"}, "segs": ((100, 300), (600, 900)), "rank": 0, "keep": False, "why": ""}
+    nested = {"_ix": 1, "tools": {"tiberius"}, "segs": ((350, 450), (500, 550)), "rank": 0, "keep": False, "why": ""}
+    iso = {"_ix": 2, "tools": {"vipsania"}, "segs": ((150, 300), (650, 900)), "rank": 0, "keep": False, "why": ""}
+    S = [prim, nested, iso]
+    cg.classifier_select(S, {0: S[:]}, [0.9, 0.6, 0.5], 0.25, 0.3, set(), split="span")
+    assert [(s["keep"], s["why"]) for s in S] == [(True, "primary"), (True, "isoform_classifier"),
+                                                  (True, "isoform_classifier")]
+    cg.classifier_select(S, {0: S[:]}, [0.9, 0.6, 0.5], 0.25, 0.3, set(), split="cds")
+    assert [(s["keep"], s["why"]) for s in S] == [(True, "primary"), (True, "primary_split"),
+                                                  (True, "isoform_classifier")]
+    assert (prim["sub"], nested["sub"], iso["sub"]) == (0, 1, 0)
+    # split=True is the span criterion
+    cg.classifier_select(S, {0: S[:]}, [0.9, 0.6, 0.5], 0.25, 0.3, set(), split=True)
+    assert nested["why"] == "isoform_classifier"
+
+
+def test_split_loci_cds_end_to_end(tmp_path):
+    P = [(1001, 1300), (2001, 2300)]                 # gene with a long intron
+    N = [(1501, 1650), (1751, 1900)]                 # gene nested in that intron
+    write_gtf(tmp_path / "tiberius.gtf", "Tiberius", [("tP", P, "+"), ("tN", N, "+")])
+    write_gtf(tmp_path / "vipsania.gtf", "Vipsania", [("vP", P, "+"), ("vN", N, "+")])
+    write_gtf(tmp_path / "drusilla.gtf", "Drusilla", [("dP", P, "+")])
+    write_gtf(tmp_path / "td2.gtf", "TD2", [("xP", P, "+")])
+    base = ("--classifier", str(MODEL), "--t-locus", "0", "--t-iso", "0")
+    _, kept, _ = combine(tmp_path, "span", *base, "--split-loci", "span")
+    assert kept == {"g1.t1", "g1.t2"}                # the nested gene is an isoform: spans overlap
+    rows, kept, err = combine(tmp_path, "cds", *base, "--split-loci", "cds", "--settings", str(tmp_path / "s.tsv"))
+    assert kept == {"g1.t1", "g2.t1"} and "split_loci=cds" in err
+    assert read_settings(tmp_path / "s.tsv")["split_loci"] == "cds"
+    r = combine(tmp_path, "bad", *base, "--split-loci", "exon", check=False)
+    assert r.returncode != 0 and "invalid choice" in r.stderr
+
+
+def test_split_loci_default_is_cds_and_none_switches_it_off(fusion):
+    base = ("--classifier", str(MODEL), "--t-locus", "0", "--t-iso", "1.01")
+    outs = {}
+    for name, opts in (("default", ()), ("bare", ("--split-loci",)), ("cds", ("--split-loci", "cds")),
+                       ("none", ("--split-loci", "none"))):
+        _, kept, err = combine(fusion, name, *base, *opts, "--settings", str(fusion / f"{name}.tsv"))
+        outs[name] = (fusion / f"{name}.gtf").read_text()
+        s = read_settings(fusion / f"{name}.tsv")
+        if name == "none":
+            assert kept == {"g1.t1"} and "split_loci" not in s and "split_loci=" not in err
+        else:
+            assert len(kept) == 3 and s["split_loci"] == "cds" and "split_loci=cds" in err
+    assert outs["default"] == outs["bare"] == outs["cds"] != outs["none"]
+    # the tier rules: no split, and the default does not need the classifier
+    _, _, err = combine(fusion, "rules")
+    assert "split_loci" not in err and "primary_split" not in err
+
+
+def test_split_loci_needs_the_classifier(fusion):
+    r = combine(fusion, "rules", "--split-loci", check=False)
+    assert r.returncode != 0 and "--split-loci needs --classifier" in r.stderr
+
+
+def test_split_loci_none_reproduces_the_default_on_input_without_split_clusters(synth):
+    combine(synth, "a", "--classifier", str(MODEL), "--split-loci", "none")
+    combine(synth, "b", "--classifier", str(MODEL))
+    # no cluster of the synthetic input holds disjoint candidates: same output
+    assert (synth / "a.gtf").read_text() == (synth / "b.gtf").read_text()
+
+
+def test_base_config_default_of_the_locus_split():
+    text = (ROOT / "conf" / "base.config").read_text()
+    assert re.search(r"^\s*split_loci\s*=\s*'cds'\s*$", text, re.M)
 
 
 def test_base_config_defaults_of_the_protein_rescue():

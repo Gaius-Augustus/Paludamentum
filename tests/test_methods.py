@@ -183,6 +183,18 @@ def test_stub_run_combined_rules_and_thresholds(tmp_path: Path) -> None:
     assert_ok(proc)
     methods = check_stub_run(third)
     assert "if its probability reached 0.25" in methods and "kept all the same" not in methods
+    # the locus split is on by default ('cds'); 'span' and null change the text
+    assert "shared no CDS base with a selected gene were selected again" in methods
+    for name, value, text in (("s", "span", "did not overlap with a selected gene"), ("n", None, None)):
+        d = tmp_path / name
+        d.mkdir()
+        proc, _ = run_pipeline(d, {**base, "combine": {"split_loci": value}})
+        assert_ok(proc)
+        methods = check_stub_run(d)
+        if text:
+            assert text in methods
+        else:
+            assert "selected again" not in methods
 
 
 def test_stub_run_rnaseq_without_tiberius(tmp_path: Path) -> None:

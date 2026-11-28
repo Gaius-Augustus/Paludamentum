@@ -16,7 +16,9 @@ nextflow.enable.dsl=2
 // same string carries the protein rescue (--rescue-protein-cov C
 // --rescue-protein-introns F, from params.combine.rescue_protein_*): a locus
 // below the locus threshold is kept if a multi-exon candidate has a
-// full-length protein hit and protein hints for its introns. The
+// full-length protein hit and protein hints for its introns, and the locus
+// split (--split-loci cds|span, from params.combine.split_loci): candidates
+// that share no CDS base with a selected gene become genes of their own. The
 // assembly statistics and the thresholds used are written to
 // combined.settings.tsv. All other combine_genesets.py thresholds use the
 // script defaults.
@@ -71,7 +73,8 @@ process COMBINE_GENESETS {
     // further classifier options as one string: --unknown-clade, --t-locus X, --t-iso Y (may be empty)
     val  clf_opts
     // --fragmented-l50 N --t-locus-fragmented T (fragmented-assembly threshold) and
-    // --rescue-protein-cov C --rescue-protein-introns F (protein rescue), each only where it applies; may be empty
+    // --rescue-protein-cov C --rescue-protein-introns F (protein rescue), each only where it applies, and
+    // --split-loci cds|span|none (locus split; 'none' where it does not apply: the script splits by default)
     val  frag_opts
 
   output:

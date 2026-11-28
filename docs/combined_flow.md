@@ -113,9 +113,11 @@ Steps of the combined HC flow (the default run; the other modes leave out the in
    threshold is still kept if a multi-exon candidate has a full-length
    protein hit and protein hints for its introns (see
    [Protein rescue](#protein-rescue)); further candidates are
-   isoforms if P reaches 0.30. The `reason`
+   isoforms if P reaches 0.30; candidates that share no CDS with the gene
+   are selected again as genes of their own (see
+   [Locus split](#locus-split)). The `reason`
    column of the report is `primary`, `primary_protein_rescue`,
-   `isoform_classifier`,
+   `primary_split`, `isoform_classifier`,
    `isoform_rejected`, `locus_below_min` or `dropped_lone_single_exon`, and
    the last column is `p_classifier`. With `combine.classifier = false` the
    tier rules apply (merging, clustering, tiering with the four tool sets,
@@ -136,7 +138,7 @@ that the inputs of the mode provide. The models are clade-agnostic.
 
 | Run | Parameter | File | Features | Thresholds (locus / isoform) |
 | --- | --- | --- | --- | --- |
-| default run and modes `isoseq`, `mixed` | `combine.classifier` | `conf/combiner_classifier_v1.json` | 47: tools, structure, locus context, RNA-Seq intron and coverage evidence, DIAMOND and miniprot protein evidence | 0.25 / 0.30 (locus 0.30 for a clade outside the clade table; 0.10 on a fragmented assembly, see below); protein rescue of loci below the locus threshold, see below |
+| default run and modes `isoseq`, `mixed` | `combine.classifier` | `conf/combiner_classifier_v1.json` | 47: tools, structure, locus context, RNA-Seq intron and coverage evidence, DIAMOND and miniprot protein evidence | 0.25 / 0.30 (locus 0.30 for a clade outside the clade table; 0.10 on a fragmented assembly, see below); protein rescue of loci below the locus threshold and locus split, see below |
 | mode `proteins` | `combine.classifier_proteins` | `conf/combiner_classifier_protonly_v1.json` | 41: no RNA-Seq features | 0.20 / 0.30 (locus 0.30 for a clade outside the clade table) |
 | evidence mode without a Tiberius model | `combine.classifier_vipsania` | `conf/combiner_classifier_vipsania_v1.json` | as the default, without the Tiberius gene set | 0.225 / 0.30 |
 | mode `abinitio` with both models | `combine.classifier_abinitio` | `conf/combiner_classifier_abinitio_v1.json` | 18: tools, structure and locus context only | 0.30 / 0.25 |
@@ -214,14 +216,46 @@ intron condition the rule cost more precision (gene F1 -0.8), because
 single-exon candidates with a full-length hit that overlap no reference gene
 were let in. An intron share of 0.75 kept less of the BUSCO gain (+0.7).
 
+## Locus split
+
+Loci are clusters of candidates whose CDS spans overlap on the same strand,
+and the classifier keeps one gene per cluster: a primary transcript and,
+as its isoforms, further candidates with P >= t_iso. Because the spans chain,
+one long model (typically a gene finder's fusion of neighbouring genes, or a
+model that spans a gene nested in its intron) joins several genes into one
+cluster. Without the split only one of them was kept, and the others were
+rejected or, worse, kept as "isoforms" of a gene they share no sequence with,
+so that one gene ID held several genes.
+
+With `combine.split_loci`, after a cluster's gene is selected (primary and
+isoforms as above), the candidates that share no CDS base with any kept
+transcript of that gene (`cds`, the default) or whose CDS span overlaps none
+of them (`span`) are selected again in the same way as a gene of their own
+(`reason` = `primary_split`), until no candidate is left. A candidate that
+shares CDS with a kept isoform but not with the primary stays an isoform of
+that gene, as without the split. Candidates of a new gene must reach the locus
+threshold (or qualify for the protein rescue) like any primary.
+
+Scope: the same as the protein rescue. `combine.split_loci = null` switches
+it off; `combine_genesets.py` has it off by default (`--split-loci cds|span`).
+
+Evidence (Nov 2026; replay of the combine step of 23 benchmark species, the
+reported gene sets otherwise unchanged): `cds` +125 genes, BUSCO +0.2, exon F1
++0.4, transcript F1 +0.04 and gene (locus) F1 +0.01 on average (sensitivity
++0.3, precision -0.3); vertebrates up to BUSCO +1.0 (*H. sapiens*). `span`
+gave nearly the same (insects slightly worse). In vertebrate assemblies with
+many merged genes the gain was larger (BUSCO +3.0 to +9.5 on three low-BUSCO
+assemblies).
+
 `intermediate/combined.settings.tsv` (`key`, `value`) records what a run
 used: `selection`, `assembly_sequences`, `assembly_length`, `assembly_n50`,
 `assembly_l50`, `fragmented_l50`, `fragmented` (0/1) and, in classifier mode,
 `t_locus`, `t_locus_source` (`t_locus`, `fragmented_assembly`,
 `model_unknown_clade` or `model`) and `t_iso`, then `rescue_protein_cov` and
 `rescue_protein_introns` (empty when the rescue is off) and `rescued_loci` (the
-number of loci with `primary_protein_rescue`); with the tier rules
-`min_locus` instead.
+number of loci with `primary_protein_rescue`), with the locus split also
+`split_loci` (`cds` / `span`) and `split_genes` (the number of genes with
+`primary_split`); with the tier rules `min_locus` instead.
 
 ## Clade table
 

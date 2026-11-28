@@ -395,6 +395,9 @@ def methodsHighConfidence(Map ctx, Map run) {
                  "; a locus below the threshold was kept all the same if one of its models had at least two CDS exons, " +
                  "a best DIAMOND hit covering at least ${run.clfRescueCov} of the model and of the protein, and protein " +
                  "hints for at least ${run.clfRescueIntrons} of its introns (the most probable such model)" : '') +
+             (run.clfSplitLoci != null ?
+                 "; models of a locus that " + (run.clfSplitLoci == 'cds' ? 'shared no CDS base' : 'did not overlap') +
+                 " with a selected gene were selected again in the same way as a gene of their own" : '') +
              (insect ? '; single-exon Tiberius-only models without an identical miniprot model were never selected ' +
                        '(insect run, `--drop-lone-single-exon tiberius`)' : '') + '. ' :
              'tiered each unique structure from its supporting tool set, adjusted the tier with ' +

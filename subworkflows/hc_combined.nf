@@ -77,7 +77,7 @@ include { DIAMOND_MAKEDB;
 include { BAM2COV } from '../modules/rnacov.nf'
 include { COMBINE_GENESETS } from '../modules/combine.nf'
 include { EMPTY_FILE as NO_CLASSIFIER; EMPTY_FILE as NO_EVIDENCE } from '../modules/util.nf'
-include { hcClade; classifierUnknownClade; fragmentedOpts; rescueOpts; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
+include { hcClade; classifierUnknownClade; fragmentedOpts; rescueOpts; splitOpts; tiberiusModelValue; drusillaSetting; truthy } from '../lib_nf/functions.nf'
 
 workflow HC_COMBINED {
 
@@ -248,7 +248,10 @@ workflow HC_COMBINED {
     // threshold is kept if a multi-exon candidate has a full-length protein hit and protein hints for
     // its introns; with the same classifier only, the one this was measured with
     def rescue_opts = rescueOpts(params_map, clfParam && transcripts && tiberius)
-    def sel_opts = [frag_opts, rescue_opts].findAll().join(' ')
+    // locus split (combine.split_loci): candidates that share no CDS base with a selected gene become
+    // genes of their own instead of its isoforms; same scope as the rescue, where it was measured
+    def split_opts = splitOpts(params_map, clfParam && transcripts && tiberius)
+    def sel_opts = [frag_opts, rescue_opts, split_opts].findAll().join(' ')
 
     def combined = COMBINE_GENESETS(
         tib_gff, vip_gff_ch, dru_gtf, td2_gff3,
