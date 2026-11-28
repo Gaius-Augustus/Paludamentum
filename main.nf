@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 include { CONCAT_HINTS; EMPTY_FILE } from './modules/util.nf'
 include { PROTEIN_FROM_GFF } from './modules/genefinder.nf'
 include { MERGE_BAMS as MERGE_BAMS_ALL } from './modules/rnaseq.nf'
-include { translationTable; inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; gtfFiles; varusInputs; hcClade; classifierUnknownClade; fragmentedOpts; rescueOpts; truthy } from './lib_nf/functions.nf'
+include { translationTable; inferMode; normalizeMode; resolveGenefinder; genefinderEnabled; asList; gtfFiles; varusInputs; hcClade; classifierUnknownClade; fragmentedOpts; rescueOpts; splitValue; truthy } from './lib_nf/functions.nf'
 include { citationsText } from './lib_nf/citations.nf'
 include { methodsText } from './lib_nf/methods.nf'
 
@@ -316,6 +316,8 @@ workflow {
                       params.combine.rescue_protein_cov : null,
         clfRescueIntrons: rescueOpts(params, clfModel != null && transcriptMode && runTiberius) ?
                           (params.combine.rescue_protein_introns != null ? params.combine.rescue_protein_introns : 0.5) : null,
+        // the locus split ('cds' / 'span'); null when it does not apply
+        clfSplitLoci: splitValue(params, clfModel != null && transcriptMode && runTiberius),
     ]
     def version = workflow.manifest.version ?: 'unknown'
     file("${outdir}/citations.md").text = citationsText(run, version)

@@ -207,6 +207,7 @@ vipsania:
 #   t_locus_fragmented: 0.10     # ... gets this locus threshold (null = off; t_locus overrides it)
 #   rescue_protein_cov: 0.9      # evidence modes with Tiberius: keep a locus below the threshold if a multi-exon model has a DIAMOND hit covering this share of model and protein ...
 #   rescue_protein_introns: 0.5  # ... and protein hints for this share of its introns (rescue_protein_cov: null = off)
+#   split_loci: cds              # evidence modes with Tiberius: models sharing no CDS base with a selected gene become genes of their own (span: no span overlap; null = off)
 #   min_locus: 4                # tier rules: keep a locus if its best model reaches this tier (default 4)
 
 # ------------------------------------------------------------

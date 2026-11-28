@@ -49,6 +49,14 @@ Protein rescue (--rescue-protein-cov C --rescue-protein-introns F): a locus whos
 the locus threshold is kept all the same if one of its candidates has at least two CDS exons, a best DIAMOND
 hit that covers >= C of the candidate and of the protein, and protein hints for >= F of its introns; the
 candidate with the highest P among them becomes the primary transcript (reason primary_protein_rescue).
+Locus split (--split-loci, default cds in classifier mode): a cluster chains overlapping CDS spans, so one long
+model (e.g. a gene finder's fusion of neighbouring genes) can join several genes into one cluster, of which only
+one gene used to be kept (the others rejected or kept as "isoforms" sharing no sequence with it). After a
+cluster's gene is selected, its candidates that overlap no kept transcript of that gene are selected again in
+the same way as a gene of their own (reason primary_split), until none is left. 'cds' counts only shared CDS
+bases as overlap, so that a gene in an intron of another, or a neighbour whose span only touches it, is not
+taken as its isoform; 'span' counts overlapping CDS spans; 'none' keeps one gene per cluster (the selection
+before Nov 2026).
 P estimates an exact match to the reference, so conserved genes whose only model is imperfect, mostly from
 one gene finder with partial RNA-Seq support, fell below the threshold and were missing in BUSCO
 (benchmark, Nov 2026: with C 0.9 and F 0.5 BUSCO completeness +1.1 and exact-match gene F1 -0.3 on average).
@@ -968,15 +976,104 @@ def protein_rescuable(s, min_cov, min_intron_frac):
     return vals[0] >= min_cov and vals[1] >= min_cov and vals[2] >= min_intron_frac
 
 
-def classifier_select(S, by_cl, p, t_locus, t_iso, unselectable, rescuable=frozenset()):
+def spans_overlap(s, t):
+    """whether the CDS spans (first to last CDS base) of two structures overlap"""
+    return s['segs'][0][0] <= t['segs'][-1][1] and t['segs'][0][0] <= s['segs'][-1][1]
+
+
+def cds_overlap(s, t):
+    """whether two structures share at least one CDS base (segments sorted by start, non-overlapping)"""
+    if not spans_overlap(s, t):
+        return False
+    a, b, i, j = s['segs'], t['segs'], 0, 0
+    while i < len(a) and j < len(b):
+        if a[i][0] <= b[j][1] and b[j][0] <= a[i][1]:
+            return True
+        if a[i][1] < b[j][1]:
+            i += 1
+        else:
+            j += 1
+    return False
+
+
+SPLIT_OVERLAP = {'span': spans_overlap, 'cds': cds_overlap}
+
+
+def split_select(members, t_locus, t_iso, unselectable, rescuable, overlap=spans_overlap):
+    """--split-loci: one cluster can hold several genes, because a single long model (e.g. a gene finder's
+    fusion of neighbouring genes) chains their CDS spans into one cluster. Members sorted by P as in
+    classifier_select. Repeatedly: the best remaining candidate is primary if its P >= t_locus (else the
+    best-ranked rescuable one, protein rescue); the remaining candidates overlapping it are its isoforms if
+    P >= t_iso, and so are those overlapping only a kept isoform (as without the split); the candidates that
+    overlap no kept transcript of this gene are the next round.
+    overlap: spans_overlap ('span': CDS spans overlap) or cds_overlap ('cds': shared CDS bases, so that genes
+    nested in an intron or sharing only the span are separate genes).
+    Sets s['sub'] (gene index within the cluster) on kept structures. The primary of the first gene keeps the
+    reason 'primary' / 'primary_protein_rescue', those of further genes get 'primary_split'."""
+    rest, sub, rank = list(members), 0, 0
+    while rest:
+        sel = [s for s in rest if s['_ix'] not in unselectable]
+        prim = sel[0] if sel and sel[0]['p_clf'] >= t_locus else None
+        rescued = False
+        if prim is None:
+            prim = next((s for s in sel if s['_ix'] in rescuable), None)
+            rescued = prim is not None
+        if prim is None:
+            break
+        rank += 1
+        prim['rank'], prim['keep'], prim['sub'] = rank, True, sub
+        prim['why'] = 'primary_protein_rescue' if rescued else 'primary' if sub == 0 else 'primary_split'
+        kept = [prim]
+        for s in rest:
+            if s is prim or not overlap(s, prim):
+                continue
+            rank += 1
+            s['rank'] = rank
+            if s['_ix'] in unselectable:
+                s['keep'], s['why'] = False, 'dropped_lone_single_exon'
+            elif s['p_clf'] >= t_iso:
+                s['keep'], s['why'], s['sub'] = True, 'isoform_classifier', sub
+                kept.append(s)
+            else:
+                s['keep'], s['why'] = False, 'isoform_rejected'
+        nxt = []
+        for s in rest:
+            if s is prim or overlap(s, prim):
+                continue
+            if any(overlap(s, k) for k in kept):   # overlaps an isoform reaching beyond the primary:
+                rank += 1                                # an isoform of this gene as without the split
+                s['rank'] = rank
+                if s['_ix'] in unselectable:
+                    s['keep'], s['why'] = False, 'dropped_lone_single_exon'
+                elif s['p_clf'] >= t_iso:
+                    s['keep'], s['why'], s['sub'] = True, 'isoform_classifier', sub
+                    kept.append(s)
+                else:
+                    s['keep'], s['why'] = False, 'isoform_rejected'
+            else:
+                nxt.append(s)
+        rest, sub = nxt, sub + 1
+    for s in rest:
+        rank += 1
+        s['rank'], s['keep'] = rank, False
+        s['why'] = 'dropped_lone_single_exon' if s['_ix'] in unselectable else 'locus_below_min'
+
+
+def classifier_select(S, by_cl, p, t_locus, t_iso, unselectable, rescuable=frozenset(), split=False):
     """Per locus: candidates ordered by P (ties: input order); the first is primary if its P >= t_locus, the
     others are isoforms if P >= t_iso. Structures in `unselectable` (indices into S) are never selected and
     never primary (--drop-lone-single-exon). A locus below t_locus with structures in `rescuable` (indices
-    into S; protein rescue) is kept: the best-ranked of them moves to the front and becomes primary."""
+    into S; protein rescue) is kept: the best-ranked of them moves to the front and becomes primary.
+    split: a cluster may yield several genes (split_select, --split-loci); False, True / 'span' or 'cds'
+    (the overlap that makes a candidate part of a selected gene, SPLIT_OVERLAP)."""
+    overlap = SPLIT_OVERLAP['span' if split is True else split] if split else None
     for s, pi in zip(S, p):
         s['p_clf'] = float(pi)
     for members in by_cl.values():
         members.sort(key=lambda s: (-(-1.0 if s['_ix'] in unselectable else s['p_clf']), s['_ix']))
+        if split:
+            split_select(members, t_locus, t_iso, unselectable, rescuable, overlap)
+            continue
         prim = members[0]
         open_locus = prim['_ix'] not in unselectable and prim['p_clf'] >= t_locus
         rescued = False
@@ -1180,6 +1277,12 @@ def main():
                         'hints for --rescue-protein-introns of its introns (see the module docstring) [off]')
     g.add_argument('--rescue-protein-introns', type=float, default=0.5, metavar='F',
                    help='protein rescue: share of the introns of the candidate with protein hints [0.5]')
+    g.add_argument('--split-loci', nargs='?', const='cds', choices=sorted(SPLIT_OVERLAP) + ['none'],
+                   metavar='cds|span|none',
+                   help='classifier mode: a cluster may yield several genes: candidates that overlap no kept '
+                        "transcript of the selected gene are selected again as a locus of their own; 'cds': no "
+                        "shared CDS base, 'span': no overlap of the CDS spans, 'none': one gene per cluster "
+                        '(see the module docstring) [cds]')
     g.add_argument('--settings', metavar='TSV',
                    help='write the assembly statistics and the thresholds the selection used (key, value)')
     g.add_argument('--chain-logit-full', type=float, default=CHAIN_LOGIT_FULL, metavar='W',
@@ -1191,6 +1294,12 @@ def main():
 
     clf = None
     clf_drop_se = set()
+    if a.split_loci is None:                       # default: on in classifier mode
+        a.split_loci = 'cds' if a.classifier else None
+    elif a.split_loci == 'none':
+        a.split_loci = None
+    elif not a.classifier:
+        sys.exit('--split-loci needs --classifier')
     if a.classifier:
         if a.tier_table:
             sys.exit('--classifier and --tier-table exclude each other')
@@ -1312,11 +1421,24 @@ def main():
             p = [chain_adjust(pi, s['chain_support'], a.chain_logit_full, a.chain_logit_partial) for pi, s in zip(p, S)]
         rescuable = ({s['_ix'] for s in S if protein_rescuable(s, a.rescue_protein_cov, a.rescue_protein_introns)}
                      if a.rescue_protein_cov is not None else set())
-        classifier_select(S, by_cl, p, t_locus, t_iso, unselectable, rescuable)
+        classifier_select(S, by_cl, p, t_locus, t_iso, unselectable, rescuable, split=a.split_loci)
 
     def cl_pos(cid):
         m = by_cl[cid]
         return (m[0]['contig'], min(x['segs'][0][0] for x in m))
+
+    # genes to write: one per cluster, or with --split-loci one per (cluster, gene index within it)
+    if clf is not None and a.split_loci:
+        out_genes = defaultdict(list)
+        for cid, m in by_cl.items():
+            for s in m:
+                if s['keep']:
+                    out_genes[(cid, s['sub'])].append(s)
+        gene_order = sorted(out_genes, key=lambda k: (out_genes[k][0]['contig'],
+                                                      min(x['segs'][0][0] for x in out_genes[k]), k))
+    else:
+        out_genes = by_cl
+        gene_order = sorted(by_cl, key=cl_pos)
 
     # Output format from the extension: .gff3 / .gff -> GFF3; everything else -> GTF.
     out_lower = a.out.lower()
@@ -1326,8 +1448,8 @@ def main():
     with open(a.out, 'w') as out:
         if emit_gff3:
             out.write('##gff-version 3\n')
-        for cid in sorted(by_cl, key=cl_pos):
-            sel = sorted((s for s in by_cl[cid] if s['keep']), key=lambda s: s['rank'])
+        for cid in gene_order:
+            sel = sorted((s for s in out_genes[cid] if s['keep']), key=lambda s: s['rank'])
             if not sel:
                 continue
             gene_no += 1
@@ -1367,6 +1489,8 @@ def main():
                      ('rescue_protein_introns',
                       a.rescue_protein_introns if a.rescue_protein_cov is not None else ''),
                      ('rescued_loci', sum(s['why'] == 'primary_protein_rescue' for s in S))]
+            if a.split_loci:
+                rows += [('split_loci', a.split_loci), ('split_genes', sum(s['why'] == 'primary_split' for s in S))]
         else:
             rows += [('min_locus', a.min_locus)]
         with open(a.settings, 'w') as fh:
@@ -1388,6 +1512,7 @@ def main():
               f'drop_lone_single_exon={",".join(sorted(clf_drop_se)) or None}'
               + (f' rescue_protein_cov={a.rescue_protein_cov} rescue_protein_introns={a.rescue_protein_introns}'
                  if a.rescue_protein_cov is not None else '')
+              + (f' split_loci={a.split_loci}' if a.split_loci else '')
               + (f' chain_logit_full={a.chain_logit_full} chain_logit_partial={a.chain_logit_partial}'
                  if chains is not None else ''), file=sys.stderr)
     print('input transcripts with CDS: ' + ', '.join(f'{t}={n_in[t]}' for t in TOOLS), file=sys.stderr)
@@ -1414,7 +1539,7 @@ def main():
               f'; tier>=9 models with the chain in one transcript: {n_full / max(len(hi), 1):.1%}', file=sys.stderr)
     print('tier adjustments: ' + ', '.join(f'{k}={v}' for k, v in sorted(adj.items())), file=sys.stderr)
     keys = (['primary', 'primary_protein_rescue', 'isoform_classifier', 'isoform_rejected', 'locus_below_min',
-             'dropped_lone_single_exon']
+             'dropped_lone_single_exon'] + (['primary_split'] if a.split_loci else [])
             if clf is not None else
             ['primary', 'isoform_tier', 'isoform_chain', 'isoform_drusilla_td2', 'isoform_rejected', 'locus_below_min'])
     for k in keys:

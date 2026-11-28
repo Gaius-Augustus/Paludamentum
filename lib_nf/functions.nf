@@ -186,6 +186,26 @@ def rescueOpts(Map p, boolean applies) {
     return "--rescue-protein-cov ${c.rescue_protein_cov} --rescue-protein-introns ${introns}"
 }
 
+// The locus split of combine_genesets.py: 'cds' or 'span' (combine.split_loci),
+// or null when it does not apply: not the classifier of the evidence modes with
+// Tiberius (applies = false), or combine.split_loci null / false.
+def splitValue(Map p, boolean applies) {
+    def c = p.combine ?: [:]
+    def v = c.split_loci
+    if( !applies || v == null || v == false || v.toString().toLowerCase() in ['false', 'none'] )
+        return null
+    v = v.toString().toLowerCase()
+    if( !(v in ['cds', 'span']) )
+        error "combine.split_loci must be 'cds', 'span' or null, got '${c.split_loci}'."
+    return v
+}
+
+// ... as the option: combine_genesets.py splits by default in classifier mode,
+// so where it does not apply the option says so (--split-loci none).
+def splitOpts(Map p, boolean applies) {
+    return "--split-loci ${splitValue(p, applies) ?: 'none'}"
+}
+
 // Drusilla model (key 'model'): params.drusilla.model, else drusilla_model,
 // the one model of all clades since Drusilla 0.3. The clade does not choose it.
 def drusillaSetting(p, String key) {
